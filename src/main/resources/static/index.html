@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mins Bot</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="root">
+    <div id="ball-container" class="ball-container" draggable="false">
+      <div class="ball" aria-hidden="true" draggable="false"></div>
+    </div>
+    <div id="panel" class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Mins Bot</span>
+        <div class="panel-actions">
+          <button type="button" id="clear-btn" class="btn-icon btn-clear" title="Clear chat" aria-label="Clear chat">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8M9 4h6a1 1 0 0 1 1 1v1H8V5a1 1 0 0 1 1-1ZM4 7h16"/>
+              <path d="M10 11v6M14 11v6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none"/>
+            </svg>
+          </button>
+          <button type="button" id="close-btn" class="btn-icon btn-close" title="Close" aria-label="Close panel">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6.7 5.3a1 1 0 0 0-1.4 1.4L10.6 12l-5.3 5.3a1 1 0 1 0 1.4 1.4l5.3-5.3 5.3 5.3a1 1 0 1 0 1.4-1.4L13.4 12l5.3-5.3a1 1 0 0 0-1.4-1.4L12 10.6 6.7 5.3Z"></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="tab-bar">
+        <button class="tab active" data-tab="chat">Chat</button>
+        <button class="tab" data-tab="browser">Browser</button>
+      </div>
+      <div id="tab-chat" class="tab-content active">
+        <div id="messages" class="messages" role="log" aria-live="polite"></div>
+        <div class="input-row">
+          <input type="text" id="input" class="input" placeholder="Ask me anything..." autocomplete="off" aria-label="Message input">
+          <button type="button" id="voice-btn" class="btn btn-voice" title="Voice off" aria-label="Toggle voice input">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 1 0 6 0V6a3 3 0 0 0-3-3Z"></path>
+              <path d="M5 11a1 1 0 1 1 2 0 5 5 0 1 0 10 0 1 1 0 1 1 2 0 7 7 0 0 1-6 6.93V21h3a1 1 0 1 1 0 2H8a1 1 0 1 1 0-2h3v-3.07A7 7 0 0 1 5 11Z"></path>
+            </svg>
+          </button>
+          <button type="button" id="send-btn" class="btn btn-send" title="Send" aria-label="Send message">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3.478 2.405a.75.75 0 0 0-.926.94l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94l18-8.5a.75.75 0 0 0 0-1.38l-18-8.5Z"/>
+            </svg>
+          </button>
+        </div>
+        <div id="voice-status" class="voice-status" aria-live="polite" hidden></div>
+      </div>
+      <div id="tab-browser" class="tab-content">
+        <div class="browser-toolbar">
+          <button id="browser-back" class="browser-nav-btn" title="Back">&#9664;</button>
+          <button id="browser-forward" class="browser-nav-btn" title="Forward">&#9654;</button>
+          <button id="browser-refresh" class="browser-nav-btn" title="Refresh">&#8635;</button>
+          <input id="browser-url" type="text" class="browser-url-input" placeholder="Enter URL..." autocomplete="off">
+          <button id="browser-go" class="browser-nav-btn browser-go-btn">Go</button>
+        </div>
+        <div class="browser-viewport">
+          <img id="browser-frame" alt="Browser view" draggable="false">
+          <div id="browser-empty" class="browser-empty">No page loaded. Enter a URL or let the AI browse.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="js/app.js"></script>
+</body>
+</html>
