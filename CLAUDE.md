@@ -14,13 +14,13 @@ Mins Bot is a floating desktop chatbot (Java 17, Spring Boot 3.2.5, JavaFX 21). 
 mvn clean package -DskipTests
 mvn spring-boot:run
 ```
-Main class: `com.botsfer.FloatingAppLauncher`
+Main class: `com.minsbot.FloatingAppLauncher`
 Server port: `8765` (configurable via `MINS_BOT_PORT` env var)
 
 ## Project Structure
 ```
-src/main/java/com/botsfer/
-├── BotsferApplication.java          # Spring Boot entry
+src/main/java/com/minsbot/
+├── MinsbotApplication.java          # Spring Boot entry
 ├── FloatingAppLauncher.java         # JavaFX entry, transparent window + WebView
 ├── WindowBridge.java                # JS ↔ Java bridge (expand/collapse/drag)
 ├── ChatController.java              # POST /api/chat
@@ -64,7 +64,7 @@ Each integration/skill uses:
 - `window.java` bridge for native window control (expand, collapse, drag, setPosition)
 
 ### Skills System
-- Self-contained sub-packages under `com.botsfer.skills.<name>`
+- Self-contained sub-packages under `com.minsbot.skills.<name>`
 - Spring auto-discovers via component scanning (no registration needed)
 - Portable: copy the package + its properties block to share
 - Convention: `app.skills.<name>.enabled`, endpoints at `/api/skills/<name>/*`
@@ -101,12 +101,12 @@ All use `ChatService.getReply()` for responses.
 ## Common Tasks
 
 ### Add a new messaging platform
-1. Create `*Config.java`, `*ApiClient.java`, `*WebhookController.java` in `com.botsfer`
+1. Create `*Config.java`, `*ApiClient.java`, `*WebhookController.java` in `com.minsbot`
 2. Add `app.<platform>.*` properties to `application.properties`
 3. Inject `ChatService` and call `getReply()` for responses
 
 ### Add a new skill
-1. Create package `com.botsfer.skills.<skillname>/`
+1. Create package `com.minsbot.skills.<skillname>/`
 2. Add `*Config.java` (with `enabled=false`), `*Service.java`, `*Controller.java`
 3. Endpoints under `/api/skills/<skillname>/*`
 4. Add `app.skills.<skillname>.*` properties to `application.properties`

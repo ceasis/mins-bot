@@ -67,7 +67,7 @@ java --add-modules javafx.controls,javafx.web,javafx.fxml --add-opens java.base/
 
 **Option C – From your IDE (Eclipse / IntelliJ)**
 
-1. Set the **main class** to: `com.botsfer.FloatingAppLauncher`
+1. Set the **main class** to: `com.minsbot.FloatingAppLauncher`
 2. Add VM options (if needed):
    - `--add-modules javafx.controls,javafx.web,javafx.fxml`
    - `--add-opens java.base/java.lang=ALL-UNNAMED`
@@ -86,7 +86,7 @@ java --add-modules javafx.controls,javafx.web,javafx.fxml --add-opens java.base/
 
 | Property | Description | Default |
 |----------|-------------|---------|
-| `server.port` | HTTP port for the embedded server and UI | `8765` (or `BOTSFER_PORT` env) |
+| `server.port` | HTTP port for the embedded server and UI | `8765` (or `MINS_BOT_PORT` env) |
 | `app.window.collapsed.width` | Width when collapsed (ball only) | `64` |
 | `app.window.collapsed.height` | Height when collapsed | `64` |
 | `app.window.expanded.width` | Width when expanded (chat) | `380` |
@@ -100,7 +100,7 @@ java --add-modules javafx.controls,javafx.web,javafx.fxml --add-opens java.base/
 
 **Messaging integrations:** Each platform has `app.<platform>.enabled=false` and its own token/ID properties. See [Messaging integrations](#messaging-integrations) below for endpoints and setup.
 
-Override with environment variables (e.g. `BOTSFER_PORT=9090`) or by editing `src/main/resources/application.properties`.
+Override with environment variables (e.g. `MINS_BOT_PORT=9090`) or by editing `src/main/resources/application.properties`.
 
 ### Local secrets file (not committed)
 
@@ -137,7 +137,7 @@ Spring Boot maps `app.openai.*` properties to uppercase env vars with `_` separa
 - `app.openai.base-url` -> `APP_OPENAI_BASE_URL`
 - `app.openai.audio-model` -> `APP_OPENAI_AUDIO_MODEL`
 
-You can also set `server.port` using `BOTSFER_PORT`.
+You can also set `server.port` using `MINS_BOT_PORT`.
 
 Examples:
 
@@ -147,7 +147,7 @@ Examples:
 $env:APP_OPENAI_ENABLED="true"
 $env:APP_OPENAI_API_KEY="sk-..."
 $env:APP_OPENAI_AUDIO_MODEL="gpt-4o-audio-preview"
-$env:BOTSFER_PORT="8765"
+$env:MINS_BOT_PORT="8765"
 mvn spring-boot:run
 ```
 
@@ -165,7 +165,7 @@ mvn spring-boot:run
 export APP_OPENAI_ENABLED=true
 export APP_OPENAI_API_KEY="sk-..."
 export APP_OPENAI_AUDIO_MODEL="gpt-4o-audio-preview"
-export BOTSFER_PORT=8765
+export MINS_BOT_PORT=8765
 mvn spring-boot:run
 ```
 
@@ -202,8 +202,8 @@ The same chatbot can receive and reply to messages on multiple platforms. Each i
 mins-bot/
 ├── pom.xml
 ├── README.md
-├── src/main/java/com/botsfer/
-│   ├── BotsferApplication.java      # Spring Boot entry
+├── src/main/java/com/minsbot/
+│   ├── MinsbotApplication.java      # Spring Boot entry
 │   ├── FloatingAppLauncher.java     # JavaFX entry, starts Spring & floating window
 │   ├── WindowBridge.java            # JS ↔ Java (expand/collapse/drag/voice)
 │   ├── ChatController.java          # REST /api/chat, /api/chat/async, /api/chat/status

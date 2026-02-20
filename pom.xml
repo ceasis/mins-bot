@@ -11,7 +11,7 @@
         <relativePath/>
     </parent>
 
-    <groupId>com.botsfer</groupId>
+    <groupId>com.minsbot</groupId>
     <artifactId>mins-bot</artifactId>
     <version>1.0.0-SNAPSHOT</version>
     <name>Mins Bot</name>
@@ -235,7 +235,7 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
-                    <mainClass>com.botsfer.FloatingAppLauncher</mainClass>
+                    <mainClass>com.minsbot.FloatingAppLauncher</mainClass>
                     <jvmArguments>-Djava.library.path=${project.basedir}/target/javafx-natives --add-opens javafx.web/javafx.scene.web=ALL-UNNAMED --add-opens javafx.web/com.sun.webkit=ALL-UNNAMED</jvmArguments>
                 </configuration>
             </plugin>
@@ -244,7 +244,7 @@
                 <artifactId>javafx-maven-plugin</artifactId>
                 <version>0.0.8</version>
                 <configuration>
-                    <mainClass>com.botsfer.FloatingAppLauncher</mainClass>
+                    <mainClass>com.minsbot.FloatingAppLauncher</mainClass>
                 </configuration>
             </plugin>
         </plugins>

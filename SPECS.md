@@ -6,7 +6,7 @@ Mins Bot is a floating desktop chatbot built with **Java 17**, **Spring Boot 3.5
 
 A swirling animated ball sits on the desktop; double-click expands a chat panel. It connects to OpenAI for intelligent tool-calling conversations, falls back to regex-based commands offline, and integrates with 9 messaging platforms. It can control the PC, collect files, browse the web, capture screenshots, and maintain persistent conversation history.
 
-**Main class:** `com.botsfer.FloatingAppLauncher`
+**Main class:** `com.minsbot.FloatingAppLauncher`
 **Default port:** `8765` (configurable via `MINS_BOT_PORT` env var)
 **Build:** Maven — `mvn clean package -DskipTests` / `mvn spring-boot:run`
 
@@ -70,8 +70,8 @@ A swirling animated ball sits on the desktop; double-click expands a chat panel.
 ## Project Structure
 
 ```
-src/main/java/com/botsfer/
-├── BotsferApplication.java              # Spring Boot @SpringBootApplication entry
+src/main/java/com/minsbot/
+├── MinsbotApplication.java              # Spring Boot @SpringBootApplication entry
 ├── config/
 │   └── OpenAiSecretsLoader.java         # EnvironmentPostProcessor — loads OpenAI API key early from file/env
 ├── FloatingAppLauncher.java             # JavaFX Application — transparent window + WebView
@@ -599,7 +599,7 @@ All file-based, no database.
 
 ```properties
 # Server
-server.port=${BOTSFER_PORT:8765}
+server.port=${MINS_BOT_PORT:8765}
 
 # Window dimensions
 app.window.collapsed.width=45          # Ball size
@@ -795,14 +795,14 @@ Ideas to make Mins Bot the most capable desktop bot. Ordered by impact vs effort
 
 ### New AI Tool
 
-1. Create `@Component` class in `com.botsfer.agent.tools`
+1. Create `@Component` class in `com.minsbot.agent.tools`
 2. Annotate methods with `@Tool(description="...")` and parameters with `@ToolParam`
 3. Inject `ToolExecutionNotifier` and call `notifier.notify()` before execution
 4. Add the tool bean to `ChatService` constructor and `.tools(...)` call
 
 ### New Skill
 
-1. Create package `com.botsfer.skills.<name>/`
+1. Create package `com.minsbot.skills.<name>/`
 2. Add `*Config.java` with `enabled=false`, `*Service.java`, `*Controller.java`
 3. Endpoints under `/api/skills/<name>/*`
 4. Add `app.skills.<name>.*` properties to `application.properties`
