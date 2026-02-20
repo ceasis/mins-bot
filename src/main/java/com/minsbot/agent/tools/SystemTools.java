@@ -1,5 +1,6 @@
 package com.minsbot.agent.tools;
 
+import com.minsbot.MinsBotQuitService;
 import com.minsbot.agent.SystemControlService;
 import com.sun.management.OperatingSystemMXBean;
 import org.springframework.ai.tool.annotation.Tool;
@@ -30,10 +31,20 @@ public class SystemTools {
 
     private final SystemControlService systemControl;
     private final ToolExecutionNotifier notifier;
+    private final MinsBotQuitService quitService;
 
-    public SystemTools(SystemControlService systemControl, ToolExecutionNotifier notifier) {
+    public SystemTools(SystemControlService systemControl, ToolExecutionNotifier notifier,
+                       MinsBotQuitService quitService) {
         this.systemControl = systemControl;
         this.notifier = notifier;
+        this.quitService = quitService;
+    }
+
+    @Tool(description = "Quit the Mins Bot application. Only call this when the user has explicitly confirmed they want to quit (e.g. replied 'yes' or 'y' to 'Quit Mins Bot?'). Do NOT call when the user just says 'quit' — in that case only reply with 'Quit Mins Bot?' and wait for their answer.")
+    public String quitMinsBot() {
+        notifier.notify("Quitting Mins Bot...");
+        quitService.requestQuit();
+        return "Quitting Mins Bot.";
     }
 
     @Tool(description = "Close all running user application windows on the PC, except system processes and Mins Bot itself")
@@ -246,8 +257,9 @@ public class SystemTools {
 
     @Tool(description = "Shut down the computer. Optionally delay in minutes (0 = immediately).")
     public String shutdown(
-            @ToolParam(description = "Minutes to wait before shutting down (0 for immediately)") int delayMinutes) {
+            @ToolParam(description = "Minutes to wait before shutting down (0 for immediately)") double delayMinutesRaw) {
         notifier.notify("Shutting down...");
+        int delayMinutes = (int) Math.round(delayMinutesRaw);
         int seconds = Math.max(0, delayMinutes) * 60;
         return systemControl.runCmd("shutdown /s /t " + seconds);
     }
@@ -286,7 +298,8 @@ public class SystemTools {
 
     @Tool(description = "List the most recent screenshot files (name and date).")
     public String listRecentScreenshots(
-            @ToolParam(description = "Maximum number of screenshots to list (e.g. 10)") int maxCount) {
+            @ToolParam(description = "Maximum number of screenshots to list (e.g. 10)") double maxCountRaw) {
+        int maxCount = (int) Math.round(maxCountRaw);
         notifier.notify("Listing recent screenshots...");
         try {
             Path dir = Paths.get(System.getProperty("user.home"), "mins_bot_data", "screenshots");
@@ -319,7 +332,8 @@ public class SystemTools {
 
     @Tool(description = "Get recently opened files from Windows (shell recent items). Returns paths so the user can open one.")
     public String getRecentFiles(
-            @ToolParam(description = "Maximum number of recent files to return (e.g. 15)") int maxCount) {
+            @ToolParam(description = "Maximum number of recent files to return (e.g. 15)") double maxCountRaw) {
+        int maxCount = (int) Math.round(maxCountRaw);
         notifier.notify("Getting recent files...");
         int n = Math.min(25, Math.max(1, maxCount));
         String ps = "Get-ChildItem -Path $env:APPDATA\\Microsoft\\Windows\\Recent -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First " + n + " | ForEach-Object { $_.Name + ' | ' + $_.LastWriteTime }";

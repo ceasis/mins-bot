@@ -112,7 +112,8 @@ public class PlaywrightTools {
     public String browseSearchAndDownloadImages(
             @ToolParam(description = "Search query for images, e.g. 'condos for sale new york'") String query,
             @ToolParam(description = "Directive name to save images into") String directiveName,
-            @ToolParam(description = "Maximum number of images to download (1-20)") int maxImages) {
+            @ToolParam(description = "Maximum number of images to download (1-20)") double maxImagesRaw) {
+        int maxImages = (int) Math.round(maxImagesRaw);
         notifier.notify("Searching images: " + query);
         try {
             if (maxImages < 1) maxImages = 1;
@@ -225,6 +226,19 @@ public class PlaywrightTools {
         }
     }
 
+    @Tool(description = "Open a URL in the built-in browser tab (the one in the Mins Bot chat). Use this when the user says 'open youtube', 'open google', 'open [website]' — they want to see the page in the chat's browser tab, not in Chrome/Edge. Accepts a full URL or a shortcut: youtube, google, gmail, twitter, x, facebook, github, reddit, wikipedia.")
+    public String openInBrowserTab(
+            @ToolParam(description = "URL to open, or shortcut: youtube, google, gmail, twitter, x, facebook, github, reddit, wikipedia") String urlOrShortcut) {
+        notifier.notify("Opening in browser tab: " + urlOrShortcut);
+        try {
+            String url = resolveUrl(urlOrShortcut);
+            String title = pw.viewerNavigate(url);
+            return title != null && !title.startsWith("Error") ? "Opened in browser tab: " + url : title;
+        } catch (Exception e) {
+            return "Failed to open in browser tab: " + e.getMessage();
+        }
+    }
+
     @Tool(description = "Search the web using the built-in browser tab. The user can see the search " +
             "happening live. Use this whenever the user says 'search for ...' or asks you to look something up. " +
             "Returns the text of the search results page.")
@@ -289,7 +303,8 @@ public class PlaywrightTools {
             "Collects image URLs from the page and downloads up to maxImages of them.")
     public String downloadImagesFromBrowser(
             @ToolParam(description = "Folder name to save images into, e.g. 'cat-pictures'") String folderName,
-            @ToolParam(description = "Maximum number of images to download (1-20)") int maxImages) {
+            @ToolParam(description = "Maximum number of images to download (1-20)") double maxImagesRaw) {
+        int maxImages = (int) Math.round(maxImagesRaw);
         notifier.notify("Downloading images from browser...");
         try {
             if (maxImages < 1) maxImages = 1;
@@ -377,5 +392,23 @@ public class PlaywrightTools {
         if (bytes < 1024) return bytes + " B";
         if (bytes < 1024 * 1024) return (bytes / 1024) + " KB";
         return String.format("%.1f MB", bytes / (1024.0 * 1024.0));
+    }
+
+    /** Resolve shortcut (e.g. youtube, google) or URL to a full URL. */
+    private static String resolveUrl(String urlOrShortcut) {
+        if (urlOrShortcut == null || urlOrShortcut.isBlank()) return "https://www.google.com";
+        String s = urlOrShortcut.trim().toLowerCase();
+        if (s.startsWith("http://") || s.startsWith("https://")) return urlOrShortcut.trim();
+        return switch (s) {
+            case "youtube" -> "https://www.youtube.com";
+            case "google" -> "https://www.google.com";
+            case "gmail" -> "https://mail.google.com";
+            case "twitter", "x" -> "https://x.com";
+            case "facebook" -> "https://www.facebook.com";
+            case "github" -> "https://github.com";
+            case "reddit" -> "https://www.reddit.com";
+            case "wikipedia", "wiki" -> "https://www.wikipedia.org";
+            default -> "https://" + (s.contains(".") ? s : s + ".com");
+        };
     }
 }

@@ -31,16 +31,17 @@ public class TimerTools {
     @Tool(description = "Set a reminder: after the given number of minutes, show a system notification. " +
             "Use when the user says 'remind me in X minutes' or 'set a timer for X minutes'.")
     public String setReminder(
-            @ToolParam(description = "Delay in minutes (e.g. 5 for 5 minutes)") long delayMinutes,
+            @ToolParam(description = "Delay in minutes (decimals OK, e.g. 5 for 5 minutes, 0.5 for 30 seconds)") double delayMinutes,
             @ToolParam(description = "Title of the reminder notification") String title,
             @ToolParam(description = "Message body for the notification") String message) {
-        if (delayMinutes < 1 || delayMinutes > 60 * 24) {
-            return "Delay must be between 1 and 1440 (24 hours) minutes.";
+        long delaySec = Math.max(1, Math.round(delayMinutes * 60));
+        if (delaySec > 86400) {
+            return "Delay must be at most 1440 minutes (24 hours).";
         }
         String t = title != null && !title.isBlank() ? title : "Reminder";
         String m = message != null ? message : "Time's up!";
         notifier.notify("Setting reminder in " + delayMinutes + " minutes");
-        scheduler.schedule(() -> notificationTools.showNotification(t, m), delayMinutes, TimeUnit.MINUTES);
-        return "Reminder set for " + delayMinutes + " minute(s). You'll get a notification: \"" + t + "\" — " + m;
+        scheduler.schedule(() -> notificationTools.showNotification(t, m), delaySec, TimeUnit.SECONDS);
+        return "Reminder set for " + delaySec + " second(s). You'll get a notification: \"" + t + "\" — " + m;
     }
 }

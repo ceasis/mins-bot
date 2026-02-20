@@ -35,14 +35,15 @@ public class ScheduledTaskTools {
             "Use when the user says 'remind me in 5 minutes to...' and you need list/cancel support.")
     public String scheduleReminder(
             @ToolParam(description = "Reminder message, e.g. 'Take a break'") String message,
-            @ToolParam(description = "Delay in minutes before the reminder fires") int delayMinutes) {
+            @ToolParam(description = "Delay in minutes before the reminder fires (decimals OK, e.g. 0.5 for 30 seconds)") double delayMinutes) {
         notifier.notify("Setting reminder: " + delayMinutes + "min");
         try {
-            if (delayMinutes < 1) delayMinutes = 1;
+            if (delayMinutes < 0.1) delayMinutes = 0.1;
             if (delayMinutes > 1440 * 7) delayMinutes = 1440 * 7; // max 7 days
+            long delaySec = Math.max(1, Math.round(delayMinutes * 60));
 
             String id = "rem-" + System.currentTimeMillis();
-            LocalDateTime fireTime = LocalDateTime.now().plusMinutes(delayMinutes);
+            LocalDateTime fireTime = LocalDateTime.now().plusSeconds(delaySec);
 
             ScheduledFuture<?> future = scheduler.schedule(() -> {
                 String notification = "REMINDER: " + message;
@@ -50,46 +51,47 @@ public class ScheduledTaskTools {
                 notifier.notify(notification);
                 log.info("[Scheduler] Reminder fired: {}", message);
                 tasks.get(id).status = "fired";
-            }, delayMinutes, TimeUnit.MINUTES);
+            }, delaySec, TimeUnit.SECONDS);
 
             tasks.put(id, new ScheduledTaskEntry(id, "reminder", message,
                     fireTime.format(FMT), null, "pending", future));
 
             log.info("[Scheduler] Reminder set: '{}' fires at {}", message, fireTime.format(FMT));
             return "Reminder set! ID: " + id + ". Will fire at " + fireTime.format(FMT)
-                    + " (in " + delayMinutes + " minutes): " + message;
+                    + " (in " + delaySec + " seconds): " + message;
         } catch (Exception e) {
             return "Failed to set reminder: " + e.getMessage();
         }
     }
 
     @Tool(description = "Schedule a recurring task that repeats at a fixed interval. " +
-            "Use for things like 'check this URL every 30 minutes' or 'remind me every hour'.")
+            "Use for things like 'say hello every 10 seconds', 'check this URL every 30 minutes', or 'remind me every hour'.")
     public String scheduleRecurring(
             @ToolParam(description = "Task description or message") String description,
-            @ToolParam(description = "Interval in minutes between each execution") int intervalMinutes) {
-        notifier.notify("Scheduling recurring: every " + intervalMinutes + "min");
+            @ToolParam(description = "Interval in seconds between each execution (e.g. 10 for every 10 seconds, 300 for every 5 minutes)") double intervalSeconds) {
+        notifier.notify("Scheduling recurring: every " + intervalSeconds + "s");
         try {
-            if (intervalMinutes < 1) intervalMinutes = 1;
-            if (intervalMinutes > 1440) intervalMinutes = 1440; // max daily
+            long intervalSec = Math.max(5, Math.round(intervalSeconds)); // min 5 seconds
+            if (intervalSec > 86400) intervalSec = 86400; // max daily
 
             String id = "rec-" + System.currentTimeMillis();
-            int interval = intervalMinutes;
+            long interval = intervalSec;
 
             ScheduledFuture<?> future = scheduler.scheduleAtFixedRate(() -> {
                 String notification = "RECURRING: " + description;
                 firedReminders.add(notification);
                 notifier.notify(notification);
                 log.info("[Scheduler] Recurring task fired: {}", description);
-            }, intervalMinutes, intervalMinutes, TimeUnit.MINUTES);
+            }, interval, interval, TimeUnit.SECONDS);
 
+            String intervalLabel = interval >= 60 ? (interval / 60) + " min" : interval + " sec";
             tasks.put(id, new ScheduledTaskEntry(id, "recurring", description,
-                    LocalDateTime.now().plusMinutes(interval).format(FMT),
-                    interval + " min", "active", future));
+                    LocalDateTime.now().plusSeconds(interval).format(FMT),
+                    intervalLabel, "active", future));
 
-            log.info("[Scheduler] Recurring task: '{}' every {} min", description, interval);
+            log.info("[Scheduler] Recurring task: '{}' every {}", description, intervalLabel);
             return "Recurring task scheduled! ID: " + id + ". Runs every "
-                    + interval + " minutes: " + description;
+                    + intervalLabel + ": " + description;
         } catch (Exception e) {
             return "Failed to schedule recurring task: " + e.getMessage();
         }

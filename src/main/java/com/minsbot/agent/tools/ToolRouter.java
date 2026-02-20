@@ -225,7 +225,7 @@ public class ToolRouter {
         cats.add(new Category("browser",
                 kw("search", "browse", "web", "url", "page", "google", "bing",
                    "link", "website", "look up", "find online", "navigate",
-                   "surf", "http"),
+                   "surf", "http", "open youtube", "open google", "youtube", "open "),
                 List.of(playwrightTools, downloadTools, sitesConfigTools)));
 
         cats.add(new Category("sites",
@@ -245,6 +245,7 @@ public class ToolRouter {
                    "powershell", "cmd", "command", "close", "open app",
                    "minimize", "lock", "shutdown", "sleep", "hibernate",
                    "mute", "unmute", "volume", "ip address", "ping",
+                   "quit", "exit", "close mins bot",
                    "recent", "keystroke", "system info", "running",
                    "environment", "env var", "focus"),
                 List.of(systemTools)));

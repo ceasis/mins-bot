@@ -137,6 +137,8 @@ public class SystemContextProvider {
         sb.append("""
 
                 BROWSER RULES:
+                - When the user says "open youtube", "open google", "open [website]", or "go to [site]", use openInBrowserTab \
+                so the page opens in the built-in browser tab in the chat. Do NOT open the system browser (openUrl).
                 - When the user says "search for ..." or asks you to look something up, use searchInBrowser \
                 so they can see results live in the built-in Browser tab. Do NOT open the system browser.
                 - When the user asks to find or search for images, use searchImagesInBrowser.
@@ -144,6 +146,11 @@ public class SystemContextProvider {
                 or downloadImagesFromBrowser.
                 - To read the content of the current browser page, use readBrowserPage.
                 - Only use openUrl/searchGoogle (system browser) if the user explicitly asks to open Chrome/Edge/Firefox.
+
+                QUIT RULE:
+                - When the user says "quit" (or "exit", "close mins bot"), reply only with "Quit Mins Bot?" and do nothing else. Do NOT call quitMinsBot yet.
+                - When the user then replies "yes" or "y" (and they are clearly confirming quit), call the quitMinsBot tool.
+                - If they reply with anything else (no, nope, cancel, etc.), do nothing — no need to say anything or take any action.
                 """);
 
         // Load HIERARCHY.md for tool execution prioritization

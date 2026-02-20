@@ -223,12 +223,18 @@ public class FloatingAppLauncher extends Application {
 
         primaryStage.show();
         Platform.runLater(webView::requestFocus);
-        primaryStage.setOnCloseRequest(e -> {
+        Runnable quitAction = () -> {
             bridge.shutdownNativeVoice();
             Platform.exit();
             if (springContext != null) {
                 SpringApplication.exit(springContext);
             }
-        });
+        };
+        primaryStage.setOnCloseRequest(e -> quitAction.run());
+        try {
+            springContext.getBean(MinsBotQuitService.class).setQuitRunnable(quitAction);
+        } catch (Exception ignored) {
+            // Bean may not be available in some tests
+        }
     }
 }

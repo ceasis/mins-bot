@@ -95,9 +95,10 @@ public class EmailTools {
     @Tool(description = "Read recent emails from the inbox via IMAP. Returns the latest messages " +
             "with sender, subject, and date. Requires IMAP to be configured.")
     public String readInbox(
-            @ToolParam(description = "Maximum number of emails to read (1-50)") int maxMessages) {
+            @ToolParam(description = "Maximum number of emails to read (1-50)") double maxMessagesRaw) {
         notifier.notify("Reading inbox...");
         try {
+            int maxMessages = (int) Math.round(maxMessagesRaw);
             if (imapHost == null || imapHost.isBlank()) {
                 return "IMAP not configured. Set app.email.imap.* in application.properties.";
             }

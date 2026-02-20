@@ -95,8 +95,10 @@ public class DirectivesTools {
 
     @Tool(description = "Move a directive to a new position. For example, to make directive #3 the top priority, call moveDirective(from=3, to=1). Other directives shift to make room.")
     public String moveDirective(
-            @ToolParam(description = "Current position of the directive to move (1-based)") int from,
-            @ToolParam(description = "New position to place it at (1-based)") int to) {
+            @ToolParam(description = "Current position of the directive to move (1-based)") double fromRaw,
+            @ToolParam(description = "New position to place it at (1-based)") double toRaw) {
+        int from = (int) Math.round(fromRaw);
+        int to = (int) Math.round(toRaw);
         notifier.notify("Reordering directives...");
         try {
             if (!Files.exists(DIRECTIVES_FILE)) {
@@ -130,7 +132,8 @@ public class DirectivesTools {
 
     @Tool(description = "Remove a single directive by its position number (1-based). Other directives shift up.")
     public String removeDirective(
-            @ToolParam(description = "Position of the directive to remove (1-based)") int position) {
+            @ToolParam(description = "Position of the directive to remove (1-based)") double positionRaw) {
+        int position = (int) Math.round(positionRaw);
         notifier.notify("Removing directive...");
         try {
             if (!Files.exists(DIRECTIVES_FILE)) {

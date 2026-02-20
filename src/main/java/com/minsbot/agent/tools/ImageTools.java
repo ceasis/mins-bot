@@ -68,7 +68,8 @@ public class ImageTools {
     @Tool(description = "Rotate an image by 90, 180, or 270 degrees clockwise. Saves to a new file with _rot90, _rot180, or _rot270 before the extension.")
     public String rotateImage(
             @ToolParam(description = "Full path to the image file") String imagePath,
-            @ToolParam(description = "Degrees to rotate clockwise: 90, 180, or 270") int degrees) {
+            @ToolParam(description = "Degrees to rotate clockwise: 90, 180, or 270") double degreesRaw) {
+        int degrees = (int) Math.round(degreesRaw);
         if (degrees != 90 && degrees != 180 && degrees != 270) {
             return "Rotation must be 90, 180, or 270 degrees.";
         }
@@ -100,8 +101,10 @@ public class ImageTools {
     @Tool(description = "Resize an image to a new width and height. Saves to a new file with _WxH before the extension (e.g. photo_800x600.png). Aspect ratio may change unless you choose dimensions that match.")
     public String resizeImage(
             @ToolParam(description = "Full path to the image file") String imagePath,
-            @ToolParam(description = "New width in pixels") int width,
-            @ToolParam(description = "New height in pixels") int height) {
+            @ToolParam(description = "New width in pixels") double widthRaw,
+            @ToolParam(description = "New height in pixels") double heightRaw) {
+        int width = (int) Math.round(widthRaw);
+        int height = (int) Math.round(heightRaw);
         if (width < 1 || height < 1 || width > MAX_DIMENSION || height > MAX_DIMENSION) {
             return "Width and height must be between 1 and " + MAX_DIMENSION + ".";
         }

@@ -131,7 +131,8 @@ public class ExportTools {
     @Tool(description = "Export conversation history as plain text. Returns the text directly " +
             "rather than saving to a file.")
     public String exportToText(
-            @ToolParam(description = "Maximum number of messages to include (0 = all)") int maxMessages) {
+            @ToolParam(description = "Maximum number of messages to include (0 = all)") double maxMessagesRaw) {
+        int maxMessages = (int) Math.round(maxMessagesRaw);
         notifier.notify("Exporting chat as text");
         try {
             List<Map<String, Object>> history = transcriptService.getStructuredHistory();

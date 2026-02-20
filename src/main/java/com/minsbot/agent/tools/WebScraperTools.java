@@ -163,7 +163,8 @@ public class WebScraperTools {
     public String searchAndDownloadImages(
             @ToolParam(description = "Search query for images, e.g. 'condos for sale new york'") String query,
             @ToolParam(description = "Directive name to save images into (e.g. 'search-condo-new-york')") String directiveName,
-            @ToolParam(description = "Maximum number of images to download (1-20)") int maxImages) {
+            @ToolParam(description = "Maximum number of images to download (1-20)") double maxImagesRaw) {
+        int maxImages = (int) Math.round(maxImagesRaw);
         notifier.notify("Searching images: " + query);
         try {
             if (maxImages < 1) maxImages = 1;
