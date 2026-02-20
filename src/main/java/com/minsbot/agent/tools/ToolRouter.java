@@ -68,6 +68,7 @@ public class ToolRouter {
 
     private final ExportTools exportTools;
     private final SitesConfigTools sitesConfigTools;
+    private final CronConfigTools cronConfigTools;
     private final GlobalHotkeyService globalHotkeyService;
     private final PluginLoaderService pluginLoaderService;
     private final SystemTrayService systemTrayService;
@@ -114,6 +115,7 @@ public class ToolRouter {
             UnitConversionTools unitConversionTools,
             ExportTools exportTools,
             SitesConfigTools sitesConfigTools,
+            CronConfigTools cronConfigTools,
             GlobalHotkeyService globalHotkeyService,
             PluginLoaderService pluginLoaderService,
             SystemTrayService systemTrayService) {
@@ -149,6 +151,7 @@ public class ToolRouter {
         this.unitConversionTools = unitConversionTools;
         this.exportTools = exportTools;
         this.sitesConfigTools = sitesConfigTools;
+        this.cronConfigTools = cronConfigTools;
         this.globalHotkeyService = globalHotkeyService;
         this.pluginLoaderService = pluginLoaderService;
         this.systemTrayService = systemTrayService;
@@ -253,7 +256,7 @@ public class ToolRouter {
         cats.add(new Category("media",
                 kw("image", "photo", "picture", "flip", "rotate", "resize",
                    "grayscale", "black and white", "pdf", "speak",
-                   "read aloud", "tts", "voice", "say this"),
+                   "read aloud", "tts", "voice", "say this", "say ", "say something"),
                 List.of(imageTools, pdfTools, ttsTools)));
 
         cats.add(new Category("ai_model",
@@ -271,8 +274,9 @@ public class ToolRouter {
         cats.add(new Category("scheduling",
                 kw("remind", "reminder", "timer", "schedule", "alarm",
                    "recurring", "notify", "notification", "alert",
-                   "every \\d+ minute"),
-                List.of(scheduledTaskTools, timerTools, notificationTools)));
+                   "every \\d+ minute", "every \\d+ second", "every \\d+ hour",
+                   "every minute", "every hour", "every day", "cron"),
+                List.of(scheduledTaskTools, timerTools, notificationTools, cronConfigTools)));
 
         cats.add(new Category("utility",
                 kw("calculate", "math", "qr", "hash", "sha", "md5",
@@ -348,8 +352,8 @@ public class ToolRouter {
                 List.of(emailTools)));
 
         cats.add(new Category("scheduling",
-                kw("schedule", "reminder", "recurring"),
-                List.of(scheduledTaskTools)));
+                kw("schedule", "reminder", "recurring", "every minute", "every hour", "cron"),
+                List.of(scheduledTaskTools, cronConfigTools)));
 
         cats.add(new Category("export",
                 kw("export", "save chat"),

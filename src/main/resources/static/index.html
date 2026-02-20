@@ -34,6 +34,10 @@
       </div>
       <div id="tab-chat" class="tab-content active">
         <div id="messages" class="messages" role="log" aria-live="polite"></div>
+        <div id="quit-countdown" class="quit-countdown" aria-live="polite" hidden>
+          <span id="quit-countdown-label" class="quit-countdown-label">Quitting in 30s</span>
+          <div class="quit-countdown-track"><div id="quit-countdown-fill" class="quit-countdown-fill"></div></div>
+        </div>
         <div class="input-row">
           <input type="text" id="input" class="input" placeholder="Ask me anything..." autocomplete="off" aria-label="Message input">
           <button type="button" id="voice-btn" class="btn btn-voice" title="Voice off" aria-label="Toggle voice input">

@@ -1,12 +1,14 @@
 package com.minsbot.agent.tools;
 
+import com.minsbot.agent.AsyncMessageService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -14,7 +16,7 @@ import java.util.concurrent.*;
 
 /**
  * AI-callable tools for scheduling reminders and recurring tasks.
- * Tasks run in-memory; they do not survive a restart.
+ * Recurring tasks auto-update cron_config.md and push messages to the chat.
  */
 @Component
 public class ScheduledTaskTools {
@@ -23,12 +25,23 @@ public class ScheduledTaskTools {
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final ToolExecutionNotifier notifier;
+    private final AsyncMessageService asyncMessages;
+    private final CronConfigTools cronConfigTools;
+
+    /** ChatClient for AI-generated recurring content (quotes, tips, etc.) — null when no API key. */
+    @Autowired(required = false)
+    private ChatClient chatClient;
+
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
     private final Map<String, ScheduledTaskEntry> tasks = new ConcurrentHashMap<>();
     private final ConcurrentLinkedQueue<String> firedReminders = new ConcurrentLinkedQueue<>();
 
-    public ScheduledTaskTools(ToolExecutionNotifier notifier) {
+    public ScheduledTaskTools(ToolExecutionNotifier notifier,
+                              AsyncMessageService asyncMessages,
+                              CronConfigTools cronConfigTools) {
         this.notifier = notifier;
+        this.asyncMessages = asyncMessages;
+        this.cronConfigTools = cronConfigTools;
     }
 
     @Tool(description = "Schedule a one-shot reminder that fires after a delay (tracked by ID; use listScheduledTasks/cancelScheduledTask). " +
@@ -48,6 +61,7 @@ public class ScheduledTaskTools {
             ScheduledFuture<?> future = scheduler.schedule(() -> {
                 String notification = "REMINDER: " + message;
                 firedReminders.add(notification);
+                asyncMessages.push(notification);
                 notifier.notify(notification);
                 log.info("[Scheduler] Reminder fired: {}", message);
                 tasks.get(id).status = "fired";
@@ -55,6 +69,9 @@ public class ScheduledTaskTools {
 
             tasks.put(id, new ScheduledTaskEntry(id, "reminder", message,
                     fireTime.format(FMT), null, "pending", future));
+
+            // Persist to cron_config.md
+            persistToCron("Reminders", message + " — at " + fireTime.format(FMT));
 
             log.info("[Scheduler] Reminder set: '{}' fires at {}", message, fireTime.format(FMT));
             return "Reminder set! ID: " + id + ". Will fire at " + fireTime.format(FMT)
@@ -64,10 +81,11 @@ public class ScheduledTaskTools {
         }
     }
 
-    @Tool(description = "Schedule a recurring task that repeats at a fixed interval. " +
-            "Use for things like 'say hello every 10 seconds', 'check this URL every 30 minutes', or 'remind me every hour'.")
+    @Tool(description = "Schedule a recurring notification that repeats at a fixed interval. " +
+            "Use for simple repeated notifications like 'remind me every hour to stretch'. " +
+            "For recurring AI-generated content (quotes, tips, facts), use scheduleRecurringAiTask instead.")
     public String scheduleRecurring(
-            @ToolParam(description = "Task description or message") String description,
+            @ToolParam(description = "Task description or message to repeat") String description,
             @ToolParam(description = "Interval in seconds between each execution (e.g. 10 for every 10 seconds, 300 for every 5 minutes)") double intervalSeconds) {
         notifier.notify("Scheduling recurring: every " + intervalSeconds + "s");
         try {
@@ -78,9 +96,9 @@ public class ScheduledTaskTools {
             long interval = intervalSec;
 
             ScheduledFuture<?> future = scheduler.scheduleAtFixedRate(() -> {
-                String notification = "RECURRING: " + description;
-                firedReminders.add(notification);
-                notifier.notify(notification);
+                firedReminders.add(description);
+                asyncMessages.push(description);
+                notifier.notify("RECURRING: " + description);
                 log.info("[Scheduler] Recurring task fired: {}", description);
             }, interval, interval, TimeUnit.SECONDS);
 
@@ -88,6 +106,9 @@ public class ScheduledTaskTools {
             tasks.put(id, new ScheduledTaskEntry(id, "recurring", description,
                     LocalDateTime.now().plusSeconds(interval).format(FMT),
                     intervalLabel, "active", future));
+
+            // Persist to cron_config.md
+            persistToCron("Other schedule", description + " — every " + intervalLabel);
 
             log.info("[Scheduler] Recurring task: '{}' every {}", description, intervalLabel);
             return "Recurring task scheduled! ID: " + id + ". Runs every "
@@ -97,14 +118,68 @@ public class ScheduledTaskTools {
         }
     }
 
+    @Tool(description = "Schedule a recurring AI-generated task. Each interval the AI generates fresh content " +
+            "and posts it in the chat. Use when the user says things like 'every minute tell me a quote', " +
+            "'give me a fun fact every 5 minutes', 'every hour give me a motivational message', etc.")
+    public String scheduleRecurringAiTask(
+            @ToolParam(description = "Prompt for the AI to generate each interval, e.g. 'Give me a unique inspiring quote', 'Tell me a random fun fact'") String prompt,
+            @ToolParam(description = "Interval in seconds between each execution (e.g. 60 for every minute, 300 for every 5 minutes)") double intervalSeconds) {
+        notifier.notify("Scheduling recurring AI task: every " + intervalSeconds + "s");
+        try {
+            if (chatClient == null) {
+                return "Cannot schedule AI task — no AI model configured.";
+            }
+            long intervalSec = Math.max(10, Math.round(intervalSeconds)); // min 10 seconds
+            if (intervalSec > 86400) intervalSec = 86400;
+
+            String id = "ai-" + System.currentTimeMillis();
+            long interval = intervalSec;
+
+            ScheduledFuture<?> future = scheduler.scheduleAtFixedRate(() -> {
+                try {
+                    String content = chatClient.prompt()
+                            .system("You are a concise assistant. Respond with ONLY the requested content — no preamble, no explanation, no quotes around it. Keep it to 1-3 sentences max.")
+                            .user(prompt)
+                            .call()
+                            .content();
+                    if (content != null && !content.isBlank()) {
+                        asyncMessages.push(content.strip());
+                        log.info("[Scheduler] AI task delivered: {}", content.strip().substring(0, Math.min(60, content.strip().length())));
+                    }
+                } catch (Exception e) {
+                    log.warn("[Scheduler] AI recurring task failed: {}", e.getMessage());
+                }
+            }, interval, interval, TimeUnit.SECONDS);
+
+            String intervalLabel = interval >= 60 ? (interval / 60) + " min" : interval + " sec";
+            tasks.put(id, new ScheduledTaskEntry(id, "ai-recurring", prompt,
+                    LocalDateTime.now().plusSeconds(interval).format(FMT),
+                    intervalLabel, "active", future));
+
+            // Persist to cron_config.md
+            persistToCron("Other schedule", prompt + " — every " + intervalLabel);
+
+            log.info("[Scheduler] AI recurring task: '{}' every {}", prompt, intervalLabel);
+            return "AI recurring task scheduled! ID: " + id + ". Every "
+                    + intervalLabel + " I'll generate: " + prompt;
+        } catch (Exception e) {
+            return "Failed to schedule AI recurring task: " + e.getMessage();
+        }
+    }
+
     @Tool(description = "Cancel a scheduled task or reminder by its ID.")
     public String cancelScheduledTask(
-            @ToolParam(description = "The task ID to cancel (e.g. 'rem-1234567890' or 'rec-1234567890')") String taskId) {
+            @ToolParam(description = "The task ID to cancel (e.g. 'rem-1234567890', 'rec-1234567890', or 'ai-1234567890')") String taskId) {
         notifier.notify("Cancelling task: " + taskId);
         ScheduledTaskEntry entry = tasks.get(taskId);
         if (entry == null) return "No task found with ID: " + taskId;
         entry.future.cancel(false);
         entry.status = "cancelled";
+
+        // Remove from cron_config.md
+        String section = "reminder".equals(entry.type) ? "Reminders" : "Other schedule";
+        removeFromCron(section, entry.description);
+
         log.info("[Scheduler] Cancelled task: {} ({})", taskId, entry.description);
         return "Cancelled task " + taskId + ": " + entry.description;
     }
@@ -136,6 +211,24 @@ public class ScheduledTaskTools {
             sb.append(i++).append(". ").append(r).append("\n");
         }
         return sb.toString().trim();
+    }
+
+    // ═══ Internal ═══
+
+    private void persistToCron(String section, String description) {
+        try {
+            cronConfigTools.appendCronEntry(section, description);
+        } catch (Exception e) {
+            log.warn("[Scheduler] Failed to update cron_config.md: {}", e.getMessage());
+        }
+    }
+
+    private void removeFromCron(String section, String descriptionSubstring) {
+        try {
+            cronConfigTools.removeCronEntry(section, descriptionSubstring);
+        } catch (Exception e) {
+            log.warn("[Scheduler] Failed to update cron_config.md: {}", e.getMessage());
+        }
     }
 
     private static class ScheduledTaskEntry {

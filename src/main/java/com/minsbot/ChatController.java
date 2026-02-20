@@ -32,10 +32,13 @@ public class ChatController {
     }
 
     @PostMapping(value = "/chat", produces = MediaType.APPLICATION_JSON_VALUE)
-    public Map<String, String> chat(@RequestBody Map<String, String> body) {
+    public Map<String, Object> chat(@RequestBody Map<String, String> body) {
         String message = body != null ? body.get("message") : null;
         String reply = chatService.getReply(message);
-        return Map.of("reply", reply);
+        if (reply != null && reply.equals(ChatService.QUIT_REPLY)) {
+            return Map.of("reply", reply, "quitCountdownSeconds", 30);
+        }
+        return Map.of("reply", reply != null ? reply : "");
     }
 
     /** Poll for async agent results (background tasks like file collection). */

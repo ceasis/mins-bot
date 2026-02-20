@@ -8,12 +8,12 @@ import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
 import jakarta.annotation.PostConstruct;
-import javax.sound.sampled.*;
-import java.io.ByteArrayInputStream;
+import javax.sound.sampled.*; // fallback playback (non-Windows)
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -62,9 +62,9 @@ public class TtsTools {
 
     // ═══ AI-callable tools ═══
 
-    @Tool(description = "Read text aloud using text-to-speech (ElevenLabs when configured, otherwise Windows SAPI). "
-            + "Uses caching — the same text is only generated once, then played from cache. "
-            + "Use when the user asks to 'read aloud', 'speak', or 'say' something.")
+    @Tool(description = "Convert text to speech and play it as audio. The user will hear the spoken text. "
+            + "Use this whenever the user asks to 'say' something, 'speak', 'read aloud', or 'say something' — you must call this tool so they hear audio, not just see text. "
+            + "Pass the exact phrase to speak (e.g. speak('Hello!') for 'say hello'). Uses ElevenLabs or Windows SAPI; same text is cached for replay.")
     public String speak(
             @ToolParam(description = "Text to speak aloud") String text) {
         if (text == null || text.isBlank()) return "No text to speak.";
@@ -73,9 +73,8 @@ public class TtsTools {
         String key = cacheKey(text);
 
         // Try cache first
-        byte[] cached = getFromCache(key);
-        if (cached != null) {
-            playAudioBytes(cached);
+        if (audioCache.containsKey(key) || Files.exists(cacheDir.resolve(key + ".wav"))) {
+            playAudio(key);
             return "Spoke (cached): \"" + truncate(text) + "\"";
         }
 
@@ -84,7 +83,7 @@ public class TtsTools {
             byte[] audio = generateElevenLabs(text);
             if (audio != null) {
                 saveToCache(key, audio);
-                playAudioBytes(audio);
+                playAudio(key);
                 return "Spoke: \"" + truncate(text) + "\"";
             }
         }
@@ -123,33 +122,15 @@ public class TtsTools {
     public boolean playFromCache(String text) {
         if (text == null || text.isBlank()) return false;
         String key = cacheKey(text);
-        byte[] cached = getFromCache(key);
-        if (cached != null) {
-            playAudioBytes(cached);
+        Path wavFile = cacheDir.resolve(key + ".wav");
+        if (Files.exists(wavFile)) {
+            playAudio(key);
             return true;
         }
         return false;
     }
 
     // ═══ Cache operations ═══
-
-    private byte[] getFromCache(String key) {
-        byte[] mem = audioCache.get(key);
-        if (mem != null) return mem;
-
-        // Check file system
-        Path file = cacheDir.resolve(key + ".wav");
-        if (Files.exists(file)) {
-            try {
-                byte[] bytes = Files.readAllBytes(file);
-                audioCache.put(key, bytes);
-                return bytes;
-            } catch (IOException e) {
-                log.warn("Failed to read cached TTS file: {}", file);
-            }
-        }
-        return null;
-    }
 
     private void saveToCache(String key, byte[] audio) {
         audioCache.put(key, audio);
@@ -199,9 +180,7 @@ public class TtsTools {
                     return "Failed to generate SAPI audio.";
                 }
             }
-            byte[] audio = Files.readAllBytes(wavFile);
-            audioCache.put(key, audio);
-            playAudioBytes(audio);
+            playAudio(key);
             return "Spoke: \"" + truncate(text) + "\"";
         } catch (Exception e) {
             return "TTS failed: " + e.getMessage();
@@ -240,14 +219,43 @@ public class TtsTools {
 
     // ═══ Audio playback ═══
 
-    private void playAudioBytes(byte[] audio) {
-        try (AudioInputStream ais = AudioSystem.getAudioInputStream(new ByteArrayInputStream(audio))) {
+    /**
+     * Play a cached WAV file by its cache key.
+     * On Windows: uses native SoundPlayer via PowerShell (reliable).
+     * Fallback: Java Sound API with CountDownLatch.
+     */
+    private void playAudio(String key) {
+        Path wavFile = cacheDir.resolve(key + ".wav");
+        if (!Files.exists(wavFile)) {
+            log.warn("WAV file not found for playback: {}", wavFile);
+            return;
+        }
+
+        if (isWindows()) {
+            try {
+                String cmd = "(New-Object Media.SoundPlayer '"
+                        + wavFile.toString().replace("'", "''") + "').PlaySync()";
+                Process p = new ProcessBuilder("powershell", "-NoProfile", "-Command", cmd)
+                        .redirectErrorStream(true)
+                        .start();
+                boolean done = p.waitFor(30, TimeUnit.SECONDS);
+                if (!done) p.destroyForcibly();
+                return;
+            } catch (Exception e) {
+                log.warn("Windows native playback failed, trying Java Sound: {}", e.getMessage());
+            }
+        }
+
+        // Fallback: Java Sound API from file
+        try (AudioInputStream ais = AudioSystem.getAudioInputStream(wavFile.toFile())) {
             Clip clip = AudioSystem.getClip();
             clip.open(ais);
+            CountDownLatch latch = new CountDownLatch(1);
+            clip.addLineListener(event -> {
+                if (event.getType() == LineEvent.Type.STOP) latch.countDown();
+            });
             clip.start();
-            while (clip.isRunning()) {
-                Thread.sleep(50);
-            }
+            latch.await(30, TimeUnit.SECONDS);
             clip.close();
         } catch (Exception e) {
             log.warn("Audio playback failed: {}", e.getMessage());

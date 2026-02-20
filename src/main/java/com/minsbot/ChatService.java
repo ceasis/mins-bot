@@ -1,5 +1,6 @@
 package com.minsbot;
 
+import com.minsbot.agent.AsyncMessageService;
 import com.minsbot.agent.PcAgentService;
 import com.minsbot.agent.SystemContextProvider;
 import com.minsbot.agent.WorkingSoundService;
@@ -31,7 +32,6 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.function.Consumer;
 
 @Service
@@ -54,9 +54,13 @@ public class ChatService {
             - If it's a simple question, greeting, or needs no tools, respond with just: SKIP
             """;
 
+    /** Shown when user says "quit"; also used by ChatController to add quitCountdownSeconds to response. */
+    public static final String QUIT_REPLY = "Quit Mins Bot?";
+
     private final TranscriptService transcriptService;
     private final PcAgentService pcAgent;
     private final SystemContextProvider systemCtx;
+    private final MinsBotQuitService quitService;
 
     private final FileTools fileTools;              // needed for setAsyncCallback()
     private final ToolExecutionNotifier toolNotifier;
@@ -80,23 +84,26 @@ public class ChatService {
         return this.chatClient;
     }
 
-    /** Async results from background agent tasks (polled by frontend). */
-    private final ConcurrentLinkedQueue<String> asyncResults = new ConcurrentLinkedQueue<>();
+    private final AsyncMessageService asyncMessages;
 
     public ChatService(TranscriptService transcriptService,
                        PcAgentService pcAgent,
                        SystemContextProvider systemCtx,
+                       MinsBotQuitService quitService,
                        FileTools fileTools,
                        ToolExecutionNotifier toolNotifier,
                        WorkingSoundService workingSound,
-                       ToolRouter toolRouter) {
+                       ToolRouter toolRouter,
+                       AsyncMessageService asyncMessages) {
         this.transcriptService = transcriptService;
         this.pcAgent = pcAgent;
         this.systemCtx = systemCtx;
+        this.quitService = quitService;
         this.fileTools = fileTools;
         this.toolNotifier = toolNotifier;
         this.workingSound = workingSound;
         this.toolRouter = toolRouter;
+        this.asyncMessages = asyncMessages;
     }
 
     @PostConstruct
@@ -143,7 +150,7 @@ public class ChatService {
 
     /** Returns and removes the next async result, or null if none. */
     public String pollAsyncResult() {
-        return asyncResults.poll();
+        return asyncMessages.poll();
     }
 
     /** Returns and removes all pending tool execution status messages. */
@@ -198,9 +205,19 @@ public class ChatService {
         toolNotifier.clear();
         transcriptService.save("USER", trimmed);
 
+        // Cancel any pending 30-second quit when user sends a new message
+        quitService.cancelPendingQuit();
+
+        // Quit command: reply and schedule quit in 30 sec if no response
+        if (isQuitCommand(trimmed)) {
+            transcriptService.save("BOT", QUIT_REPLY);
+            quitService.scheduleQuitIn30Sec();
+            return QUIT_REPLY;
+        }
+
         Consumer<String> asyncCallback = result -> {
             transcriptService.save("BOT(agent)", result);
-            asyncResults.add(result);
+            asyncMessages.push(result);
         };
 
         // 1. Spring AI tool-calling path
@@ -216,7 +233,7 @@ public class ChatService {
                                 .content();
                         if (plan != null && !plan.isBlank()
                                 && !plan.strip().equalsIgnoreCase("SKIP")) {
-                            asyncResults.add(plan);
+                            asyncMessages.push(plan);
                             transcriptService.save("BOT(plan)", plan);
                         }
                     } catch (Exception e) {
@@ -268,6 +285,15 @@ public class ChatService {
         String fallback = "I'm not sure how to respond to that. Could you rephrase?";
         transcriptService.save("BOT", fallback);
         return fallback;
+    }
+
+    /** True if the user message is a quit request (e.g. "quit", "exit", "close mins bot"). */
+    private static boolean isQuitCommand(String trimmed) {
+        if (trimmed == null || trimmed.isEmpty()) return false;
+        String lower = trimmed.toLowerCase();
+        return lower.equals("quit") || lower.equals("exit")
+                || lower.equals("close") || lower.equals("close bot")
+                || lower.equals("close mins bot") || lower.equals("exit mins bot");
     }
 
     /** Returns true if the message is complex enough to warrant a planning pre-step. */
@@ -419,7 +445,7 @@ public class ChatService {
 
                 Consumer<String> asyncCallback = result -> {
                     transcriptService.save("BOT(autonomous-agent)", result);
-                    asyncResults.add(result);
+                    asyncMessages.push(result);
                 };
                 fileTools.setAsyncCallback(asyncCallback);
                 workingSound.start();
@@ -437,12 +463,12 @@ public class ChatService {
                     // Check for "done" signal from the AI
                     if (reply.toLowerCase().contains("all directives addressed")) {
                         transcriptService.save("BOT(autonomous)", reply);
-                        asyncResults.add(reply);
+                        asyncMessages.push(reply);
                         log.info("[Autonomous] AI signaled completion at step {}.", step);
                         break;
                     }
                     transcriptService.save("BOT(autonomous)", reply);
-                    asyncResults.add(reply);
+                    asyncMessages.push(reply);
                     log.info("[Autonomous] Step {} done: {}", step,
                             reply.length() > 100 ? reply.substring(0, 100) + "..." : reply);
                 }

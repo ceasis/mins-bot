@@ -2,13 +2,16 @@ package com.minsbot.agent;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import jakarta.annotation.PostConstruct;
 import javax.sound.sampled.*;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.EnumMap;
 import java.util.Map;
 
@@ -37,10 +40,14 @@ public class WorkingSoundService {
     }
 
     private static final float SAMPLE_RATE = 22050f;
-    private static final long MIN_SWITCH_MS = 1500; // avoid rapid flickering
 
-    @Value("${app.sound.volume:0.07}")
-    private float volume;
+    private static final Path CONFIG_PATH =
+            Paths.get(System.getProperty("user.home"), "mins_bot_data", "minsbot_config.txt");
+
+    // Defaults — overridden by minsbot_config.txt on startup
+    private boolean soundEnabled = true;
+    private float volume = 0.01f;
+    private long minSwitchMs = 1500;
 
     private volatile Clip clip;
     private volatile boolean playing = false;
@@ -49,11 +56,26 @@ public class WorkingSoundService {
 
     private final Map<SoundPhase, byte[]> soundCache = new EnumMap<>(SoundPhase.class);
 
+    @PostConstruct
+    public void init() {
+        loadConfigFromFile();
+    }
+
+    /** Re-read minsbot_config.txt. Called by ConfigScanService when file changes. */
+    public void reloadConfig() {
+        boolean wasEnabled = soundEnabled;
+        loadConfigFromFile();
+        // If sound was just disabled while playing, stop immediately
+        if (wasEnabled && !soundEnabled && playing) {
+            stop();
+        }
+    }
+
     // ═══ Public API ═══
 
     /** Start with the THINKING phase. Safe to call multiple times. */
     public synchronized void start() {
-        if (playing) return;
+        if (!soundEnabled || playing) return;
         playing = true;
         currentPhase = null;
         playPhase(SoundPhase.THINKING);
@@ -73,13 +95,18 @@ public class WorkingSoundService {
     /**
      * Called by ToolExecutionNotifier when a tool reports its status.
      * Detects the appropriate phase from the message and switches sound.
+     * Stops sound when the bot is speaking (TTS) so the dial-up sound doesn't play over the voice.
      */
     public void onToolExecution(String message) {
         if (!playing || message == null) return;
+        if (isTtsOrSpeaking(message)) {
+            stop();
+            return;
+        }
         SoundPhase phase = detectPhase(message);
         if (phase == currentPhase) return;
         long now = System.currentTimeMillis();
-        if (now - lastSwitchTime < MIN_SWITCH_MS) return;
+        if (now - lastSwitchTime < minSwitchMs) return;
         synchronized (this) {
             if (!playing || phase == currentPhase) return;
             playPhase(phase);
@@ -87,6 +114,13 @@ public class WorkingSoundService {
     }
 
     // ═══ Phase detection ═══
+
+    /** True when the notification is from TTS/speak — we stop working sound so it doesn't play over the bot's voice. */
+    private static boolean isTtsOrSpeaking(String message) {
+        if (message == null) return false;
+        String lower = message.toLowerCase();
+        return lower.startsWith("speaking") || containsAny(lower, "speak", "read aloud", "tts", "text-to-speech");
+    }
 
     private static SoundPhase detectPhase(String msg) {
         String lower = msg.toLowerCase();
@@ -368,5 +402,53 @@ public class WorkingSoundService {
     private void writeShort(ByteArrayOutputStream bos, int v) {
         bos.write(v & 0xFF);
         bos.write((v >> 8) & 0xFF);
+    }
+
+    // ═══ Config file parsing ═══
+
+    /**
+     * Read sound params from ~/mins_bot_data/minsbot_config.txt (## Sound section).
+     * Expected lines: "- enabled: true", "- volume: 0.01", "- min_switch_ms: 1500".
+     */
+    private void loadConfigFromFile() {
+        if (!Files.exists(CONFIG_PATH)) return;
+        try {
+            boolean prevEnabled = soundEnabled;
+            float prevVolume = volume;
+            long prevSwitch = minSwitchMs;
+
+            String currentSection = "";
+            for (String line : Files.readAllLines(CONFIG_PATH)) {
+                String trimmed = line.trim();
+                if (trimmed.startsWith("## ")) {
+                    currentSection = trimmed.toLowerCase();
+                    continue;
+                }
+                if (!trimmed.startsWith("- ")) continue;
+                String kv = trimmed.substring(2).trim(); // strip "- "
+                int colon = kv.indexOf(':');
+                if (colon < 0) continue;
+                String key = kv.substring(0, colon).trim().toLowerCase();
+                String val = kv.substring(colon + 1).trim().toLowerCase();
+
+                if (currentSection.equals("## sound")) {
+                    switch (key) {
+                        case "enabled" -> soundEnabled = val.equals("true");
+                        case "volume" -> {
+                            try { volume = Float.parseFloat(val); } catch (NumberFormatException ignored) {}
+                        }
+                        case "min_switch_ms" -> {
+                            try { minSwitchMs = Long.parseLong(val); } catch (NumberFormatException ignored) {}
+                        }
+                    }
+                }
+            }
+            // Only log when something changed
+            if (prevEnabled != soundEnabled || prevVolume != volume || prevSwitch != minSwitchMs) {
+                log.info("[Sound] Config changed — enabled={}, volume={}, minSwitchMs={}", soundEnabled, volume, minSwitchMs);
+            }
+        } catch (IOException e) {
+            log.warn("[Sound] Could not read minsbot_config.txt: {}", e.getMessage());
+        }
     }
 }

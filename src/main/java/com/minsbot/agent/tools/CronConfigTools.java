@@ -82,6 +82,37 @@ public class CronConfigTools {
         }
     }
 
+    /**
+     * Append a bullet-point entry to a section without replacing existing content.
+     * If the section body is just "-", it is replaced; otherwise the entry is appended.
+     */
+    public String appendCronEntry(String section, String entry) {
+        try {
+            ensureFileExists();
+            String full = Files.readString(CRON_CONFIG_PATH, StandardCharsets.UTF_8);
+            String updated = appendToSection(full, section.trim(), entry.trim());
+            Files.writeString(CRON_CONFIG_PATH, updated, StandardCharsets.UTF_8);
+            return "Cron config: added entry to '" + section.trim() + "'.";
+        } catch (IOException e) {
+            return "Failed to update cron config: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Remove a bullet-point entry from a section that contains the given substring.
+     */
+    public String removeCronEntry(String section, String entrySubstring) {
+        try {
+            ensureFileExists();
+            String full = Files.readString(CRON_CONFIG_PATH, StandardCharsets.UTF_8);
+            String updated = removeFromSection(full, section.trim(), entrySubstring.trim());
+            Files.writeString(CRON_CONFIG_PATH, updated, StandardCharsets.UTF_8);
+            return "Cron config: removed entry from '" + section.trim() + "'.";
+        } catch (IOException e) {
+            return "Failed to update cron config: " + e.getMessage();
+        }
+    }
+
     private void ensureFileExists() throws IOException {
         if (!Files.exists(CRON_CONFIG_PATH)) {
             Files.createDirectories(CRON_CONFIG_PATH.getParent());
@@ -110,6 +141,73 @@ public class CronConfigTools {
         }
         String toAppend = "\n\n" + heading + "\n" + (newContent.isEmpty() ? "-" : newContent) + "\n";
         return text.trim() + toAppend;
+    }
+
+    /**
+     * Append a bullet entry to an existing section. If the section body is just "-", replace it.
+     */
+    private String appendToSection(String full, String sectionTitle, String newEntry) {
+        String heading = "## " + sectionTitle;
+        String text = full.replace("\r\n", "\n").replace("\r", "\n");
+        if (!text.endsWith("\n")) text += "\n";
+
+        int headingStart = findSectionStart(text, heading);
+        if (headingStart >= 0) {
+            int bodyStart = text.indexOf('\n', headingStart) + 1;
+            int nextSection = findNextSectionStart(text, bodyStart);
+            int end = nextSection < 0 ? text.length() : nextSection;
+            String body = text.substring(bodyStart, end).trim();
+
+            String bullet = "- " + newEntry;
+            String newBody;
+            if (body.equals("-") || body.isEmpty()) {
+                // Empty section — replace placeholder
+                newBody = bullet + "\n";
+            } else {
+                // Append to existing entries
+                newBody = body + "\n" + bullet + "\n";
+            }
+
+            String before = text.substring(0, bodyStart);
+            String after = end <= text.length() ? text.substring(end) : "";
+            return before + newBody + after;
+        }
+        // Section doesn't exist — create it
+        String toAppend = "\n\n" + heading + "\n- " + newEntry + "\n";
+        return text.trim() + toAppend;
+    }
+
+    /**
+     * Remove lines from a section that contain the given substring.
+     * If the section becomes empty, resets it to "-".
+     */
+    private String removeFromSection(String full, String sectionTitle, String entrySubstring) {
+        String heading = "## " + sectionTitle;
+        String text = full.replace("\r\n", "\n").replace("\r", "\n");
+        if (!text.endsWith("\n")) text += "\n";
+
+        int headingStart = findSectionStart(text, heading);
+        if (headingStart < 0) return text; // Section not found, nothing to remove
+
+        int bodyStart = text.indexOf('\n', headingStart) + 1;
+        int nextSection = findNextSectionStart(text, bodyStart);
+        int end = nextSection < 0 ? text.length() : nextSection;
+        String body = text.substring(bodyStart, end);
+
+        // Filter out lines containing the substring
+        StringBuilder filtered = new StringBuilder();
+        for (String line : body.split("\n")) {
+            if (!line.contains(entrySubstring)) {
+                filtered.append(line).append("\n");
+            }
+        }
+        String remaining = filtered.toString().trim();
+        if (remaining.isEmpty()) remaining = "-";
+        remaining += "\n";
+
+        String before = text.substring(0, bodyStart);
+        String after = end <= text.length() ? text.substring(end) : "";
+        return before + remaining + after;
     }
 
     private int findSectionStart(String text, String heading) {

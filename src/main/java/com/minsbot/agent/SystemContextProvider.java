@@ -22,6 +22,7 @@ public class SystemContextProvider {
     private static final String PERSONAL_CONFIG_FILENAME = "personal_config.md";
     private static final String SYSTEM_CONFIG_FILENAME = "system_config.md";
     private static final String CRON_CONFIG_FILENAME = "cron_config.md";
+    private static final String MINSBOT_CONFIG_FILENAME = "minsbot_config.txt";
     private static final String DEFAULT_PERSONAL_CONFIG = """
             # Personal config
             Use this for personalized responses. Fill in and keep updated.
@@ -57,6 +58,26 @@ public class SystemContextProvider {
 
             ## Network / VPN
             -
+            """;
+
+    private static final String DEFAULT_MINSBOT_CONFIG = """
+            # Mins Bot Config
+            Bot behavior and processing settings. Scanned every 15 seconds for live changes.
+
+            ## Sound
+            - enabled: true
+            - volume: 0.01
+            - min_switch_ms: 1500
+
+            ## Planning
+            - enabled: true
+
+            ## Config scan
+            - interval_seconds: 15
+
+            ## Idle detection
+            - enabled: true
+            - idle_seconds: 300
             """;
 
     private static final String DEFAULT_CRON_CONFIG = """
@@ -134,6 +155,14 @@ public class SystemContextProvider {
             if (!cronConfig.endsWith("\n")) sb.append("\n");
         }
 
+        // Bot config from ~/mins_bot_data/minsbot_config.txt (created with template if missing)
+        String minsbotConfig = loadMinsbotConfig();
+        if (minsbotConfig != null && !minsbotConfig.isBlank()) {
+            sb.append("\nBOT CONFIG (sound, planning, and other bot behavior settings):\n");
+            sb.append(minsbotConfig);
+            if (!minsbotConfig.endsWith("\n")) sb.append("\n");
+        }
+
         sb.append("""
 
                 BROWSER RULES:
@@ -151,6 +180,9 @@ public class SystemContextProvider {
                 - When the user says "quit" (or "exit", "close mins bot"), reply only with "Quit Mins Bot?" and do nothing else. Do NOT call quitMinsBot yet.
                 - When the user then replies "yes" or "y" (and they are clearly confirming quit), call the quitMinsBot tool.
                 - If they reply with anything else (no, nope, cancel, etc.), do nothing — no need to say anything or take any action.
+
+                TTS / VOICE RULE:
+                - When the user asks you to "say" something, "speak", "read aloud", or "say something": you MUST call the speak tool with the text to be spoken so they hear audio. Do not just reply with text — call speak(...) with that text (or a short phrase). Examples: "say hello" → call speak("Hello!"); "say something" → call speak("Here's something for you!"); "read this aloud" → call speak with the content.
                 """);
 
         // Load HIERARCHY.md for tool execution prioritization
@@ -238,6 +270,26 @@ public class SystemContextProvider {
             if (!Files.exists(path)) {
                 Files.createDirectories(dataDir);
                 Files.writeString(path, DEFAULT_SYSTEM_CONFIG);
+                return null;
+            }
+            String content = Files.readString(path).trim();
+            return content.isEmpty() ? null : content;
+        } catch (IOException ignored) {
+            return null;
+        }
+    }
+
+    /**
+     * Load bot config from ~/mins_bot_data/minsbot_config.txt.
+     * If the file does not exist, creates mins_bot_data and writes a default template.
+     */
+    private String loadMinsbotConfig() {
+        Path dataDir = Paths.get(System.getProperty("user.home"), "mins_bot_data");
+        Path path = dataDir.resolve(MINSBOT_CONFIG_FILENAME);
+        try {
+            if (!Files.exists(path)) {
+                Files.createDirectories(dataDir);
+                Files.writeString(path, DEFAULT_MINSBOT_CONFIG);
                 return null;
             }
             String content = Files.readString(path).trim();

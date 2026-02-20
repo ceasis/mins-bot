@@ -8,6 +8,41 @@
   const voiceStatus = document.getElementById('voice-status');
   const closeBtn = document.getElementById('close-btn');
   const clearBtn = document.getElementById('clear-btn');
+  const quitCountdownEl = document.getElementById('quit-countdown');
+  const quitCountdownLabel = document.getElementById('quit-countdown-label');
+  const quitCountdownFill = document.getElementById('quit-countdown-fill');
+
+  let quitCountdownInterval = null;
+
+  function stopQuitCountdown() {
+    if (quitCountdownInterval) {
+      clearInterval(quitCountdownInterval);
+      quitCountdownInterval = null;
+    }
+    if (quitCountdownEl) quitCountdownEl.hidden = true;
+  }
+
+  function startQuitCountdown(seconds) {
+    stopQuitCountdown();
+    if (!quitCountdownEl || !quitCountdownLabel || !quitCountdownFill) return;
+    var total = seconds;
+    var remaining = total;
+    quitCountdownEl.hidden = false;
+    function tick() {
+      remaining -= 1;
+      var pct = Math.max(0, (remaining / total) * 100);
+      quitCountdownLabel.textContent = 'Quitting in ' + remaining + 's';
+      quitCountdownFill.style.width = pct + '%';
+      if (remaining <= 0) {
+        clearInterval(quitCountdownInterval);
+        quitCountdownInterval = null;
+      }
+    }
+    quitCountdownLabel.textContent = 'Quitting in ' + remaining + 's';
+    quitCountdownFill.style.width = '100%';
+    tick();
+    quitCountdownInterval = setInterval(tick, 1000);
+  }
 
   // ═══ Window expand/collapse ═══
 
@@ -251,6 +286,7 @@
   async function sendMessage(text) {
     if (!text || !text.trim()) return;
     if (sendingMessage) return;
+    stopQuitCountdown();
     sendingMessage = true;
     const msg = text.trim();
     addToInputHistory(msg);
@@ -272,6 +308,9 @@
       clearStatusMessages();
       hideThinking();
       appendMessage(data.reply || 'No reply.', false);
+      if (data.quitCountdownSeconds) {
+        startQuitCountdown(data.quitCountdownSeconds);
+      }
     } catch (e) {
       stopStatusPolling();
       clearStatusMessages();
