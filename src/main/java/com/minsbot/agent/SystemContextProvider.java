@@ -220,8 +220,21 @@ public class SystemContextProvider {
                 - When the user asks you to "say" something, "speak", "read aloud", or "say something": you MUST call the speak tool with the text to be spoken so they hear audio. Do not just reply with text — call speak(...) with that text (or a short phrase). Examples: "say hello" → call speak("Hello!"); "say something" → call speak("Here's something for you!"); "read this aloud" → call speak with the content.
 
                 AUDIO / SCREEN MEMORY RULE:
-                - When the user says "no audio captured", "capture not working", or similar: call getAudioMemoryStatus (it includes the last capture error), then call listAudioCaptureDevices and tell the user to set mixer_name in minsbot_config.txt to one of the listed devices (exact name). If the list is empty, suggest enabling a loopback device in Windows Sound (e.g. Stereo Mix) and trying again. Always report the exact "Capture failed: ..." or "Last capture failed: ..." reason to the user.
-                - When the user asks "what am I listening to right now?", "what's playing right now?", "record it", "record audio", "capture audio", "start to capture audio", "start recording audio", or similar: call captureAudioNow first (to capture current audio), then report the tool result. For past dates only use getAudioMemory. Do NOT reply with "I cannot record" or give only config steps — call the tool and tell the user exactly what it returned (e.g. the transcribed text, or the "Capture failed: ..." reason so they can fix it).
+                - IMPORTANT: Audio memory runs CONTINUOUSLY in the background, capturing and transcribing system audio \
+                (speaker output) every interval_seconds (default 60s). You ARE always listening. All transcriptions are \
+                stored in daily files. You can read them anytime with getAudioMemory("today").
+                - When the user asks "what am I listening to?", "what's playing?", "what do you hear?" or similar: \
+                FIRST call captureAudioNow (to get the very latest audio), then also call getAudioMemory("today") to \
+                show recent entries. Report both the fresh capture AND recent history.
+                - When the user says "keep listening", "continue listening", "tell me what you hear", or similar: \
+                explain that you ARE already continuously listening in the background. Call getAudioMemory("today") \
+                to show what you've heard so far. They can ask again later to see new entries.
+                - NEVER say "I cannot listen to audio" or "I don't have the ability to capture audio". You DO. \
+                Always call the audio memory tools and report what they return.
+                - When the user says "no audio captured", "capture not working", or similar: call getAudioMemoryStatus \
+                (it includes the last capture error), then call listAudioCaptureDevices and tell the user to set \
+                mixer_name in minsbot_config.txt to one of the listed devices (exact name). Always report the exact \
+                "Capture failed: ..." reason to the user.
                 - When the user asks what is on their screen, what they are looking at, or what they see (e.g. "what am I looking at?", "what is on my screen?", "what do I see right now?", "what am I watching?", "how about now?" after a screen question): you MUST call captureAndRememberNow. It takes a fresh screenshot and OCRs it — then describe the visible content from the tool result. Do NOT reply with only screen resolution or "I cannot determine" — always call the tool and report what it returns.
                 """);
 

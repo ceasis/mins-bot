@@ -2,6 +2,7 @@ package com.minsbot.agent.tools;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
@@ -74,6 +75,9 @@ public class ToolRouter {
     private final GlobalHotkeyService globalHotkeyService;
     private final PluginLoaderService pluginLoaderService;
     private final SystemTrayService systemTrayService;
+
+    @Autowired(required = false)
+    private ToolClassifierService classifier;
 
     // ─── Registries (built once at startup) ───
 
@@ -201,12 +205,27 @@ public class ToolRouter {
         Set<Object> selected = new LinkedHashSet<>(core);
         String lower = (message == null) ? "" : message.toLowerCase();
 
+        // Fast path: regex keyword matching (instant)
         boolean anyMatch = false;
         for (Category cat : cats) {
             if (cat.pattern.matcher(lower).find()) {
                 selected.addAll(cat.tools);
                 anyMatch = true;
-                log.debug("[ToolRouter] Matched category '{}'", cat.name);
+                log.debug("[ToolRouter] Regex matched '{}'", cat.name);
+            }
+        }
+
+        // AI classification fallback: when regex misses
+        if (!anyMatch && classifier != null && classifier.isAvailable()) {
+            List<String> aiCategories = classifier.classify(message);
+            for (String catName : aiCategories) {
+                for (Category cat : cats) {
+                    if (cat.name.equals(catName)) {
+                        selected.addAll(cat.tools);
+                        anyMatch = true;
+                        log.debug("[ToolRouter] AI matched '{}'", cat.name);
+                    }
+                }
             }
         }
 
@@ -339,7 +358,8 @@ public class ToolRouter {
                    "system audio", "speaker audio", "what song",
                    "music playing", "capture audio", "what did i hear",
                    "audio yesterday", "audio last", "listening to",
-                   "what.*listening", "hear.*(it|audio|music)", "playback",
+                   "what.*listening", "what.*hear", "can you hear", "do you hear",
+                   "are you hearing", "hear.*(it|audio|music)", "playback",
                    "record it", "record audio", "record.*(it|audio|music)",
                    "start to capture", "start capture", "start capturing", "begin.*captur",
                    "start recording", "start recording audio", "recording audio",
