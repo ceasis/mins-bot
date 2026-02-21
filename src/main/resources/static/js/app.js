@@ -1,12 +1,10 @@
 (function () {
   const root = document.getElementById('root');
-  const ballContainer = document.getElementById('ball-container');
   const messagesEl = document.getElementById('messages');
   const inputEl = document.getElementById('input');
   const sendBtn = document.getElementById('send-btn');
   const voiceBtn = document.getElementById('voice-btn');
   const voiceStatus = document.getElementById('voice-status');
-  const closeBtn = document.getElementById('close-btn');
   const clearBtn = document.getElementById('clear-btn');
   const quitCountdownEl = document.getElementById('quit-countdown');
   const quitCountdownLabel = document.getElementById('quit-countdown-label');
@@ -76,27 +74,14 @@
     ensureInputFocus();
   }
 
-  function collapse() {
-    root.classList.remove('expanded');
-    if (typeof window.java !== 'undefined' && window.java.collapse) window.java.collapse();
-  }
-
   // ═══ Anti-drag (prevent "Copy" ghost on Windows) ═══
 
-  ballContainer.setAttribute('draggable', 'false');
-  var ball = ballContainer.querySelector('.ball');
-  if (ball) ball.setAttribute('draggable', 'false');
   function noDrag(e) { e.preventDefault(); e.stopPropagation(); return false; }
-  ballContainer.addEventListener('dragstart', noDrag, true);
-  ballContainer.addEventListener('dragend', noDrag, true);
-  ballContainer.addEventListener('drag', noDrag, true);
   root.addEventListener('dragstart', noDrag, true);
   document.addEventListener('dragover', noDrag, true);
   document.addEventListener('drop', noDrag, true);
   document.addEventListener('dragenter', noDrag, true);
   document.addEventListener('dragleave', noDrag, true);
-
-  closeBtn.addEventListener('click', collapse);
 
   // Clear chat
   if (clearBtn) {

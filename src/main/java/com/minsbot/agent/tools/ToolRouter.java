@@ -239,7 +239,9 @@ public class ToolRouter {
         cats.add(new Category("browser",
                 kw("search", "browse", "web", "url", "page", "google", "bing",
                    "link", "website", "look up", "find online", "navigate",
-                   "surf", "http", "youtube", "open youtube", "open google"),
+                   "surf", "http", "youtube", "open youtube", "open google",
+                   "new tab", "close tab", "switch tab", "next tab", "previous tab",
+                   "refresh page", "go back", "go forward", "address bar"),
                 List.of(playwrightTools, downloadTools, sitesConfigTools, systemTools)));
 
         cats.add(new Category("sites",
@@ -262,6 +264,8 @@ public class ToolRouter {
                    "quit", "exit", "close mins bot",
                    "recent", "keystroke", "system info", "running",
                    "environment", "env var", "focus",
+                   "click", "mouse", "drag", "scroll", "double click",
+                   "right click", "cursor", "screen size", "coordinates",
                    "open youtube", "open google", "open website",
                    "url", "http", "browse"),
                 List.of(systemTools)));

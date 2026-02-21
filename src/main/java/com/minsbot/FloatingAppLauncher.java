@@ -5,10 +5,7 @@ import javafx.application.Platform;
 import javafx.concurrent.Worker;
 import javafx.geometry.Rectangle2D;
 import javafx.scene.Scene;
-import javafx.scene.input.DragEvent;
-import javafx.scene.input.MouseButton;
 import javafx.scene.input.MouseEvent;
-import javafx.scene.paint.Color;
 import javafx.scene.web.WebEngine;
 import javafx.scene.web.WebView;
 import javafx.stage.Screen;
@@ -21,13 +18,11 @@ import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.core.env.Environment;
 
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 /**
- * JavaFX entry point: starts Spring Boot in background, then shows the floating window.
+ * JavaFX entry point: starts Spring Boot in background, then shows the window.
  */
 public class FloatingAppLauncher extends Application {
 
@@ -72,19 +67,14 @@ public class FloatingAppLauncher extends Application {
         int expandedHeight = env.getProperty("app.window.expanded.height", Integer.class, 520);
         int initialX = env.getProperty("app.window.initial.x", Integer.class, -1);
         int initialY = env.getProperty("app.window.initial.y", Integer.class, -1);
-        boolean alwaysOnTop = env.getProperty("app.window.always-on-top", Boolean.class, true);
+        boolean alwaysOnTop = env.getProperty("app.window.always-on-top", Boolean.class, false);
 
         WebView webView = new WebView();
         webView.setFocusTraversable(true);
         webView.setContextMenuEnabled(false);
-        webView.addEventFilter(MouseEvent.DRAG_DETECTED, MouseEvent::consume);
-        webView.addEventFilter(DragEvent.ANY, DragEvent::consume);
         WebEngine engine = webView.getEngine();
         String url = "http://localhost:" + port + "/";
         engine.load(url);
-
-        // Make the WebView node itself transparent (removes default white background)
-        webView.setStyle("-fx-background-color: transparent;");
 
         ChatService chatService = springContext.getBean(ChatService.class);
         NativeVoiceService nativeVoiceService = new NativeVoiceService(chatService);
@@ -103,115 +93,37 @@ public class FloatingAppLauncher extends Application {
                     if (window != null) {
                         window.setMember("java", bridge);
                     }
-                    // Force the WebView's internal page background to transparent
-                    engine.executeScript("document.documentElement.style.background='transparent';"
-                            + "document.body.style.background='transparent';");
-
-                    // Make WebView's internal Chromium surface truly transparent
-                    // (removes the white rectangle behind the HTML content)
-                    try {
-                        Field pageField = engine.getClass().getDeclaredField("page");
-                        pageField.setAccessible(true);
-                        Object page = pageField.get(engine);
-                        Method setBackgroundColor = page.getClass()
-                                .getMethod("setBackgroundColor", int.class);
-                        setBackgroundColor.invoke(page, 0); // 0 = fully transparent ARGB
-                    } catch (Exception bgEx) {
-                        System.err.println("[Mins Bot] Could not set transparent WebView background: "
-                                + bgEx.getMessage());
-                    }
+                    // Auto-expand on load (regular window is always expanded)
+                    engine.executeScript(
+                            "document.getElementById('root').classList.add('expanded');"
+                            + "setTimeout(function(){var i=document.getElementById('input');if(i)i.focus();},80);"
+                    );
+                    bridge.expand();
                 } catch (Exception e) {
                     // Bridge may fail in some environments
                 }
             }
         });
 
-        Scene scene = new Scene(webView, collapsedWidth, collapsedHeight, Color.TRANSPARENT);
-        scene.setFill(Color.TRANSPARENT);
-
-        // JavaFX WebView on Windows transparent stages does not route native mouse
-        // events to Chromium. We intercept ALL mouse events here and forward
-        // non-ball clicks into JavaScript via document.elementFromPoint().
-        final double[] anchor = new double[4];
-        final boolean[] dragging = {false};
-        final boolean[] moved = {false};
-        final double threshold = 5.0;
-
-        scene.addEventFilter(MouseEvent.MOUSE_PRESSED, e -> {
-            if (e.getButton() != MouseButton.PRIMARY) return;
-            boolean inBall = e.getX() < collapsedWidth && e.getY() < collapsedHeight;
-            if (inBall) {
-                if (e.getClickCount() == 2) {
-                    if (bridge.isExpanded()) {
-                        bridge.collapse();
-                        engine.executeScript("document.getElementById('root').classList.remove('expanded')");
-                    } else {
-                        bridge.expand();
-                        engine.executeScript(
-                                "document.getElementById('root').classList.add('expanded');"
-                                + "setTimeout(function(){var i=document.getElementById('input');if(i)i.focus();},80);"
-                        );
-                    }
-                    e.consume();
-                    return;
-                }
-                anchor[0] = e.getScreenX();
-                anchor[1] = e.getScreenY();
-                anchor[2] = primaryStage.getX();
-                anchor[3] = primaryStage.getY();
-                dragging[0] = true;
-                moved[0] = false;
-            } else {
-                // Forward click to the HTML element at (x, y)
-                engine.executeScript(String.format(
-                        "(function(){var el=document.elementFromPoint(%d,%d);"
-                        + "if(!el)return;"
-                        + "if(el.tagName==='INPUT'||el.tagName==='TEXTAREA'){el.focus();return;}"
-                        + "if(typeof el.click==='function'){el.click();return;}"
-                        + "var ev=new MouseEvent('click',{bubbles:true,cancelable:true,view:window});"
-                        + "el.dispatchEvent(ev);"
-                        + "})()",
-                        (int) e.getX(), (int) e.getY()
-                ));
-            }
-            e.consume();
-        });
-
-        scene.addEventFilter(MouseEvent.MOUSE_DRAGGED, e -> {
-            if (!dragging[0]) return;
-            double dx = e.getScreenX() - anchor[0];
-            double dy = e.getScreenY() - anchor[1];
-            if (!moved[0] && (Math.abs(dx) > threshold || Math.abs(dy) > threshold)) {
-                moved[0] = true;
-            }
-            if (moved[0]) {
-                primaryStage.setX(anchor[2] + dx);
-                primaryStage.setY(anchor[3] + dy);
-            }
-            e.consume();
-        });
-
+        Scene scene = new Scene(webView, expandedWidth, expandedHeight);
+        // Forward mouse clicks into the page via JS: on some JavaFX/WebKit builds mouse events
+        // never reach the web content (keyboard/TAB works but clicks don't).
+        scene.addEventFilter(MouseEvent.MOUSE_PRESSED, e -> e.consume());
         scene.addEventFilter(MouseEvent.MOUSE_RELEASED, e -> {
-            if (dragging[0]) {
-                if (!moved[0] && !bridge.isExpanded()) {
-                    bridge.expand();
-                    engine.executeScript(
-                            "document.getElementById('root').classList.add('expanded');"
-                            + "setTimeout(function(){var i=document.getElementById('input');if(i)i.focus();},80);"
-                    );
-                }
-                dragging[0] = false;
-                moved[0] = false;
-            }
             e.consume();
+            int x = (int) e.getX();
+            int y = (int) e.getY();
+            Platform.runLater(() -> {
+                forwardClickToPage(engine, x, y);
+                webView.requestFocus(); // so keyboard input goes to the window
+            });
         });
-
         primaryStage.setScene(scene);
-        primaryStage.initStyle(StageStyle.TRANSPARENT);
+        primaryStage.initStyle(StageStyle.DECORATED);
         primaryStage.setAlwaysOnTop(alwaysOnTop);
-        primaryStage.setWidth(collapsedWidth);
-        primaryStage.setHeight(collapsedHeight);
-        primaryStage.setResizable(false);
+        primaryStage.setWidth(expandedWidth);
+        primaryStage.setHeight(expandedHeight);
+        primaryStage.setResizable(true);
         primaryStageRef = primaryStage;
         refreshBotName();
 
@@ -220,8 +132,8 @@ public class FloatingAppLauncher extends Application {
             primaryStage.setY(initialY);
         } else {
             Rectangle2D bounds = Screen.getPrimary().getVisualBounds();
-            primaryStage.setX(bounds.getMaxX() - collapsedWidth - 24);
-            primaryStage.setY(bounds.getMaxY() - collapsedHeight - 24);
+            primaryStage.setX(bounds.getMaxX() - expandedWidth - 24);
+            primaryStage.setY(bounds.getMaxY() - expandedHeight - 60);
         }
 
         primaryStage.show();
@@ -238,6 +150,19 @@ public class FloatingAppLauncher extends Application {
             springContext.getBean(MinsBotQuitService.class).setQuitRunnable(quitAction);
         } catch (Exception ignored) {
             // Bean may not be available in some tests
+        }
+    }
+
+    /**
+     * Synthesize a click in the page at the given viewport coordinates.
+     * Used when the WebView does not deliver mouse events to the content (keyboard works, clicks don't).
+     */
+    private static void forwardClickToPage(WebEngine engine, int x, int y) {
+        try {
+            String script = "(function(){ var el = document.elementFromPoint(" + x + "," + y + "); if(el){ el.focus(); el.click(); } })();";
+            engine.executeScript(script);
+        } catch (Exception ignored) {
+            // Page may not be ready or JS disabled
         }
     }
 

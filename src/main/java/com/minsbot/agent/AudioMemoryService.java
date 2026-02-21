@@ -64,7 +64,7 @@ public class AudioMemoryService {
 
     private final ChatService chatService;
 
-    public AudioMemoryService(ChatService chatService) {
+    public AudioMemoryService(@org.springframework.context.annotation.Lazy ChatService chatService) {
         this.chatService = chatService;
     }
 

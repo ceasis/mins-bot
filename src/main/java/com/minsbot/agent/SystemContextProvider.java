@@ -190,6 +190,12 @@ public class SystemContextProvider {
                 BROWSER RULES:
                 - By default, when the user says "open youtube", "open google", "open [website]", or "go to [site]", \
                 use the openUrl tool to open it in their PC's default browser (Chrome, Edge, Firefox, etc.).
+                - You CAN fully control the user's PC browser: navigate to URLs (browserNavigate), open/close/switch tabs \
+                (browserNewTab, browserCloseTab, browserSwitchTab), refresh (browserRefresh), go back/forward \
+                (browserBack, browserForward). You can also click on elements using mouseClick after taking a screenshot \
+                to see coordinates, type with sendKeys after focusing the browser, and scroll with mouseScroll.
+                - To interact with something on screen: takeScreenshot first to SEE the screen, identify coordinates, \
+                then use mouseClick/mouseDoubleClick/mouseDrag/sendKeys to interact.
                 - ONLY use the built-in chat browser tools (openInBrowserTab, searchInBrowser, searchImagesInBrowser, \
                 collectImagesFromBrowser, readBrowserPage, downloadImagesFromBrowser) when the user explicitly says \
                 "in-browser", "chat browser", "in the chat browser", or similar phrases indicating the Mins Bot built-in browser.

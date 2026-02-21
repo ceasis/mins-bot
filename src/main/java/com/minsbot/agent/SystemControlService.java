@@ -5,6 +5,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.awt.Desktop;
+import java.awt.Rectangle;
+import java.awt.Robot;
+import java.awt.Toolkit;
+import java.awt.event.InputEvent;
+import java.awt.image.BufferedImage;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.URI;
@@ -439,6 +444,201 @@ public class SystemControlService {
         } catch (Exception e) {
             return "CMD error: " + e.getMessage();
         }
+    }
+
+    // ── Mouse control ──
+
+    /**
+     * Move the mouse cursor to the given screen coordinates.
+     */
+    public String mouseMove(int x, int y) {
+        try {
+            Robot robot = new Robot();
+            robot.mouseMove(x, y);
+            return "Moved mouse to (" + x + ", " + y + ").";
+        } catch (Exception e) {
+            return "Mouse move failed: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Click the mouse at the given screen coordinates.
+     * button: "left" (default), "right", or "middle".
+     */
+    public String mouseClick(int x, int y, String button) {
+        try {
+            Robot robot = new Robot();
+            robot.mouseMove(x, y);
+            robot.delay(50);
+            int mask = switch (button != null ? button.toLowerCase() : "left") {
+                case "right" -> InputEvent.BUTTON3_DOWN_MASK;
+                case "middle" -> InputEvent.BUTTON2_DOWN_MASK;
+                default -> InputEvent.BUTTON1_DOWN_MASK;
+            };
+            robot.mousePress(mask);
+            robot.delay(30);
+            robot.mouseRelease(mask);
+            return "Clicked " + (button != null ? button : "left") + " at (" + x + ", " + y + ").";
+        } catch (Exception e) {
+            return "Mouse click failed: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Double-click the mouse at the given screen coordinates.
+     */
+    public String mouseDoubleClick(int x, int y) {
+        try {
+            Robot robot = new Robot();
+            robot.mouseMove(x, y);
+            robot.delay(50);
+            int mask = InputEvent.BUTTON1_DOWN_MASK;
+            robot.mousePress(mask);
+            robot.delay(30);
+            robot.mouseRelease(mask);
+            robot.delay(80);
+            robot.mousePress(mask);
+            robot.delay(30);
+            robot.mouseRelease(mask);
+            return "Double-clicked at (" + x + ", " + y + ").";
+        } catch (Exception e) {
+            return "Double-click failed: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Drag the mouse from one point to another (left button).
+     */
+    public String mouseDrag(int fromX, int fromY, int toX, int toY) {
+        try {
+            Robot robot = new Robot();
+            robot.mouseMove(fromX, fromY);
+            robot.delay(50);
+            robot.mousePress(InputEvent.BUTTON1_DOWN_MASK);
+            robot.delay(50);
+            // Smooth drag in steps
+            int steps = 20;
+            for (int i = 1; i <= steps; i++) {
+                int cx = fromX + (toX - fromX) * i / steps;
+                int cy = fromY + (toY - fromY) * i / steps;
+                robot.mouseMove(cx, cy);
+                robot.delay(10);
+            }
+            robot.delay(50);
+            robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK);
+            return "Dragged from (" + fromX + "," + fromY + ") to (" + toX + "," + toY + ").";
+        } catch (Exception e) {
+            return "Mouse drag failed: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Scroll the mouse wheel at the current position.
+     * Positive = scroll down, negative = scroll up.
+     */
+    public String mouseScroll(int amount) {
+        try {
+            Robot robot = new Robot();
+            robot.mouseWheel(amount);
+            return "Scrolled " + (amount > 0 ? "down" : "up") + " by " + Math.abs(amount) + " notches.";
+        } catch (Exception e) {
+            return "Mouse scroll failed: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Get current mouse position.
+     */
+    public String getMousePosition() {
+        java.awt.Point p = java.awt.MouseInfo.getPointerInfo().getLocation();
+        return "Mouse is at (" + p.x + ", " + p.y + ").";
+    }
+
+    /**
+     * Get screen resolution.
+     */
+    public String getScreenSize() {
+        java.awt.Dimension d = Toolkit.getDefaultToolkit().getScreenSize();
+        return "Screen resolution: " + d.width + "x" + d.height + ".";
+    }
+
+    // ── Browser keyboard shortcuts ──
+
+    /**
+     * Navigate the PC browser to a URL by focusing it, hitting Ctrl+L, typing the URL, and pressing Enter.
+     */
+    public String browserNavigate(String browserName, String url) {
+        focusWindow(browserName != null ? browserName : "chrome");
+        try { Thread.sleep(300); } catch (InterruptedException ignored) {}
+        sendKeys("^l"); // Focus address bar
+        try { Thread.sleep(200); } catch (InterruptedException ignored) {}
+        sendKeys(url + "{ENTER}");
+        return "Navigated " + (browserName != null ? browserName : "browser") + " to: " + url;
+    }
+
+    /**
+     * Open a new tab in the PC browser.
+     */
+    public String browserNewTab(String browserName) {
+        focusWindow(browserName != null ? browserName : "chrome");
+        try { Thread.sleep(200); } catch (InterruptedException ignored) {}
+        sendKeys("^t");
+        return "Opened new tab in " + (browserName != null ? browserName : "browser") + ".";
+    }
+
+    /**
+     * Close the current tab in the PC browser.
+     */
+    public String browserCloseTab(String browserName) {
+        focusWindow(browserName != null ? browserName : "chrome");
+        try { Thread.sleep(200); } catch (InterruptedException ignored) {}
+        sendKeys("^w");
+        return "Closed current tab.";
+    }
+
+    /**
+     * Switch to the next/previous tab in the PC browser.
+     */
+    public String browserSwitchTab(String browserName, String direction) {
+        focusWindow(browserName != null ? browserName : "chrome");
+        try { Thread.sleep(200); } catch (InterruptedException ignored) {}
+        if ("previous".equalsIgnoreCase(direction) || "prev".equalsIgnoreCase(direction)
+                || "left".equalsIgnoreCase(direction)) {
+            sendKeys("^+{TAB}");
+        } else {
+            sendKeys("^{TAB}");
+        }
+        return "Switched to " + (direction != null ? direction : "next") + " tab.";
+    }
+
+    /**
+     * Refresh the current page in the PC browser.
+     */
+    public String browserRefresh(String browserName) {
+        focusWindow(browserName != null ? browserName : "chrome");
+        try { Thread.sleep(200); } catch (InterruptedException ignored) {}
+        sendKeys("{F5}");
+        return "Refreshed browser page.";
+    }
+
+    /**
+     * Go back in the PC browser.
+     */
+    public String browserBack(String browserName) {
+        focusWindow(browserName != null ? browserName : "chrome");
+        try { Thread.sleep(200); } catch (InterruptedException ignored) {}
+        sendKeys("%{LEFT}");
+        return "Went back in browser.";
+    }
+
+    /**
+     * Go forward in the PC browser.
+     */
+    public String browserForward(String browserName) {
+        focusWindow(browserName != null ? browserName : "chrome");
+        try { Thread.sleep(200); } catch (InterruptedException ignored) {}
+        sendKeys("%{RIGHT}");
+        return "Went forward in browser.";
     }
 
     // ── Internals ──

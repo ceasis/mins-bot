@@ -7,23 +7,18 @@
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <div id="root">
-    <div id="ball-container" class="ball-container" draggable="false">
-      <div class="ball" aria-hidden="true" draggable="false"></div>
-    </div>
+  <div id="root" class="expanded">
     <div id="panel" class="panel">
       <div class="panel-header">
-        <span class="panel-title">Mins Bot</span>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div class="ball-container"><div class="ball" aria-hidden="true"></div></div>
+          <span class="panel-title">Mins Bot</span>
+        </div>
         <div class="panel-actions">
           <button type="button" id="clear-btn" class="btn-icon btn-clear" title="Clear chat" aria-label="Clear chat">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8M9 4h6a1 1 0 0 1 1 1v1H8V5a1 1 0 0 1 1-1ZM4 7h16"/>
               <path d="M10 11v6M14 11v6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none"/>
-            </svg>
-          </button>
-          <button type="button" id="close-btn" class="btn-icon btn-close" title="Close" aria-label="Close panel">
-            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M6.7 5.3a1 1 0 0 0-1.4 1.4L10.6 12l-5.3 5.3a1 1 0 1 0 1.4 1.4l5.3-5.3 5.3 5.3a1 1 0 1 0 1.4-1.4L13.4 12l5.3-5.3a1 1 0 0 0-1.4-1.4L12 10.6 6.7 5.3Z"></path>
             </svg>
           </button>
         </div>

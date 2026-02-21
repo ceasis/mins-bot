@@ -382,6 +382,116 @@ public class SystemTools {
         return "Wallpaper changed to: " + p;
     }
 
+    // ═══ Mouse control tools ═══
+
+    @Tool(description = "Click the mouse at screen coordinates. Use for clicking buttons, links, or any on-screen element. "
+            + "Take a screenshot first to see the screen and determine the correct coordinates.")
+    public String mouseClick(
+            @ToolParam(description = "X coordinate (pixels from left edge of screen)") int x,
+            @ToolParam(description = "Y coordinate (pixels from top edge of screen)") int y,
+            @ToolParam(description = "Mouse button: 'left' (default), 'right', or 'middle'") String button) {
+        notifier.notify("Clicking at (" + x + ", " + y + ")");
+        return systemControl.mouseClick(x, y, button);
+    }
+
+    @Tool(description = "Double-click the mouse at screen coordinates.")
+    public String mouseDoubleClick(
+            @ToolParam(description = "X coordinate") int x,
+            @ToolParam(description = "Y coordinate") int y) {
+        notifier.notify("Double-clicking at (" + x + ", " + y + ")");
+        return systemControl.mouseDoubleClick(x, y);
+    }
+
+    @Tool(description = "Move the mouse cursor to screen coordinates without clicking.")
+    public String mouseMove(
+            @ToolParam(description = "X coordinate") int x,
+            @ToolParam(description = "Y coordinate") int y) {
+        return systemControl.mouseMove(x, y);
+    }
+
+    @Tool(description = "Drag the mouse from one point to another (left button held). Useful for drag-and-drop, "
+            + "selecting text, resizing windows, or moving items.")
+    public String mouseDrag(
+            @ToolParam(description = "Starting X coordinate") int fromX,
+            @ToolParam(description = "Starting Y coordinate") int fromY,
+            @ToolParam(description = "Ending X coordinate") int toX,
+            @ToolParam(description = "Ending Y coordinate") int toY) {
+        notifier.notify("Dragging from (" + fromX + "," + fromY + ") to (" + toX + "," + toY + ")");
+        return systemControl.mouseDrag(fromX, fromY, toX, toY);
+    }
+
+    @Tool(description = "Scroll the mouse wheel. Positive = scroll down, negative = scroll up. "
+            + "Each notch is about 3 lines of text.")
+    public String mouseScroll(
+            @ToolParam(description = "Number of notches to scroll. Positive = down, negative = up. e.g. 3 or -5") int amount) {
+        return systemControl.mouseScroll(amount);
+    }
+
+    @Tool(description = "Get the current mouse cursor position on screen.")
+    public String getMousePosition() {
+        return systemControl.getMousePosition();
+    }
+
+    @Tool(description = "Get the screen resolution (width x height in pixels).")
+    public String getScreenSize() {
+        return systemControl.getScreenSize();
+    }
+
+    // ═══ PC browser control tools ═══
+
+    @Tool(description = "Navigate the user's PC browser to a URL. Focuses the browser window, "
+            + "clicks the address bar (Ctrl+L), types the URL, and presses Enter. "
+            + "Use this for browser navigation — NOT Playwright/headless.")
+    public String browserNavigate(
+            @ToolParam(description = "Browser name to focus, e.g. 'chrome', 'edge', 'firefox'. Defaults to 'chrome'.") String browserName,
+            @ToolParam(description = "The URL to navigate to, e.g. 'youtube.com' or 'https://google.com'") String url) {
+        notifier.notify("Navigating browser to: " + url);
+        return systemControl.browserNavigate(browserName, url);
+    }
+
+    @Tool(description = "Open a new empty tab in the user's PC browser (Ctrl+T).")
+    public String browserNewTab(
+            @ToolParam(description = "Browser name: 'chrome', 'edge', 'firefox'. Defaults to 'chrome'.") String browserName) {
+        notifier.notify("Opening new browser tab");
+        return systemControl.browserNewTab(browserName);
+    }
+
+    @Tool(description = "Close the current tab in the user's PC browser (Ctrl+W).")
+    public String browserCloseTab(
+            @ToolParam(description = "Browser name: 'chrome', 'edge', 'firefox'. Defaults to 'chrome'.") String browserName) {
+        notifier.notify("Closing browser tab");
+        return systemControl.browserCloseTab(browserName);
+    }
+
+    @Tool(description = "Switch to the next or previous tab in the user's PC browser. "
+            + "Use 'next' to go right (Ctrl+Tab) or 'previous' to go left (Ctrl+Shift+Tab).")
+    public String browserSwitchTab(
+            @ToolParam(description = "Browser name: 'chrome', 'edge', 'firefox'. Defaults to 'chrome'.") String browserName,
+            @ToolParam(description = "'next' (go right) or 'previous'/'prev' (go left)") String direction) {
+        notifier.notify("Switching browser tab: " + direction);
+        return systemControl.browserSwitchTab(browserName, direction);
+    }
+
+    @Tool(description = "Refresh the current page in the user's PC browser (F5).")
+    public String browserRefresh(
+            @ToolParam(description = "Browser name: 'chrome', 'edge', 'firefox'. Defaults to 'chrome'.") String browserName) {
+        return systemControl.browserRefresh(browserName);
+    }
+
+    @Tool(description = "Go back one page in the user's PC browser (Alt+Left).")
+    public String browserBack(
+            @ToolParam(description = "Browser name: 'chrome', 'edge', 'firefox'. Defaults to 'chrome'.") String browserName) {
+        return systemControl.browserBack(browserName);
+    }
+
+    @Tool(description = "Go forward one page in the user's PC browser (Alt+Right).")
+    public String browserForward(
+            @ToolParam(description = "Browser name: 'chrome', 'edge', 'firefox'. Defaults to 'chrome'.") String browserName) {
+        return systemControl.browserForward(browserName);
+    }
+
+    // ═══ Helpers ═══
+
     private static String fmt(long bytes) {
         if (bytes < 1024) return bytes + " B";
         double kb = bytes / 1024.0;

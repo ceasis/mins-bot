@@ -173,6 +173,10 @@ public class ChatService {
     private volatile long lastActivityTime = System.currentTimeMillis();
     private volatile boolean autonomousRunning = false;
     private volatile java.awt.Point lastCheckedMousePos = null;
+    /** Last message pushed from autonomous mode; cleared on user input so we don't repeat when idle. */
+    private volatile String lastAutonomousMessageSent = null;
+    /** True after autonomous concluded "all directives addressed"; cleared on user input. */
+    private volatile boolean autonomousConcludedAllAddressed = false;
 
     // Audio transcription properties (still uses raw HTTP)
     @Value("${app.openai.api-key:}")
@@ -202,6 +206,8 @@ public class ChatService {
         }
         String trimmed = message.trim();
         lastActivityTime = System.currentTimeMillis();
+        lastAutonomousMessageSent = null;
+        autonomousConcludedAllAddressed = false; // allow autonomous to run again after user input
         toolNotifier.clear();
         transcriptService.save("USER", trimmed);
 
@@ -432,6 +438,7 @@ public class ChatService {
         if (directives == null || directives.isBlank()) return;
 
         if (!isUserIdle()) return;
+        if (autonomousConcludedAllAddressed) return; // already said "all directives addressed" with no new input
 
         autonomousRunning = true;
         int step = 0;
@@ -460,15 +467,25 @@ public class ChatService {
                 workingSound.stop();
 
                 if (reply != null && !reply.isBlank()) {
+                    String normalized = reply.trim().replaceAll("\\s+", " ");
+                    // Don't repeat the same message when there's been no new user input
+                    if (normalized.equals(lastAutonomousMessageSent)) {
+                        autonomousConcludedAllAddressed = true; // treat as concluded so we don't re-run next interval
+                        log.info("[Autonomous] Same message as last time (no new input) — skipping send and stopping.");
+                        break;
+                    }
                     // Check for "done" signal from the AI
                     if (reply.toLowerCase().contains("all directives addressed")) {
                         transcriptService.save("BOT(autonomous)", reply);
                         asyncMessages.push(reply);
+                        lastAutonomousMessageSent = normalized;
+                        autonomousConcludedAllAddressed = true;
                         log.info("[Autonomous] AI signaled completion at step {}.", step);
                         break;
                     }
                     transcriptService.save("BOT(autonomous)", reply);
                     asyncMessages.push(reply);
+                    lastAutonomousMessageSent = normalized;
                     log.info("[Autonomous] Step {} done: {}", step,
                             reply.length() > 100 ? reply.substring(0, 100) + "..." : reply);
                 }
