@@ -21,9 +21,9 @@ import java.util.Map;
  *
  * Monitored files:
  * - minsbot_config.txt  → WorkingSoundService (sound) + IdleDetectionService (idle) + ScreenMemoryService (ocr)
- * - personal_config.md → logged (AI picks it up on next chat)
- * - cron_config.md     → logged (AI picks it up on next chat)
- * - system_config.md   → logged (AI picks it up on next chat)
+ * - personal_config.txt → logged (AI picks it up on next chat)
+ * - cron_config.txt     → logged (AI picks it up on next chat)
+ * - system_config.txt   → logged (AI picks it up on next chat)
  */
 @Component
 public class ConfigScanService {
@@ -35,9 +35,9 @@ public class ConfigScanService {
 
     private static final String[] WATCHED_FILES = {
             "minsbot_config.txt",
-            "personal_config.md",
-            "cron_config.md",
-            "system_config.md"
+            "personal_config.txt",
+            "cron_config.txt",
+            "system_config.txt"
     };
 
     private final WorkingSoundService workingSound;
@@ -101,7 +101,7 @@ public class ConfigScanService {
                 audioMemory.reloadConfig();
                 FloatingAppLauncher.refreshBotName();
             }
-            // personal_config.md, cron_config.md, system_config.md:
+            // personal_config.txt, cron_config.txt, system_config.txt:
             // These are re-read by SystemContextProvider on every chat request,
             // so the AI automatically sees changes. Just log for visibility.
             default -> log.info("[ConfigScan] {} will be picked up on next chat message", file);

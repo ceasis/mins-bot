@@ -13,7 +13,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Tools for reading and updating the user's cron/scheduled-checks config (~/mins_bot_data/cron_config.md).
+ * Tools for reading and updating the user's cron/scheduled-checks config (~/mins_bot_data/cron_config.txt).
  * That file is loaded into the AI system prompt as SCHEDULED CHECKS, so the bot knows which
  * daily, weekly, or other recurring checks the user wants. Use these tools when the user
  * adds or changes scheduled checks or reminders.
@@ -22,7 +22,7 @@ import java.util.regex.Pattern;
 public class CronConfigTools {
 
     private static final Path CRON_CONFIG_PATH =
-            Paths.get(System.getProperty("user.home"), "mins_bot_data", "cron_config.md");
+            Paths.get(System.getProperty("user.home"), "mins_bot_data", "cron_config.txt");
 
     private static final String DEFAULT_TEMPLATE = """
             # Cron / scheduled checks

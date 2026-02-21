@@ -5,6 +5,8 @@ import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
+import java.util.StringJoiner;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -39,20 +41,27 @@ public class AudioMemoryTools {
 
         String content = audioMemory.readMemory(dateStr);
         if (content == null || content.isBlank()) {
-            return "No audio memory found for " + dateStr + ".";
+            String status = audioMemory.getStatus();
+            return "No audio memory found for " + dateStr + ". " + status;
         }
         return "Audio memory for " + dateStr + ":\n" + content;
     }
 
     @Tool(description = "Capture and transcribe system audio right now. Records a short clip of whatever "
             + "is playing through the speakers, transcribes it, and stores with timestamp. "
-            + "Use when the user says 'what song is this?', 'remember what\\'s playing', 'capture audio'.")
+            + "Use when the user says 'record it', 'record audio', 'capture audio', 'start to capture audio', "
+            + "'start recording audio', 'start capturing', 'what song is this?', or 'remember what\\'s playing'. Prefer calling this over giving config instructions. "
+            + "When capture fails, report the exact 'Capture failed: ...' reason to the user.")
     public String captureAudioNow() {
         notifier.notify("Capturing audio memory...");
         String text = audioMemory.captureNow();
         if (text == null || text.isBlank()) {
-            return "Could not capture audio memory — no system audio available or transcription failed. "
-                    + "Make sure Stereo Mix is enabled in Windows Sound settings.";
+            String err = audioMemory.getLastCaptureError();
+            String status = audioMemory.getStatus();
+            if (err != null && !err.isBlank()) {
+                return "Capture failed: " + err + " Tell the user this exact reason. " + status;
+            }
+            return "Could not capture audio memory. " + status;
         }
         return "Captured and stored audio memory:\n" + text;
     }
@@ -61,6 +70,32 @@ public class AudioMemoryTools {
     public String listAudioMemoryDates() {
         notifier.notify("Listing audio memory dates...");
         return audioMemory.listDates();
+    }
+
+    @Tool(description = "Check why audio memory might be empty (e.g. feature disabled, or ffmpeg/capture device not set on Windows). "
+            + "Call when the user asks what they're listening to or about system audio but there are no recordings, so you can explain how to fix it.")
+    public String getAudioMemoryStatus() {
+        notifier.notify("Checking audio memory status...");
+        return audioMemory.getStatus();
+    }
+
+    @Tool(description = "List Windows audio capture device names (DirectShow). Use when capture fails or user asks 'list audio devices' / 'what capture device'. "
+            + "Return the list and tell the user to set mixer_name under ## Audio memory in minsbot_config.txt to one of these exact names.")
+    public String listAudioCaptureDevices() {
+        notifier.notify("Listing audio capture devices...");
+        List<String> devices = audioMemory.listCaptureDevices();
+        if (devices.isEmpty()) {
+            String raw = audioMemory.getLastListDevicesRawOutput();
+            String msg = "No audio capture devices found. Enable a loopback device (e.g. Stereo Mix) in Windows: Sound settings → Recording → right-click → Show disabled devices → enable Stereo Mix (or similar).";
+            if (raw != null && !raw.isBlank()) {
+                String snippet = raw.length() > 600 ? raw.substring(0, 600) + "..." : raw;
+                msg += " FFmpeg output (for debugging): " + snippet.replace("\r", " ").replace("\n", " ");
+            }
+            return msg;
+        }
+        StringJoiner sj = new StringJoiner("\n", "Available audio capture devices (set mixer_name in minsbot_config.txt ## Audio memory to one of these):\n", "");
+        for (String d : devices) sj.add("  - \"" + d + "\"");
+        return sj.toString();
     }
 
     // ═══ Date resolution ═══

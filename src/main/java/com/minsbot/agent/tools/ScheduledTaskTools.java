@@ -16,7 +16,7 @@ import java.util.concurrent.*;
 
 /**
  * AI-callable tools for scheduling reminders and recurring tasks.
- * Recurring tasks auto-update cron_config.md and push messages to the chat.
+ * Recurring tasks auto-update cron_config.txt and push messages to the chat.
  */
 @Component
 public class ScheduledTaskTools {
@@ -70,7 +70,7 @@ public class ScheduledTaskTools {
             tasks.put(id, new ScheduledTaskEntry(id, "reminder", message,
                     fireTime.format(FMT), null, "pending", future));
 
-            // Persist to cron_config.md
+            // Persist to cron_config.txt
             persistToCron("Reminders", message + " — at " + fireTime.format(FMT));
 
             log.info("[Scheduler] Reminder set: '{}' fires at {}", message, fireTime.format(FMT));
@@ -107,7 +107,7 @@ public class ScheduledTaskTools {
                     LocalDateTime.now().plusSeconds(interval).format(FMT),
                     intervalLabel, "active", future));
 
-            // Persist to cron_config.md
+            // Persist to cron_config.txt
             persistToCron("Other schedule", description + " — every " + intervalLabel);
 
             log.info("[Scheduler] Recurring task: '{}' every {}", description, intervalLabel);
@@ -156,7 +156,7 @@ public class ScheduledTaskTools {
                     LocalDateTime.now().plusSeconds(interval).format(FMT),
                     intervalLabel, "active", future));
 
-            // Persist to cron_config.md
+            // Persist to cron_config.txt
             persistToCron("Other schedule", prompt + " — every " + intervalLabel);
 
             log.info("[Scheduler] AI recurring task: '{}' every {}", prompt, intervalLabel);
@@ -176,7 +176,7 @@ public class ScheduledTaskTools {
         entry.future.cancel(false);
         entry.status = "cancelled";
 
-        // Remove from cron_config.md
+        // Remove from cron_config.txt
         String section = "reminder".equals(entry.type) ? "Reminders" : "Other schedule";
         removeFromCron(section, entry.description);
 
@@ -219,7 +219,7 @@ public class ScheduledTaskTools {
         try {
             cronConfigTools.appendCronEntry(section, description);
         } catch (Exception e) {
-            log.warn("[Scheduler] Failed to update cron_config.md: {}", e.getMessage());
+            log.warn("[Scheduler] Failed to update cron_config.txt: {}", e.getMessage());
         }
     }
 
@@ -227,7 +227,7 @@ public class ScheduledTaskTools {
         try {
             cronConfigTools.removeCronEntry(section, descriptionSubstring);
         } catch (Exception e) {
-            log.warn("[Scheduler] Failed to update cron_config.md: {}", e.getMessage());
+            log.warn("[Scheduler] Failed to update cron_config.txt: {}", e.getMessage());
         }
     }
 

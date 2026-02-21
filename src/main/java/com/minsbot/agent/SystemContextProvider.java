@@ -13,8 +13,8 @@ import java.time.format.DateTimeFormatter;
 
 /**
  * Provides system context (username, OS, time, etc.) for the AI system message.
- * Personal details from ~/mins_bot_data/personal_config.md and system/preferences from
- * ~/mins_bot_data/system_config.md and scheduled checks from ~/mins_bot_data/cron_config.md are injected when present.
+ * Personal details from ~/mins_bot_data/personal_config.txt and system/preferences from
+ * ~/mins_bot_data/system_config.txt and scheduled checks from ~/mins_bot_data/cron_config.txt are injected when present.
  */
 @Component
 public class SystemContextProvider {
@@ -22,9 +22,9 @@ public class SystemContextProvider {
     /** Whether the directive reminder has been shown at least once this session. */
     private boolean directiveReminderShownOnce = false;
 
-    private static final String PERSONAL_CONFIG_FILENAME = "personal_config.md";
-    private static final String SYSTEM_CONFIG_FILENAME = "system_config.md";
-    private static final String CRON_CONFIG_FILENAME = "cron_config.md";
+    private static final String PERSONAL_CONFIG_FILENAME = "personal_config.txt";
+    private static final String SYSTEM_CONFIG_FILENAME = "system_config.txt";
+    private static final String CRON_CONFIG_FILENAME = "cron_config.txt";
     private static final String MINSBOT_CONFIG_FILENAME = "minsbot_config.txt";
     private static final String DEFAULT_PERSONAL_CONFIG = """
             # Personal config
@@ -89,11 +89,13 @@ public class SystemContextProvider {
             - enabled: true
             - interval_seconds: 60
 
-            ## Audio memory
-            - enabled: false
+            ## Audio memory (capture system audio via ffmpeg; clips in ~/mins_bot_data/audio_memory/clips/)
+            - enabled: true
             - interval_seconds: 60
             - clip_seconds: 15
-            - keep_wav: false
+            - keep_clips: true
+            - clip_format: wav
+            - mixer_name:
 
             ## Download
             - confirm_threshold: 1000
@@ -153,7 +155,7 @@ public class SystemContextProvider {
                 Be concise and helpful. Use the available tools to fulfill user requests.
                 """.formatted(username, computerName, osName, osVersion, osArch, userHome, now, userHome));
 
-        // Personal context from ~/mins_bot_data/personal_config.md (created with template if missing)
+        // Personal context from ~/mins_bot_data/personal_config.txt (created with template if missing)
         String personalConfig = loadPersonalConfig();
         if (personalConfig != null && !personalConfig.isBlank()) {
             sb.append("\nPERSONAL CONTEXT (use this to personalize responses — name, family, work, etc.):\n");
@@ -161,7 +163,7 @@ public class SystemContextProvider {
             if (!personalConfig.endsWith("\n")) sb.append("\n");
         }
 
-        // System config from ~/mins_bot_data/system_config.md (created with template if missing)
+        // System config from ~/mins_bot_data/system_config.txt (created with template if missing)
         String systemConfig = loadSystemConfig();
         if (systemConfig != null && !systemConfig.isBlank()) {
             sb.append("\nSYSTEM CONFIG (machine preferences, default apps, paths, network — use for system-related answers):\n");
@@ -169,7 +171,7 @@ public class SystemContextProvider {
             if (!systemConfig.endsWith("\n")) sb.append("\n");
         }
 
-        // Scheduled checks from ~/mins_bot_data/cron_config.md (created with template if missing)
+        // Scheduled checks from ~/mins_bot_data/cron_config.txt (created with template if missing)
         String cronConfig = loadCronConfig();
         if (cronConfig != null && !cronConfig.isBlank()) {
             sb.append("\nSCHEDULED CHECKS (daily/weekly/reminders — use when discussing recurring tasks or setting up checks):\n");
@@ -216,6 +218,11 @@ public class SystemContextProvider {
 
                 TTS / VOICE RULE:
                 - When the user asks you to "say" something, "speak", "read aloud", or "say something": you MUST call the speak tool with the text to be spoken so they hear audio. Do not just reply with text — call speak(...) with that text (or a short phrase). Examples: "say hello" → call speak("Hello!"); "say something" → call speak("Here's something for you!"); "read this aloud" → call speak with the content.
+
+                AUDIO / SCREEN MEMORY RULE:
+                - When the user says "no audio captured", "capture not working", or similar: call getAudioMemoryStatus (it includes the last capture error), then call listAudioCaptureDevices and tell the user to set mixer_name in minsbot_config.txt to one of the listed devices (exact name). If the list is empty, suggest enabling a loopback device in Windows Sound (e.g. Stereo Mix) and trying again. Always report the exact "Capture failed: ..." or "Last capture failed: ..." reason to the user.
+                - When the user asks "what am I listening to right now?", "what's playing right now?", "record it", "record audio", "capture audio", "start to capture audio", "start recording audio", or similar: call captureAudioNow first (to capture current audio), then report the tool result. For past dates only use getAudioMemory. Do NOT reply with "I cannot record" or give only config steps — call the tool and tell the user exactly what it returned (e.g. the transcribed text, or the "Capture failed: ..." reason so they can fix it).
+                - When the user asks what is on their screen, what they are looking at, or what they see (e.g. "what am I looking at?", "what is on my screen?", "what do I see right now?", "what am I watching?", "how about now?" after a screen question): you MUST call captureAndRememberNow. It takes a fresh screenshot and OCRs it — then describe the visible content from the tool result. Do NOT reply with only screen resolution or "I cannot determine" — always call the tool and report what it returns.
                 """);
 
         // Load HIERARCHY.md for tool execution prioritization
@@ -298,7 +305,7 @@ public class SystemContextProvider {
     }
 
     /**
-     * Load personal context from ~/mins_bot_data/personal_config.md.
+     * Load personal context from ~/mins_bot_data/personal_config.txt.
      * If the file does not exist, creates mins_bot_data and writes a default template.
      */
     private String loadPersonalConfig() {
@@ -318,7 +325,7 @@ public class SystemContextProvider {
     }
 
     /**
-     * Load system config from ~/mins_bot_data/system_config.md.
+     * Load system config from ~/mins_bot_data/system_config.txt.
      * If the file does not exist, creates mins_bot_data and writes a default template.
      */
     private String loadSystemConfig() {
@@ -341,6 +348,17 @@ public class SystemContextProvider {
      * Load bot config from ~/mins_bot_data/minsbot_config.txt.
      * If the file does not exist, creates mins_bot_data and writes a default template.
      */
+    private static final String AUDIO_MEMORY_CONFIG_BLOCK = """
+
+            ## Audio memory (capture system audio via ffmpeg; clips in ~/mins_bot_data/audio_memory/clips/)
+            - enabled: true
+            - interval_seconds: 60
+            - clip_seconds: 15
+            - keep_clips: true
+            - clip_format: wav
+            - mixer_name:
+            """;
+
     private String loadMinsbotConfig() {
         Path dataDir = Paths.get(System.getProperty("user.home"), "mins_bot_data");
         Path path = dataDir.resolve(MINSBOT_CONFIG_FILENAME);
@@ -350,7 +368,17 @@ public class SystemContextProvider {
                 Files.writeString(path, DEFAULT_MINSBOT_CONFIG);
                 return null;
             }
-            String content = Files.readString(path).trim();
+            String content = Files.readString(path);
+            if (!content.contains("## Audio memory") && !content.contains("## audio memory")) {
+                String insert = AUDIO_MEMORY_CONFIG_BLOCK;
+                if (content.contains("## Download")) {
+                    content = content.replaceFirst("(\\r?\\n)(\\s*## Download)", insert + "$1$2");
+                } else {
+                    content = content.trim() + insert;
+                }
+                Files.writeString(path, content);
+            }
+            content = content.trim();
             return content.isEmpty() ? null : content;
         } catch (IOException ignored) {
             return null;
@@ -358,7 +386,7 @@ public class SystemContextProvider {
     }
 
     /**
-     * Load scheduled checks from ~/mins_bot_data/cron_config.md.
+     * Load scheduled checks from ~/mins_bot_data/cron_config.txt.
      * If the file does not exist, creates mins_bot_data and writes a default template.
      */
     private String loadCronConfig() {

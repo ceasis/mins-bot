@@ -13,7 +13,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Tools for reading and updating the user's system config (~/mins_bot_data/system_config.md).
+ * Tools for reading and updating the user's system config (~/mins_bot_data/system_config.txt).
  * That file is loaded into the AI system prompt as SYSTEM CONFIG, so the bot knows machine
  * preferences, default apps, paths, network, etc. Use these tools when the user shares
  * system-related info to store for future conversations.
@@ -22,7 +22,7 @@ import java.util.regex.Pattern;
 public class SystemConfigTools {
 
     private static final Path SYSTEM_CONFIG_PATH =
-            Paths.get(System.getProperty("user.home"), "mins_bot_data", "system_config.md");
+            Paths.get(System.getProperty("user.home"), "mins_bot_data", "system_config.txt");
 
     private static final String DEFAULT_TEMPLATE = """
             # System config

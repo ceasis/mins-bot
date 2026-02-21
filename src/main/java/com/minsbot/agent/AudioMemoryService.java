@@ -7,7 +7,6 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import jakarta.annotation.PostConstruct;
-import javax.sound.sampled.*;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
@@ -15,18 +14,20 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.Comparator;
 import java.util.stream.Stream;
 
 /**
- * Periodically captures system audio (speaker output) via loopback/Stereo Mix,
+ * Periodically captures system audio (speaker output) via ffmpeg dshow (Windows),
  * records WAV clips, transcribes via OpenAI Whisper, and stores timestamped text.
  *
  * Storage: ~/mins_bot_data/audio_memory/YYYY-MM-DD.txt
- * Clips:   ~/mins_bot_data/audio_memory/clips/ (when keep_wav = true)
+ * Clips:   ~/mins_bot_data/audio_memory/clips/ (.wav or .mp3 when keep_clips = true)
  * Config:  ~/mins_bot_data/minsbot_config.txt section "## Audio memory"
  *
- * Requires "Stereo Mix" enabled in Windows Sound settings.
+ * Uses ffmpeg -f dshow to capture (e.g. "Stereo Mix"). FFmpeg is downloaded to
+ * ~/mins_bot_data/ffmpeg/ on first use if not present.
  */
 @Component
 public class AudioMemoryService {
@@ -45,52 +46,91 @@ public class AudioMemoryService {
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm:ss");
     private static final DateTimeFormatter FILE_TIME_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
 
-    // Audio format: Whisper-compatible (matches NativeVoiceService)
-    private static final float SAMPLE_RATE = 16000f;
-    private static final int SAMPLE_SIZE_BITS = 16;
-    private static final int CHANNELS = 1;
+    /** "wav" or "mp3". MP3 uses FfmpegProvider (downloads to mins_bot_data/ffmpeg if needed). */
+    private static final String FORMAT_WAV = "wav";
+    private static final String FORMAT_MP3 = "mp3";
 
     // Config (mutable, reloaded at runtime)
-    private volatile boolean enabled = false;
+    private volatile boolean enabled = true;
     private volatile int intervalSeconds = 60;
     private volatile int clipSeconds = 15;
-    private volatile boolean keepWav = false;
+    private volatile boolean keepClips = true;
+    private volatile String clipFormat = FORMAT_WAV;
+    /** dshow device name for ffmpeg (e.g. "Stereo Mix"). Config: mixer_name in ## Audio memory. */
+    private volatile String dshowDevice = "Stereo Mix";
 
     private volatile String lastText = "";
     private volatile long lastRunMs = 0;
-
-    /** Cached loopback mixer info (found at init, null if none). */
-    private volatile Mixer.Info loopbackMixer = null;
+    /** Last ffmpeg stderr when capture failed (e.g. device not found). */
+    private volatile String lastCaptureError = null;
 
     private final ChatService chatService;
+    private final FfmpegProvider ffmpegProvider;
 
-    public AudioMemoryService(@org.springframework.context.annotation.Lazy ChatService chatService) {
+    public AudioMemoryService(@org.springframework.context.annotation.Lazy ChatService chatService,
+                             FfmpegProvider ffmpegProvider) {
         this.chatService = chatService;
+        this.ffmpegProvider = ffmpegProvider;
     }
 
     @PostConstruct
     public void init() throws IOException {
         Files.createDirectories(AUDIO_MEMORY_DIR);
+        Files.createDirectories(CLIPS_DIR);
         loadConfigFromFile();
-        loopbackMixer = findLoopbackMixer();
-        if (loopbackMixer != null) {
-            log.info("[AudioMemory] Found loopback mixer: {}", loopbackMixer.getName());
-        } else {
-            log.warn("[AudioMemory] No loopback mixer found. Enable 'Stereo Mix' in Windows Sound settings.");
+        if (enabled && isWindows()) {
+            // Resolve (and if needed download) ffmpeg at startup so "what am I listening to?" works on first ask
+            Path ffmpeg = ffmpegProvider.getFfmpegPath();
+            if (ffmpeg != null) {
+                log.info("[AudioMemory] Using ffmpeg dshow for capture (device: {})", dshowDevice);
+            } else {
+                log.warn("[AudioMemory] FFmpeg is not available. Place ffmpeg.exe in ~/mins_bot_data/ffmpeg/ or set app.ffmpeg.download-url in application.properties.");
+            }
         }
+    }
+
+    /**
+     * Returns a short diagnostic so the bot can explain why audio memory might be empty.
+     */
+    public String getStatus() {
+        if (!isWindows()) {
+            return "Audio memory is only supported on Windows (uses ffmpeg dshow to capture system audio).";
+        }
+        if (!enabled) {
+            return "Audio memory is disabled. To capture what you're listening to (e.g. YouTube), enable it in "
+                    + CONFIG_PATH + " under section '## Audio memory' with line: enabled: true. Then save and restart Mins Bot.";
+        }
+        if (ffmpegProvider.getFfmpegPath() == null) {
+            return "Audio memory is enabled but ffmpeg is not available yet. It will be downloaded to ~/mins_bot_data/ffmpeg/ on first use. "
+                    + "If download fails, set app.ffmpeg.download-url in application.properties or place ffmpeg.exe in that folder manually.";
+        }
+        String msg = "Audio memory is enabled and uses ffmpeg to capture system audio (device: \"" + dshowDevice + "\"). ";
+        if (lastCaptureError != null && !lastCaptureError.isBlank()) {
+            msg += "Last capture failed: " + lastCaptureError + ". ";
+        }
+        msg += "If there are no entries for today yet, say \"capture audio now\" or \"start to capture audio\". ";
+        msg += "To fix device errors: ask the bot to \"list audio capture devices\", then set mixer_name under ## Audio memory in " + CONFIG_PATH + " to one of those names.";
+        return msg;
+    }
+
+    /** Last ffmpeg/capture error message (e.g. device not found). Null if no recent failure. */
+    public String getLastCaptureError() { return lastCaptureError; }
+
+    /** Names of dshow audio devices (Windows, requires ffmpeg). Use one as mixer_name in config. */
+    public List<String> listCaptureDevices() {
+        return ffmpegProvider.listDshowAudioDevices();
+    }
+
+    /** Raw ffmpeg output from last list_devices run (for debugging when no devices found). */
+    public String getLastListDevicesRawOutput() {
+        return ffmpegProvider.getLastListDevicesOutput();
     }
 
     /** Re-read config. Called by ConfigScanService when minsbot_config.txt changes. */
     public void reloadConfig() {
         loadConfigFromFile();
-        // Re-detect mixer in case user enabled Stereo Mix
-        Mixer.Info newMixer = findLoopbackMixer();
-        if (newMixer != null && loopbackMixer == null) {
-            log.info("[AudioMemory] Loopback mixer now available: {}", newMixer.getName());
-        }
-        loopbackMixer = newMixer;
-        log.info("[AudioMemory] Config reloaded — enabled={}, interval={}s, clip={}s, keepWav={}",
-                enabled, intervalSeconds, clipSeconds, keepWav);
+        log.info("[AudioMemory] Config reloaded — enabled={}, interval={}s, clip={}s, keepClips={}, format={}, dshow={}",
+                enabled, intervalSeconds, clipSeconds, keepClips, clipFormat, dshowDevice);
     }
 
     @Scheduled(fixedDelay = 10000)
@@ -112,7 +152,7 @@ public class AudioMemoryService {
         byte[] wav = captureSystemAudio();
         if (wav == null) return null;
 
-        saveWavIfEnabled(wav);
+        saveClipIfEnabled(wav);
 
         String text = transcribe(wav);
         if (text == null || text.isBlank()) return null;
@@ -170,7 +210,7 @@ public class AudioMemoryService {
         byte[] wav = captureSystemAudio();
         if (wav == null) return;
 
-        saveWavIfEnabled(wav);
+        saveClipIfEnabled(wav);
 
         String text = transcribe(wav);
         if (text == null || text.isBlank()) return;
@@ -185,93 +225,101 @@ public class AudioMemoryService {
     }
 
     /**
-     * Record clip_seconds of system audio from the loopback mixer.
-     * Returns WAV bytes, or null if no mixer / silence / error.
+     * Record clip_seconds of system audio via ffmpeg dshow (Windows only).
+     * Returns WAV bytes, or null if ffmpeg unavailable / device not found / silence / error.
      */
     private byte[] captureSystemAudio() {
-        if (loopbackMixer == null) {
-            log.debug("[AudioMemory] No loopback mixer available");
-            return null;
-        }
-
-        AudioFormat format = new AudioFormat(SAMPLE_RATE, SAMPLE_SIZE_BITS, CHANNELS, true, false);
-        DataLine.Info lineInfo = new DataLine.Info(TargetDataLine.class, format);
-
-        try {
-            Mixer mixer = AudioSystem.getMixer(loopbackMixer);
-            TargetDataLine line = (TargetDataLine) mixer.getLine(lineInfo);
-            line.open(format);
-            line.start();
-
-            long endAt = System.currentTimeMillis() + (clipSeconds * 1000L);
-            ByteArrayOutputStream pcmOut = new ByteArrayOutputStream();
-            byte[] buffer = new byte[4096];
-
-            while (System.currentTimeMillis() < endAt) {
-                int read = line.read(buffer, 0, buffer.length);
-                if (read > 0) pcmOut.write(buffer, 0, read);
-            }
-
-            line.stop();
-            line.close();
-
-            byte[] pcm = pcmOut.toByteArray();
-            if (pcm.length == 0 || isSilent(pcm)) {
-                log.debug("[AudioMemory] Captured silence, skipping");
-                return null;
-            }
-
-            // Convert PCM to WAV
-            ByteArrayInputStream bais = new ByteArrayInputStream(pcm);
-            long frameLength = pcm.length / format.getFrameSize();
-            AudioInputStream ais = new AudioInputStream(bais, format, frameLength);
-            ByteArrayOutputStream wavOut = new ByteArrayOutputStream();
-            AudioSystem.write(ais, AudioFileFormat.Type.WAVE, wavOut);
-            return wavOut.toByteArray();
-
-        } catch (Exception e) {
-            log.warn("[AudioMemory] Audio capture failed: {}", e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * Enumerate audio mixers and find one that looks like a loopback/Stereo Mix device.
-     */
-    private Mixer.Info findLoopbackMixer() {
         if (!isWindows()) return null;
-
-        AudioFormat format = new AudioFormat(SAMPLE_RATE, SAMPLE_SIZE_BITS, CHANNELS, true, false);
-        DataLine.Info lineInfo = new DataLine.Info(TargetDataLine.class, format);
-
-        String[] patterns = {
-                "stereo mix", "loopback", "what u hear", "wave out mix",
-                "monitor of", "rec. playback", "what you hear"
-        };
-
-        for (Mixer.Info mi : AudioSystem.getMixerInfo()) {
-            String name = mi.getName().toLowerCase();
-            for (String pat : patterns) {
-                if (name.contains(pat)) {
-                    try {
-                        Mixer mixer = AudioSystem.getMixer(mi);
-                        if (mixer.isLineSupported(lineInfo)) {
-                            return mi;
-                        }
-                    } catch (Exception ignored) {}
-                }
-            }
-        }
-        return null;
+        return captureViaFfmpeg();
     }
 
     /**
-     * Check if PCM data is effectively silence (all samples below threshold).
+     * Capture system audio using ffmpeg -f dshow (Windows).
+     * Auto-detects an available audio device if the configured one isn't found.
      */
-    private boolean isSilent(byte[] pcm) {
+    private byte[] captureViaFfmpeg() {
+        Path ffmpeg = ffmpegProvider.getFfmpegPath();
+        if (ffmpeg == null) {
+            lastCaptureError = "ffmpeg not available. It will be downloaded on next startup.";
+            return null;
+        }
+        String device = resolveDevice();
+        if (device == null) {
+            lastCaptureError = "No audio capture devices found. Enable 'Stereo Mix' in Windows Sound settings "
+                    + "(Recording tab → right-click → Show Disabled Devices → enable Stereo Mix).";
+            return null;
+        }
+        lastCaptureError = null;
+        try {
+            Path wavPath = Files.createTempFile("mins_audio_", ".wav");
+            try {
+                ProcessBuilder pb = new ProcessBuilder(
+                        ffmpeg.toAbsolutePath().toString(),
+                        "-y", "-f", "dshow", "-i", "audio=" + device,
+                        "-t", String.valueOf(clipSeconds),
+                        "-ar", "16000", "-ac", "1",
+                        wavPath.toAbsolutePath().toString()
+                );
+                pb.redirectErrorStream(true);
+                Process p = pb.start();
+                String stderr = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+                int exit = p.waitFor();
+                if (exit != 0 || !Files.exists(wavPath)) {
+                    lastCaptureError = firstLineOrTruncate(stderr, 200);
+                    if (lastCaptureError != null && lastCaptureError.isBlank()) lastCaptureError = "ffmpeg exited " + exit;
+                    return null;
+                }
+                byte[] wav = Files.readAllBytes(wavPath);
+                if (wav.length == 0 || isSilentWav(wav)) {
+                    lastCaptureError = "Capture was silent (no audio level).";
+                    return null;
+                }
+                return wav;
+            } finally {
+                Files.deleteIfExists(wavPath);
+            }
+        } catch (Exception e) {
+            lastCaptureError = e.getMessage();
+            log.debug("[AudioMemory] ffmpeg dshow capture failed: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Resolve which dshow device to capture from.
+     * Uses the configured mixer_name if available, otherwise auto-detects the first audio device.
+     */
+    private String resolveDevice() {
+        String configured = (dshowDevice != null && !dshowDevice.isBlank()) ? dshowDevice.trim() : null;
+        List<String> devices = ffmpegProvider.listDshowAudioDevices();
+        if (devices.isEmpty()) {
+            // No devices found — return configured name anyway (ffmpeg will give a clear error)
+            return configured;
+        }
+        // If the configured device is in the list, use it
+        if (configured != null) {
+            for (String d : devices) {
+                if (d.equalsIgnoreCase(configured)) return d;
+            }
+            // Configured device not found — auto-select first available
+            log.info("[AudioMemory] Configured device '{}' not found. Available: {}. Using '{}'.",
+                    configured, devices, devices.get(0));
+        }
+        return devices.get(0);
+    }
+
+    private static String firstLineOrTruncate(String s, int maxLen) {
+        if (s == null || s.isBlank()) return null;
+        String line = s.lines().filter(l -> !l.isBlank()).findFirst().orElse(s.trim());
+        if (line.length() > maxLen) line = line.substring(0, maxLen) + "...";
+        return line.trim();
+    }
+
+    private boolean isSilentWav(byte[] wav) {
+        if (wav.length < 44) return true;
         int threshold = 200;
-        for (int i = 0; i < pcm.length - 1; i += 2) {
-            short sample = (short) ((pcm[i + 1] << 8) | (pcm[i] & 0xFF));
+        for (int i = 44; i < wav.length - 1; i += 2) {
+            short sample = (short) ((wav[i + 1] << 8) | (wav[i] & 0xFF));
             if (Math.abs(sample) > threshold) return false;
         }
         return true;
@@ -308,14 +356,59 @@ public class AudioMemoryService {
         }
     }
 
-    private void saveWavIfEnabled(byte[] wav) {
-        if (!keepWav) return;
+    private void saveClipIfEnabled(byte[] wav) {
+        if (!keepClips) return;
         try {
             Files.createDirectories(CLIPS_DIR);
-            String filename = LocalDateTime.now().format(FILE_TIME_FMT) + ".wav";
-            Files.write(CLIPS_DIR.resolve(filename), wav);
+            String baseName = LocalDateTime.now().format(FILE_TIME_FMT);
+            if (FORMAT_MP3.equalsIgnoreCase(clipFormat)) {
+                Path wavPath = Files.createTempFile("mins_audio_", ".wav");
+                try {
+                    Files.write(wavPath, wav);
+                    Path mp3Path = CLIPS_DIR.resolve(baseName + ".mp3");
+                    if (convertWavToMp3(wavPath, mp3Path)) {
+                        log.debug("[AudioMemory] Saved MP3 clip: {}", mp3Path.getFileName());
+                    } else {
+                        // Fallback: save as WAV if ffmpeg not available
+                        Files.write(CLIPS_DIR.resolve(baseName + ".wav"), wav);
+                        log.debug("[AudioMemory] Saved WAV clip (ffmpeg not available): {}", baseName + ".wav");
+                    }
+                } finally {
+                    Files.deleteIfExists(wavPath);
+                }
+            } else {
+                Files.write(CLIPS_DIR.resolve(baseName + ".wav"), wav);
+                log.debug("[AudioMemory] Saved WAV clip: {}", baseName + ".wav");
+            }
         } catch (IOException e) {
-            log.warn("[AudioMemory] Failed to save WAV clip: {}", e.getMessage());
+            log.warn("[AudioMemory] Failed to save clip: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Convert WAV file to MP3 using bundled ffmpeg (~/mins_bot_data/ffmpeg/ffmpeg.exe) or ffmpeg from PATH.
+     * Returns true if conversion succeeded, false otherwise.
+     */
+    private boolean convertWavToMp3(Path wavPath, Path mp3Path) {
+        Path ffmpeg = ffmpegProvider.getFfmpegPath();
+        String exe = (ffmpeg != null) ? ffmpeg.toAbsolutePath().toString() : "ffmpeg";
+        try {
+            ProcessBuilder pb = new ProcessBuilder(
+                    exe, "-y", "-i", wavPath.toAbsolutePath().toString(),
+                    "-codec:a", "libmp3lame", "-q:a", "4",
+                    mp3Path.toAbsolutePath().toString()
+            );
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            int exit = p.waitFor();
+            if (exit != 0) {
+                log.warn("[AudioMemory] ffmpeg exited with {} for {}", exit, mp3Path.getFileName());
+                return false;
+            }
+            return Files.exists(mp3Path);
+        } catch (Exception e) {
+            log.debug("[AudioMemory] ffmpeg not available or failed: {}", e.getMessage());
+            return false;
         }
     }
 
@@ -348,7 +441,10 @@ public class AudioMemoryService {
                         try { clipSeconds = Math.max(5, Math.min(60, Integer.parseInt(val))); }
                         catch (NumberFormatException ignored) {}
                     }
-                    case "keep_wav" -> keepWav = val.equals("true");
+                    case "keep_clips" -> keepClips = val.equals("true");
+                    case "keep_wav" -> keepClips = val.equals("true"); // backward compat
+                    case "clip_format" -> clipFormat = (val.equals("mp3") ? FORMAT_MP3 : FORMAT_WAV);
+                    case "mixer_name" -> dshowDevice = (val.isEmpty() ? "Stereo Mix" : kv.substring(colon + 1).trim());
                 }
             }
         } catch (IOException e) {

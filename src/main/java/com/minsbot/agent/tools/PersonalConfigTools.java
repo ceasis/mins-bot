@@ -13,7 +13,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Tools for reading and updating the user's personal config (~/mins_bot_data/personal_config.md).
+ * Tools for reading and updating the user's personal config (~/mins_bot_data/personal_config.txt).
  * That file is loaded into the AI system prompt as PERSONAL CONTEXT, so the bot can personalize
  * responses. Use these tools when the user shares new personal info (name, family, work, etc.)
  * so it is stored for future conversations.
@@ -22,7 +22,7 @@ import java.util.regex.Pattern;
 public class PersonalConfigTools {
 
     private static final Path PERSONAL_CONFIG_PATH =
-            Paths.get(System.getProperty("user.home"), "mins_bot_data", "personal_config.md");
+            Paths.get(System.getProperty("user.home"), "mins_bot_data", "personal_config.txt");
 
     private static final String DEFAULT_TEMPLATE = """
             # Personal config

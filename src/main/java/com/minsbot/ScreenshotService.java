@@ -41,7 +41,7 @@ public class ScreenshotService {
 
     @PostConstruct
     public void init() throws IOException {
-        screenshotDir = Paths.get(System.getProperty("user.home"), "minsbot_data", "screenshots");
+        screenshotDir = Paths.get(System.getProperty("user.home"), "mins_bot_data", "screenshots");
         Files.createDirectories(screenshotDir);
         log.info("Screenshot directory: {}", screenshotDir);
 

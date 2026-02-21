@@ -29,7 +29,7 @@ public class ScreenMemoryTools {
 
     @Tool(description = "Get the screen memory (OCR text from screenshots) for a specific date. "
             + "Returns timestamped text entries showing what was on screen throughout the day. "
-            + "Use when the user asks 'what happened on Monday?', 'what was I doing yesterday?', etc. "
+            + "Use when the user asks 'what happened on Monday?', 'what was I doing yesterday?', 'what am I watching?', etc. "
             + "Pass a date like '2026-02-16', or natural words: 'today', 'yesterday', 'last monday', 'last tuesday', etc.")
     public String getScreenMemory(
             @ToolParam(description = "Date to look up: 'today', 'yesterday', 'last monday', or 'YYYY-MM-DD'") String date) {
@@ -45,8 +45,9 @@ public class ScreenMemoryTools {
     }
 
     @Tool(description = "Capture and remember the current screen right now. Takes the latest screenshot, "
-            + "runs OCR to extract text, and stores it with a timestamp. Returns the extracted text. "
-            + "Use when the user says 'remember what's on screen', 'capture this', 'save what I'm looking at'.")
+            + "runs OCR to extract text, and stores it with a timestamp. Returns the extracted text describing what is on screen. "
+            + "Use when the user asks 'what am I looking at?', 'what is on my screen?', 'what do I see right now?', "
+            + "'what am I watching?', 'what's on screen?', 'remember what's on screen', 'capture this'. Do NOT use getScreenSize for content questions — use this tool to describe what's visible.")
     public String captureAndRememberNow() {
         notifier.notify("Capturing screen memory...");
         String text = screenMemory.captureNow();

@@ -321,17 +321,29 @@ public class ToolRouter {
 
         cats.add(new Category("screen_memory",
                 kw("screen memory", "what happened", "what was i doing",
+                   "what am i watching", "what i'm watching", "what im watching",
+                   "what(.*)watching", "what's on screen", "what is on screen",
+                   "what am i looking at", "what i'm looking at", "what do i see",
+                   "what is on my screen", "on my screen", "looking at right now",
+                   "see right now", "what do i see right now", "how about now",
+                   "what do i watch right now",
                    "remember.*screen", "last monday", "last tuesday",
                    "last wednesday", "last thursday", "last friday",
                    "last saturday", "last sunday", "yesterday.*do",
-                   "ocr", "capture.*remember"),
+                   "ocr", "capture.*remember", "video playback", "playback information"),
                 List.of(screenMemoryTools)));
 
         cats.add(new Category("audio_memory",
                 kw("audio memory", "what was playing", "what was i listening",
+                   "what am i listening", "what i'm listening", "what im listening",
                    "system audio", "speaker audio", "what song",
                    "music playing", "capture audio", "what did i hear",
-                   "audio yesterday", "audio last", "listening to"),
+                   "audio yesterday", "audio last", "listening to",
+                   "what.*listening", "hear.*(it|audio|music)", "playback",
+                   "record it", "record audio", "record.*(it|audio|music)",
+                   "start to capture", "start capture", "start capturing", "begin.*captur",
+                   "start recording", "start recording audio", "recording audio",
+                   "list audio devices", "audio capture devices", "what capture device", "no audio captured"),
                 List.of(audioMemoryTools)));
 
         return Collections.unmodifiableList(cats);

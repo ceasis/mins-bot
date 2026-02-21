@@ -29,12 +29,14 @@ public class ScreenMemoryService {
 
     private static final Logger log = LoggerFactory.getLogger(ScreenMemoryService.class);
 
+    private final SystemControlService systemControl;
+
     private static final Path CONFIG_PATH =
             Paths.get(System.getProperty("user.home"), "mins_bot_data", "minsbot_config.txt");
 
-    /** Where ScreenshotService saves PNGs (note: minsbot_data, not mins_bot_data). */
+    /** Where ScreenshotService and takeScreenshot save PNGs. */
     private static final Path SCREENSHOTS_DIR =
-            Paths.get(System.getProperty("user.home"), "minsbot_data", "screenshots");
+            Paths.get(System.getProperty("user.home"), "mins_bot_data", "screenshots");
 
     private static final Path SCREEN_MEMORY_DIR =
             Paths.get(System.getProperty("user.home"), "mins_bot_data", "screen_memory");
@@ -50,6 +52,10 @@ public class ScreenMemoryService {
 
     /** Reusable OCR PowerShell script file. */
     private Path ocrScript;
+
+    public ScreenMemoryService(SystemControlService systemControl) {
+        this.systemControl = systemControl;
+    }
 
     @PostConstruct
     public void init() throws IOException {
@@ -120,10 +126,12 @@ public class ScreenMemoryService {
     // ═══ Public methods for ScreenMemoryTools ═══
 
     /**
-     * OCR the latest screenshot immediately and store the result.
+     * Take a fresh screenshot, OCR it, and store the result.
+     * Always captures "right now" so the answer matches what the user is looking at.
      * Returns the extracted text, or null on failure.
      */
     public String captureNow() {
+        systemControl.takeScreenshot();
         Path latest = findLatestScreenshot();
         if (latest == null) return null;
 
