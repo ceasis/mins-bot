@@ -4,5 +4,18 @@
       "Bash(mvn compile:*)",
       "Bash(git mv:*)"
     ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -Command \"(New-Object System.Media.SoundPlayer 'C:\\Windows\\Media\\Windows Notify.wav').PlaySync()\"",
+            "async": true
+          }
+        ]
+      }
+    ]
   }
 }

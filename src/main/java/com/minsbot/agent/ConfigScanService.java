@@ -1,5 +1,6 @@
 package com.minsbot.agent;
 
+import com.minsbot.FloatingAppLauncher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -42,16 +43,19 @@ public class ConfigScanService {
     private final WorkingSoundService workingSound;
     private final IdleDetectionService idleDetection;
     private final ScreenMemoryService screenMemory;
+    private final AudioMemoryService audioMemory;
 
     /** Last-modified timestamp for each file, used to detect changes. */
     private final Map<String, FileTime> lastModified = new LinkedHashMap<>();
 
     public ConfigScanService(WorkingSoundService workingSound,
                              IdleDetectionService idleDetection,
-                             ScreenMemoryService screenMemory) {
+                             ScreenMemoryService screenMemory,
+                             AudioMemoryService audioMemory) {
         this.workingSound = workingSound;
         this.idleDetection = idleDetection;
         this.screenMemory = screenMemory;
+        this.audioMemory = audioMemory;
     }
 
     @PostConstruct
@@ -94,6 +98,8 @@ public class ConfigScanService {
                 workingSound.reloadConfig();
                 idleDetection.reloadConfig();
                 screenMemory.reloadConfig();
+                audioMemory.reloadConfig();
+                FloatingAppLauncher.refreshBotName();
             }
             // personal_config.md, cron_config.md, system_config.md:
             // These are re-read by SystemContextProvider on every chat request,

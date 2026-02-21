@@ -70,6 +70,7 @@ public class ToolRouter {
     private final SitesConfigTools sitesConfigTools;
     private final CronConfigTools cronConfigTools;
     private final ScreenMemoryTools screenMemoryTools;
+    private final AudioMemoryTools audioMemoryTools;
     private final GlobalHotkeyService globalHotkeyService;
     private final PluginLoaderService pluginLoaderService;
     private final SystemTrayService systemTrayService;
@@ -118,6 +119,7 @@ public class ToolRouter {
             SitesConfigTools sitesConfigTools,
             CronConfigTools cronConfigTools,
             ScreenMemoryTools screenMemoryTools,
+            AudioMemoryTools audioMemoryTools,
             GlobalHotkeyService globalHotkeyService,
             PluginLoaderService pluginLoaderService,
             SystemTrayService systemTrayService) {
@@ -155,6 +157,7 @@ public class ToolRouter {
         this.sitesConfigTools = sitesConfigTools;
         this.cronConfigTools = cronConfigTools;
         this.screenMemoryTools = screenMemoryTools;
+        this.audioMemoryTools = audioMemoryTools;
         this.globalHotkeyService = globalHotkeyService;
         this.pluginLoaderService = pluginLoaderService;
         this.systemTrayService = systemTrayService;
@@ -319,6 +322,13 @@ public class ToolRouter {
                    "last saturday", "last sunday", "yesterday.*do",
                    "ocr", "capture.*remember"),
                 List.of(screenMemoryTools)));
+
+        cats.add(new Category("audio_memory",
+                kw("audio memory", "what was playing", "what was i listening",
+                   "system audio", "speaker audio", "what song",
+                   "music playing", "capture audio", "what did i hear",
+                   "audio yesterday", "audio last", "listening to"),
+                List.of(audioMemoryTools)));
 
         return Collections.unmodifiableList(cats);
     }

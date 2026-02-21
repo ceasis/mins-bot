@@ -15,6 +15,7 @@ import javafx.stage.Screen;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 import netscape.javascript.JSObject;
+import com.minsbot.agent.SystemContextProvider;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -32,6 +33,7 @@ public class FloatingAppLauncher extends Application {
 
     private static ConfigurableApplicationContext springContext;
     private static final CountDownLatch springReady = new CountDownLatch(1);
+    private static Stage primaryStageRef;
     @SuppressWarnings("unused") // prevent GC of the bridge exposed to JS
     private WindowBridge bridge;
 
@@ -210,7 +212,8 @@ public class FloatingAppLauncher extends Application {
         primaryStage.setWidth(collapsedWidth);
         primaryStage.setHeight(collapsedHeight);
         primaryStage.setResizable(false);
-        primaryStage.setTitle("Mins Bot");
+        primaryStageRef = primaryStage;
+        refreshBotName();
 
         if (initialX >= 0 && initialY >= 0) {
             primaryStage.setX(initialX);
@@ -230,11 +233,19 @@ public class FloatingAppLauncher extends Application {
                 SpringApplication.exit(springContext);
             }
         };
-        primaryStage.setOnCloseRequest(e -> quitAction.run());
+        primaryStage.setOnCloseRequest(evt -> quitAction.run());
         try {
             springContext.getBean(MinsBotQuitService.class).setQuitRunnable(quitAction);
         } catch (Exception ignored) {
             // Bean may not be available in some tests
         }
+    }
+
+    /** Re-read bot name from config and update the window title. Called on startup and by ConfigScanService. */
+    public static void refreshBotName() {
+        if (primaryStageRef == null) return;
+        String name = SystemContextProvider.loadBotName();
+        String title = (name != null && !name.isBlank()) ? "Mins Bot - " + name : "Mins Bot";
+        Platform.runLater(() -> primaryStageRef.setTitle(title));
     }
 }

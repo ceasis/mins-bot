@@ -19,6 +19,9 @@ import java.time.format.DateTimeFormatter;
 @Component
 public class SystemContextProvider {
 
+    /** Whether the directive reminder has been shown at least once this session. */
+    private boolean directiveReminderShownOnce = false;
+
     private static final String PERSONAL_CONFIG_FILENAME = "personal_config.md";
     private static final String SYSTEM_CONFIG_FILENAME = "system_config.md";
     private static final String CRON_CONFIG_FILENAME = "cron_config.md";
@@ -64,6 +67,9 @@ public class SystemContextProvider {
             # Mins Bot Config
             Bot behavior and processing settings. Scanned every 15 seconds for live changes.
 
+            ## Bot name
+            - name:
+
             ## Sound
             - enabled: true
             - volume: 0.01
@@ -82,6 +88,18 @@ public class SystemContextProvider {
             ## Screen memory
             - enabled: true
             - interval_seconds: 60
+
+            ## Audio memory
+            - enabled: false
+            - interval_seconds: 60
+            - clip_seconds: 15
+            - keep_wav: false
+
+            ## Download
+            - confirm_threshold: 1000
+
+            ## Directives
+            - reminder_interval: 5
             """;
 
     private static final String DEFAULT_CRON_CONFIG = """
@@ -170,20 +188,25 @@ public class SystemContextProvider {
         sb.append("""
 
                 BROWSER RULES:
-                - When the user says "open youtube", "open google", "open [website]", or "go to [site]", use openInBrowserTab \
-                so the page opens in the built-in browser tab in the chat. Do NOT open the system browser (openUrl).
-                - When the user says "search for ..." or asks you to look something up, use searchInBrowser \
-                so they can see results live in the built-in Browser tab. Do NOT open the system browser.
-                - When the user asks to find or search for images, use searchImagesInBrowser.
-                - To gather/collect images from the current browser page, use collectImagesFromBrowser \
-                or downloadImagesFromBrowser.
-                - To read the content of the current browser page, use readBrowserPage.
-                - Only use openUrl/searchGoogle (system browser) if the user explicitly asks to open Chrome/Edge/Firefox.
+                - By default, when the user says "open youtube", "open google", "open [website]", or "go to [site]", \
+                use the openUrl tool to open it in their PC's default browser (Chrome, Edge, Firefox, etc.).
+                - ONLY use the built-in chat browser tools (openInBrowserTab, searchInBrowser, searchImagesInBrowser, \
+                collectImagesFromBrowser, readBrowserPage, downloadImagesFromBrowser) when the user explicitly says \
+                "in-browser", "chat browser", "in the chat browser", or similar phrases indicating the Mins Bot built-in browser.
+                - For research/information gathering that doesn't need the user to see it, use the headless browsePage tool.
 
                 QUIT RULE:
                 - When the user says "quit" (or "exit", "close mins bot"), reply only with "Quit Mins Bot?" and do nothing else. Do NOT call quitMinsBot yet.
                 - When the user then replies "yes" or "y" (and they are clearly confirming quit), call the quitMinsBot tool.
                 - If they reply with anything else (no, nope, cancel, etc.), do nothing — no need to say anything or take any action.
+
+                TASK COMPLETION RULE:
+                - When the user requests a specific count (e.g. "download 24 images"), you MUST complete the EXACT count \
+                without stopping to ask for confirmation. Do NOT stop partway and ask "should I continue?" — just keep going.
+                - If a tool returns fewer results than needed, call the tool again until the target is met.
+                - Check the target folder to see how many files already exist and only download the remaining amount.
+                - Only ask for confirmation if the requested count exceeds the download confirm_threshold in the Bot Config \
+                (default 1000). Below that threshold, just do it.
 
                 TTS / VOICE RULE:
                 - When the user asks you to "say" something, "speak", "read aloud", or "say something": you MUST call the speak tool with the text to be spoken so they hear audio. Do not just reply with text — call speak(...) with that text (or a short phrase). Examples: "say hello" → call speak("Hello!"); "say something" → call speak("Here's something for you!"); "read this aloud" → call speak with the content.
@@ -212,29 +235,46 @@ public class SystemContextProvider {
             }
         }
 
-        if (directiveCount == 0) {
+        // Directive nudge: show ONCE on first message of session, then never again.
+        // The user explicitly said repeated reminders are irritating.
+        if (!directiveReminderShownOnce && directiveCount == 0) {
             sb.append("""
 
                 NO DIRECTIVES SET:
-                The user has no directives yet. When there are no directives, proactively ask the user \
-                if there is anything you can do for them. Be helpful and welcoming — for example: \
-                "Is there anything I can help you with?" or "What can I do for you today?" \
-                If they give you a task or instruction, offer to save it as a directive using \
-                setDirectives or appendDirective so you remember it across conversations.
+                The user has no directives yet. Briefly and playfully mention that they can give you \
+                a directive so you know how to help. Keep it to ONE short sentence at the end of \
+                your response — do NOT make it the main topic. If the user gives you an instruction, \
+                offer to save it as a directive. Do NOT repeat this nudge in future messages.
                 """);
-        } else if (directiveCount < 2) {
-            sb.append("""
-
-                DIRECTIVE REMINDER:
-                The user currently has %s directive%s set. Directives shape your personality, \
-                language, tone, and long-term goals. Once in a while (not every message — roughly every 5-10 exchanges), \
-                gently remind the user that they can set more directives to make you more useful. \
-                Use the setDirectives or appendDirective tool when they provide new ones. \
-                Keep the reminder brief and natural — don't be pushy.
-                """.formatted(directiveCount, directiveCount == 1 ? "" : "s"));
+            directiveReminderShownOnce = true;
         }
 
         return sb.toString();
+    }
+
+    /**
+     * Read the bot name from ~/mins_bot_data/minsbot_config.txt (## Bot name → - name: ...).
+     * Returns null if not set or empty.
+     */
+    public static String loadBotName() {
+        Path path = Paths.get(System.getProperty("user.home"), "mins_bot_data", MINSBOT_CONFIG_FILENAME);
+        try {
+            if (!Files.exists(path)) return null;
+            String content = Files.readString(path);
+            boolean inSection = false;
+            for (String line : content.split("\n")) {
+                String trimmed = line.trim();
+                if (trimmed.startsWith("## ")) {
+                    inSection = trimmed.equalsIgnoreCase("## Bot name");
+                    continue;
+                }
+                if (inSection && trimmed.startsWith("- name:")) {
+                    String val = trimmed.substring("- name:".length()).trim();
+                    return val.isEmpty() ? null : val;
+                }
+            }
+        } catch (IOException ignored) {}
+        return null;
     }
 
     /**

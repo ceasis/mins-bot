@@ -16,7 +16,10 @@ import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * AI-callable tools backed by a real headless Chromium browser (via Playwright).
@@ -108,53 +111,54 @@ public class PlaywrightTools {
 
     @Tool(description = "Search for images on the web using a real browser, download them, and save " +
             "to a directive's folder. Uses Google/Bing image search with a real rendered browser " +
-            "so it can find images that simple HTTP scraping misses.")
+            "so it can find images that simple HTTP scraping misses. Downloads the EXACT count " +
+            "requested — checks existing files in the folder and continues until the target is met.")
     public String browseSearchAndDownloadImages(
             @ToolParam(description = "Search query for images, e.g. 'condos for sale new york'") String query,
             @ToolParam(description = "Directive name to save images into") String directiveName,
-            @ToolParam(description = "Maximum number of images to download (1-20)") double maxImagesRaw) {
-        int maxImages = (int) Math.round(maxImagesRaw);
-        notifier.notify("Searching images: " + query);
+            @ToolParam(description = "Number of images to download") double maxImagesRaw) {
+        int target = Math.max(1, (int) Math.round(maxImagesRaw));
+        notifier.notify("Searching images: " + query + " (target: " + target + ")");
         try {
-            if (maxImages < 1) maxImages = 1;
-            if (maxImages > 20) maxImages = 20;
-
-            // Try Bing first (more scraper-friendly), fall back to Google
-            List<String> imageUrls;
-            try {
-                imageUrls = pw.searchBingImages(query, maxImages * 2);
-            } catch (Exception e) {
-                imageUrls = List.of();
-            }
-
-            if (imageUrls.isEmpty()) {
-                try {
-                    imageUrls = pw.searchGoogleImages(query, maxImages * 2);
-                } catch (Exception e) {
-                    return "Image search failed: " + e.getMessage();
-                }
-            }
-
-            if (imageUrls.isEmpty()) {
-                return "No images found for: " + query;
-            }
-
-            // Download images
             String safeName = sanitizeName(directiveName);
             Path saveDir = BASE_DIR.resolve("directive_" + safeName);
             Files.createDirectories(saveDir);
 
+            // Count existing image files in the directory
+            int existing = countImageFiles(saveDir);
+            int remaining = target - existing;
+            if (remaining <= 0) {
+                return "Already have " + existing + " images in " + saveDir.toAbsolutePath()
+                        + "/ (target was " + target + "). No more downloads needed.";
+            }
+
+            // Collect image URLs from BOTH search engines
+            Set<String> allUrls = new HashSet<>();
+            try {
+                allUrls.addAll(pw.searchBingImages(query, remaining * 3));
+            } catch (Exception ignored) {}
+            try {
+                allUrls.addAll(pw.searchGoogleImages(query, remaining * 3));
+            } catch (Exception ignored) {}
+
+            if (allUrls.isEmpty()) {
+                return "No images found for: " + query;
+            }
+
+            // Download images
             String timestamp = LocalDateTime.now().format(TS_FMT);
             int downloaded = 0;
             int errors = 0;
+            int fileIndex = existing;
             StringBuilder report = new StringBuilder();
 
-            for (int i = 0; i < imageUrls.size() && downloaded < maxImages; i++) {
+            for (String imgUrl : allUrls) {
+                if (downloaded >= remaining) break;
                 try {
-                    String imgUrl = imageUrls.get(i);
                     String ext = guessExtension(imgUrl);
-                    String filename = timestamp + "_img_" + (downloaded + 1) + ext;
-                    Path target = saveDir.resolve(filename);
+                    fileIndex++;
+                    String filename = timestamp + "_img_" + fileIndex + ext;
+                    Path targetFile = saveDir.resolve(filename);
 
                     HttpRequest req = HttpRequest.newBuilder()
                             .uri(URI.create(imgUrl))
@@ -168,31 +172,40 @@ public class PlaywrightTools {
 
                     if (resp.statusCode() >= 200 && resp.statusCode() < 300) {
                         try (InputStream in = resp.body()) {
-                            Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
+                            Files.copy(in, targetFile, StandardCopyOption.REPLACE_EXISTING);
                         }
-                        long size = Files.size(target);
+                        long size = Files.size(targetFile);
                         if (size < 1000) { // skip tiny error pages
-                            Files.delete(target);
+                            Files.delete(targetFile);
+                            fileIndex--;
                             errors++;
                             continue;
                         }
                         downloaded++;
-                        report.append("  ").append(downloaded).append(". ").append(target.getFileName())
+                        report.append("  ").append(existing + downloaded).append(". ")
+                                .append(targetFile.getFileName())
                                 .append(" (").append(formatSize(size)).append(")\n");
                     } else {
+                        fileIndex--;
                         errors++;
                     }
                 } catch (Exception e) {
+                    fileIndex--;
                     errors++;
                 }
             }
 
+            int totalNow = existing + downloaded;
             if (downloaded == 0) {
-                return "Found " + imageUrls.size() + " image URLs but all downloads failed.";
+                return "Found " + allUrls.size() + " image URLs but all downloads failed."
+                        + (existing > 0 ? " (" + existing + " images already in folder)" : "");
             }
             return "Downloaded " + downloaded + " images to " + saveDir.toAbsolutePath() + "/\n" +
+                    (existing > 0 ? "(had " + existing + " already, now " + totalNow + " total)\n" : "") +
                     report.toString().trim() +
-                    (errors > 0 ? "\n(" + errors + " failed)" : "");
+                    (errors > 0 ? "\n(" + errors + " failed)" : "") +
+                    (totalNow < target ? "\nNote: only got " + totalNow + "/" + target
+                            + " — call this tool again to continue downloading more." : "");
         } catch (Exception e) {
             return "Image search failed: " + e.getMessage();
         }
@@ -297,34 +310,40 @@ public class PlaywrightTools {
 
     @Tool(description = "Download images from the built-in Mins Bot chat browser's current page and save them to a folder. " +
             "ONLY relevant when the chat browser is already open (user said 'in-browser' or 'chat browser' earlier). " +
-            "Collects image URLs from the page and downloads up to maxImages of them.")
+            "Collects image URLs from the page and downloads them. Checks existing files and continues until target is met.")
     public String downloadImagesFromBrowser(
             @ToolParam(description = "Folder name to save images into, e.g. 'cat-pictures'") String folderName,
-            @ToolParam(description = "Maximum number of images to download (1-20)") double maxImagesRaw) {
-        int maxImages = (int) Math.round(maxImagesRaw);
+            @ToolParam(description = "Number of images to download") double maxImagesRaw) {
+        int target = Math.max(1, (int) Math.round(maxImagesRaw));
         notifier.notify("Downloading images from browser...");
         try {
-            if (maxImages < 1) maxImages = 1;
-            if (maxImages > 20) maxImages = 20;
-
-            List<String> imageUrls = pw.viewerCollectImages();
-            if (imageUrls.isEmpty()) return "No images found on the current browser page.";
-
             String safeName = sanitizeName(folderName);
             Path saveDir = BASE_DIR.resolve("directive_" + safeName);
             Files.createDirectories(saveDir);
 
+            int existing = countImageFiles(saveDir);
+            int remaining = target - existing;
+            if (remaining <= 0) {
+                return "Already have " + existing + " images in " + saveDir.toAbsolutePath()
+                        + "/ (target was " + target + "). No more downloads needed.";
+            }
+
+            List<String> imageUrls = pw.viewerCollectImages();
+            if (imageUrls.isEmpty()) return "No images found on the current browser page.";
+
             String timestamp = LocalDateTime.now().format(TS_FMT);
             int downloaded = 0;
             int errors = 0;
+            int fileIndex = existing;
             StringBuilder report = new StringBuilder();
 
-            for (int i = 0; i < imageUrls.size() && downloaded < maxImages; i++) {
+            for (int i = 0; i < imageUrls.size() && downloaded < remaining; i++) {
                 try {
                     String imgUrl = imageUrls.get(i);
                     String ext = guessExtension(imgUrl);
-                    String filename = timestamp + "_img_" + (downloaded + 1) + ext;
-                    Path target = saveDir.resolve(filename);
+                    fileIndex++;
+                    String filename = timestamp + "_img_" + fileIndex + ext;
+                    Path targetFile = saveDir.resolve(filename);
 
                     HttpRequest req = HttpRequest.newBuilder()
                             .uri(URI.create(imgUrl))
@@ -338,33 +357,56 @@ public class PlaywrightTools {
 
                     if (resp.statusCode() >= 200 && resp.statusCode() < 300) {
                         try (InputStream in = resp.body()) {
-                            Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
+                            Files.copy(in, targetFile, StandardCopyOption.REPLACE_EXISTING);
                         }
-                        long size = Files.size(target);
+                        long size = Files.size(targetFile);
                         if (size < 1000) {
-                            Files.delete(target);
+                            Files.delete(targetFile);
+                            fileIndex--;
                             errors++;
                             continue;
                         }
                         downloaded++;
-                        report.append("  ").append(downloaded).append(". ").append(target.getFileName())
+                        report.append("  ").append(existing + downloaded).append(". ")
+                                .append(targetFile.getFileName())
                                 .append(" (").append(formatSize(size)).append(")\n");
                     } else {
+                        fileIndex--;
                         errors++;
                     }
                 } catch (Exception e) {
+                    fileIndex--;
                     errors++;
                 }
             }
 
+            int totalNow = existing + downloaded;
             if (downloaded == 0) {
-                return "Found " + imageUrls.size() + " image URLs but all downloads failed.";
+                return "Found " + imageUrls.size() + " image URLs but all downloads failed."
+                        + (existing > 0 ? " (" + existing + " images already in folder)" : "");
             }
             return "Downloaded " + downloaded + " images to " + saveDir.toAbsolutePath() + "/\n" +
+                    (existing > 0 ? "(had " + existing + " already, now " + totalNow + " total)\n" : "") +
                     report.toString().trim() +
-                    (errors > 0 ? "\n(" + errors + " failed)" : "");
+                    (errors > 0 ? "\n(" + errors + " failed)" : "") +
+                    (totalNow < target ? "\nNote: only got " + totalNow + "/" + target
+                            + " — call this tool again to continue downloading more." : "");
         } catch (Exception e) {
             return "Download failed: " + e.getMessage();
+        }
+    }
+
+    /** Count existing image files (jpg, png, gif, webp, bmp) in a directory. */
+    private int countImageFiles(Path dir) {
+        try (var stream = Files.list(dir)) {
+            return (int) stream.filter(p -> {
+                String name = p.getFileName().toString().toLowerCase();
+                return Files.isRegularFile(p) &&
+                        (name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".png")
+                                || name.endsWith(".gif") || name.endsWith(".webp") || name.endsWith(".bmp"));
+            }).count();
+        } catch (Exception e) {
+            return 0;
         }
     }
 

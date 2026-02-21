@@ -339,7 +339,7 @@ public class ChatService {
         }
     }
 
-    private String transcribeAudio(byte[] wavAudio) throws Exception {
+    public String transcribeAudio(byte[] wavAudio) throws Exception {
         String boundary = "----MinsBotBoundary" + UUID.randomUUID();
         byte[] body = buildMultipartWavBody(boundary, wavAudio, openAiTranscriptionModel);
 
