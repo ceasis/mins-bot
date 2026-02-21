@@ -340,6 +340,13 @@ public class SystemTools {
         return systemControl.runPowerShell(ps);
     }
 
+    @Tool(description = "Open a URL in the user's default PC browser (Chrome, Edge, Firefox, etc.). Use this when the user wants to open a website or URL normally. Do NOT use this if the user explicitly says 'in-browser' or 'chat browser' — those go to the built-in Mins Bot browser tab instead.")
+    public String openUrl(
+            @ToolParam(description = "The URL to open, e.g. 'https://www.youtube.com' or 'https://google.com'") String url) {
+        notifier.notify("Opening in PC browser: " + url);
+        return systemControl.openUrl(url);
+    }
+
     @Tool(description = "Change the desktop wallpaper to an image file. Supports JPG, PNG, and BMP. "
             + "Provide the full path to an image file on this PC.")
     public String setWallpaper(

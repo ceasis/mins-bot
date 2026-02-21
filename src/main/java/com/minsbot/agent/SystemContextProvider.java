@@ -78,6 +78,10 @@ public class SystemContextProvider {
             ## Idle detection
             - enabled: true
             - idle_seconds: 300
+
+            ## Screen memory
+            - enabled: true
+            - interval_seconds: 60
             """;
 
     private static final String DEFAULT_CRON_CONFIG = """
@@ -208,15 +212,23 @@ public class SystemContextProvider {
             }
         }
 
-        if (directiveCount < 2) {
+        if (directiveCount == 0) {
+            sb.append("""
+
+                NO DIRECTIVES SET:
+                The user has no directives yet. When there are no directives, proactively ask the user \
+                if there is anything you can do for them. Be helpful and welcoming — for example: \
+                "Is there anything I can help you with?" or "What can I do for you today?" \
+                If they give you a task or instruction, offer to save it as a directive using \
+                setDirectives or appendDirective so you remember it across conversations.
+                """);
+        } else if (directiveCount < 2) {
             sb.append("""
 
                 DIRECTIVE REMINDER:
-                The user currently has %s primary directive%s set. Primary directives shape your personality, \
+                The user currently has %s directive%s set. Directives shape your personality, \
                 language, tone, and long-term goals. Once in a while (not every message — roughly every 5-10 exchanges), \
-                gently remind the user that they can set more primary directives to make you more useful. \
-                For example: "By the way, you can give me more primary directives so I know how to help you better — \
-                like preferred language, how you'd like me to respond, or ongoing tasks to keep track of." \
+                gently remind the user that they can set more directives to make you more useful. \
                 Use the setDirectives or appendDirective tool when they provide new ones. \
                 Keep the reminder brief and natural — don't be pushy.
                 """.formatted(directiveCount, directiveCount == 1 ? "" : "s"));

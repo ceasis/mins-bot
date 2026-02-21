@@ -39,25 +39,29 @@ public class PlaywrightService {
     private volatile String lastUrl = "";
     private volatile String lastTitle = "";
 
+    /** Get or create the Playwright instance (without launching a browser). */
+    private Playwright ensurePlaywright() {
+        synchronized (lock) {
+            if (playwright == null) {
+                playwright = Playwright.create();
+            }
+            return playwright;
+        }
+    }
+
     /** Get (or lazily create) the shared browser. Auto-installs Chromium on first use. */
     private Browser getBrowser() {
         synchronized (lock) {
             if (browser == null || !browser.isConnected()) {
                 // Try to launch — if Chromium isn't installed, install it and retry
                 try {
-                    playwright = Playwright.create();
-                    browser = launchChromium(playwright);
+                    browser = launchChromium(ensurePlaywright());
                 } catch (Exception e) {
                     if (!installAttempted) {
                         installAttempted = true;
                         log.info("[Playwright] Chromium not found — installing automatically...");
                         installChromium();
-                        // Retry after install
-                        if (playwright != null) {
-                            try { playwright.close(); } catch (Exception ignored) {}
-                        }
-                        playwright = Playwright.create();
-                        browser = launchChromium(playwright);
+                        browser = launchChromium(ensurePlaywright());
                     } else {
                         throw e;
                     }
@@ -66,6 +70,14 @@ public class PlaywrightService {
             }
             return browser;
         }
+    }
+
+    /**
+     * Connect to a running browser via Chrome DevTools Protocol.
+     * Use this to connect to the user's actual Chrome/Edge instance.
+     */
+    public Browser connectOverCDP(String endpoint) {
+        return ensurePlaywright().chromium().connectOverCDP(endpoint);
     }
 
     /** Launch headless Chromium with standard options. */

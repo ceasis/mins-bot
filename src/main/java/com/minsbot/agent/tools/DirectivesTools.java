@@ -13,7 +13,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Tools for reading and updating the user's primary directives file.
+ * Tools for reading and updating the user's directives file.
  * The directives are loaded into the AI system prompt on every request,
  * so changes take effect immediately.
  */
@@ -21,6 +21,10 @@ import java.util.List;
 public class DirectivesTools {
 
     private static final Path DIRECTIVES_FILE =
+            Paths.get(System.getProperty("user.home"), "mins_bot_data", "directives.md");
+
+    /** Legacy path — checked for migration on first read. */
+    private static final Path LEGACY_FILE =
             Paths.get(System.getProperty("user.home"), "mins_bot_data", "primary_directives.dat");
 
     private final ToolExecutionNotifier notifier;
@@ -29,9 +33,10 @@ public class DirectivesTools {
         this.notifier = notifier;
     }
 
-    @Tool(description = "Read the user's primary directives. These are persistent instructions that guide your behavior across all conversations. Use when the user asks to see their current directives.")
+    @Tool(description = "Read the user's directives. These are persistent instructions that guide your behavior across all conversations. Use when the user asks to see their current directives.")
     public String getDirectives() {
         notifier.notify("Reading directives...");
+        migrateLegacyFile();
         try {
             if (!Files.exists(DIRECTIVES_FILE)) {
                 return "No directives set yet. The user can ask you to set directives.";
@@ -43,7 +48,7 @@ public class DirectivesTools {
         }
     }
 
-    @Tool(description = "Set or replace the user's primary directives. These are persistent instructions that guide your behavior (e.g. 'always respond in Spanish', 'call me Boss'). This overwrites the entire directives file.")
+    @Tool(description = "Set or replace the user's directives. These are persistent instructions that guide your behavior (e.g. 'always respond in Spanish', 'call me Boss'). This overwrites the entire directives file.")
     public String setDirectives(
             @ToolParam(description = "The full directives text to save") String directives) {
         notifier.notify("Updating directives...");
@@ -74,7 +79,7 @@ public class DirectivesTools {
         }
     }
 
-    @Tool(description = "List all primary directives with their numbered positions (1-based). Use this before reordering so you know which number to move.")
+    @Tool(description = "List all directives with their numbered positions (1-based). Use this before reordering so you know which number to move.")
     public String listDirectivesNumbered() {
         notifier.notify("Listing directives...");
         try {
@@ -166,7 +171,7 @@ public class DirectivesTools {
         return lines;
     }
 
-    @Tool(description = "Clear all primary directives, removing all custom behavior instructions.")
+    @Tool(description = "Clear all directives, removing all custom behavior instructions.")
     public String clearDirectives() {
         notifier.notify("Clearing directives...");
         try {
@@ -181,6 +186,13 @@ public class DirectivesTools {
 
     /** Called by SystemContextProvider to include directives in the system prompt. */
     public static String loadDirectivesForPrompt() {
+        // Auto-migrate legacy file
+        if (!Files.exists(DIRECTIVES_FILE) && Files.exists(LEGACY_FILE)) {
+            try {
+                Files.createDirectories(DIRECTIVES_FILE.getParent());
+                Files.move(LEGACY_FILE, DIRECTIVES_FILE);
+            } catch (IOException ignored) {}
+        }
         try {
             if (Files.exists(DIRECTIVES_FILE)) {
                 String content = Files.readString(DIRECTIVES_FILE, StandardCharsets.UTF_8).trim();
@@ -189,5 +201,15 @@ public class DirectivesTools {
         } catch (IOException ignored) {
         }
         return null;
+    }
+
+    /** Migrate primary_directives.dat → directives.md if needed. */
+    private static void migrateLegacyFile() {
+        if (!Files.exists(DIRECTIVES_FILE) && Files.exists(LEGACY_FILE)) {
+            try {
+                Files.createDirectories(DIRECTIVES_FILE.getParent());
+                Files.move(LEGACY_FILE, DIRECTIVES_FILE);
+            } catch (IOException ignored) {}
+        }
     }
 }

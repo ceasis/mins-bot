@@ -19,7 +19,7 @@ import java.util.Map;
  * When a file changes, notifies the relevant service.
  *
  * Monitored files:
- * - minsbot_config.txt  → WorkingSoundService (sound) + IdleDetectionService (idle)
+ * - minsbot_config.txt  → WorkingSoundService (sound) + IdleDetectionService (idle) + ScreenMemoryService (ocr)
  * - personal_config.md → logged (AI picks it up on next chat)
  * - cron_config.md     → logged (AI picks it up on next chat)
  * - system_config.md   → logged (AI picks it up on next chat)
@@ -41,13 +41,17 @@ public class ConfigScanService {
 
     private final WorkingSoundService workingSound;
     private final IdleDetectionService idleDetection;
+    private final ScreenMemoryService screenMemory;
 
     /** Last-modified timestamp for each file, used to detect changes. */
     private final Map<String, FileTime> lastModified = new LinkedHashMap<>();
 
-    public ConfigScanService(WorkingSoundService workingSound, IdleDetectionService idleDetection) {
+    public ConfigScanService(WorkingSoundService workingSound,
+                             IdleDetectionService idleDetection,
+                             ScreenMemoryService screenMemory) {
         this.workingSound = workingSound;
         this.idleDetection = idleDetection;
+        this.screenMemory = screenMemory;
     }
 
     @PostConstruct
@@ -89,6 +93,7 @@ public class ConfigScanService {
             case "minsbot_config.txt" -> {
                 workingSound.reloadConfig();
                 idleDetection.reloadConfig();
+                screenMemory.reloadConfig();
             }
             // personal_config.md, cron_config.md, system_config.md:
             // These are re-read by SystemContextProvider on every chat request,

@@ -170,17 +170,22 @@ public class SystemControlService {
     public String openApp(String appName) {
         String lower = appName.toLowerCase().trim();
 
-        // Common app launch commands
+        // Common app launch commands — more specific entries first to avoid partial matches
+        // (e.g. "notepad++" must come before "notepad")
         Map<String, String[]> launchCommands = new LinkedHashMap<>();
-        launchCommands.put("chrome", new String[]{"cmd", "/c", "start", "chrome"});
         launchCommands.put("google chrome", new String[]{"cmd", "/c", "start", "chrome"});
+        launchCommands.put("chrome", new String[]{"cmd", "/c", "start", "chrome"});
         launchCommands.put("firefox", new String[]{"cmd", "/c", "start", "firefox"});
+        launchCommands.put("microsoft edge", new String[]{"cmd", "/c", "start", "msedge:"});
         launchCommands.put("edge", new String[]{"cmd", "/c", "start", "msedge:"});
+        launchCommands.put("brave", new String[]{"cmd", "/c", "start", "brave"});
+        launchCommands.put("notepad++", new String[]{"cmd", "/c", "start", "", "notepad++"});
         launchCommands.put("notepad", new String[]{"notepad.exe"});
         launchCommands.put("calculator", new String[]{"calc.exe"});
         launchCommands.put("paint", new String[]{"mspaint.exe"});
-        launchCommands.put("explorer", new String[]{"explorer.exe"});
         launchCommands.put("file explorer", new String[]{"explorer.exe"});
+        launchCommands.put("explorer", new String[]{"explorer.exe"});
+        launchCommands.put("windows terminal", new String[]{"cmd", "/c", "start", "", "wt.exe"});
         launchCommands.put("terminal", new String[]{"cmd", "/c", "start", "", "wt.exe"});
         launchCommands.put("command prompt", new String[]{"cmd", "/c", "start", "", "cmd.exe"});
         launchCommands.put("cmd", new String[]{"cmd", "/c", "start", "", "cmd.exe"});
@@ -189,15 +194,32 @@ public class SystemControlService {
         launchCommands.put("settings", new String[]{"cmd", "/c", "start", "ms-settings:"});
         launchCommands.put("control panel", new String[]{"control.exe"});
         launchCommands.put("spotify", new String[]{"cmd", "/c", "start", "spotify:"});
+        launchCommands.put("discord", new String[]{"cmd", "/c", "start", "", "discord"});
+        launchCommands.put("slack", new String[]{"cmd", "/c", "start", "", "slack"});
+        launchCommands.put("teams", new String[]{"cmd", "/c", "start", "", "ms-teams"});
+        launchCommands.put("vscode", new String[]{"cmd", "/c", "start", "", "code"});
+        launchCommands.put("visual studio code", new String[]{"cmd", "/c", "start", "", "code"});
+        launchCommands.put("eclipse", new String[]{"cmd", "/c", "start", "", "eclipse"});
+        launchCommands.put("word", new String[]{"cmd", "/c", "start", "", "winword"});
+        launchCommands.put("excel", new String[]{"cmd", "/c", "start", "", "excel"});
+        launchCommands.put("powerpoint", new String[]{"cmd", "/c", "start", "", "powerpnt"});
+        launchCommands.put("outlook", new String[]{"cmd", "/c", "start", "", "outlook"});
 
-        for (Map.Entry<String, String[]> entry : launchCommands.entrySet()) {
-            if (lower.contains(entry.getKey())) {
-                try {
-                    new ProcessBuilder(entry.getValue()).start();
-                    return "Opened " + entry.getKey() + ".";
-                } catch (Exception e) {
-                    return "Failed to open " + entry.getKey() + ": " + e.getMessage();
+        // Match longest key first to avoid partial matches
+        String matchedKey = null;
+        for (String key : launchCommands.keySet()) {
+            if (lower.contains(key)) {
+                if (matchedKey == null || key.length() > matchedKey.length()) {
+                    matchedKey = key;
                 }
+            }
+        }
+        if (matchedKey != null) {
+            try {
+                new ProcessBuilder(launchCommands.get(matchedKey)).start();
+                return "Opened " + matchedKey + ".";
+            } catch (Exception e) {
+                return "Failed to open " + matchedKey + ": " + e.getMessage();
             }
         }
 

@@ -226,7 +226,7 @@ public class PlaywrightTools {
         }
     }
 
-    @Tool(description = "Open a URL in the built-in browser tab (the one in the Mins Bot chat). Use this when the user says 'open youtube', 'open google', 'open [website]' — they want to see the page in the chat's browser tab, not in Chrome/Edge. Accepts a full URL or a shortcut: youtube, google, gmail, twitter, x, facebook, github, reddit, wikipedia.")
+    @Tool(description = "Open a URL in the built-in Mins Bot chat browser tab. ONLY use this when the user explicitly says 'in-browser', 'chat browser', or 'in the chat browser'. If the user just says 'open youtube' or 'open google' without specifying 'in-browser' or 'chat browser', use the openUrl tool to open in the PC's default browser instead. Accepts a full URL or a shortcut: youtube, google, gmail, twitter, x, facebook, github, reddit, wikipedia.")
     public String openInBrowserTab(
             @ToolParam(description = "URL to open, or shortcut: youtube, google, gmail, twitter, x, facebook, github, reddit, wikipedia") String urlOrShortcut) {
         notifier.notify("Opening in browser tab: " + urlOrShortcut);
@@ -239,9 +239,7 @@ public class PlaywrightTools {
         }
     }
 
-    @Tool(description = "Search the web using the built-in browser tab. The user can see the search " +
-            "happening live. Use this whenever the user says 'search for ...' or asks you to look something up. " +
-            "Returns the text of the search results page.")
+    @Tool(description = "Search the web using the built-in Mins Bot chat browser tab. ONLY use this when the user explicitly says 'in-browser', 'chat browser', or 'search in the chat browser'. For normal search requests without these keywords, use the headless browsePage tool instead. Returns the text of the search results page.")
     public String searchInBrowser(
             @ToolParam(description = "The search query, e.g. 'best restaurants in Manila'") String query) {
         notifier.notify("Searching: " + query);
@@ -252,9 +250,7 @@ public class PlaywrightTools {
         }
     }
 
-    @Tool(description = "Search for images using the built-in browser tab. The user can see the image " +
-            "search results live. Returns a list of image URLs found. Use this when the user asks to " +
-            "find or search for images.")
+    @Tool(description = "Search for images using the built-in Mins Bot chat browser tab. ONLY use this when the user explicitly says 'in-browser', 'chat browser', or 'search images in the chat browser'. For normal image search requests, use browseSearchAndDownloadImages instead. Returns a list of image URLs found.")
     public String searchImagesInBrowser(
             @ToolParam(description = "Image search query, e.g. 'cute cats'") String query) {
         notifier.notify("Searching images: " + query);
@@ -271,8 +267,8 @@ public class PlaywrightTools {
         }
     }
 
-    @Tool(description = "Collect all image URLs from the page currently loaded in the built-in browser tab. " +
-            "Use this after navigating the browser to a page to gather its images.")
+    @Tool(description = "Collect all image URLs from the page currently loaded in the built-in Mins Bot chat browser tab. " +
+            "ONLY relevant when the chat browser is already open (user said 'in-browser' or 'chat browser' earlier).")
     public String collectImagesFromBrowser() {
         notifier.notify("Collecting images from browser...");
         try {
@@ -288,8 +284,8 @@ public class PlaywrightTools {
         }
     }
 
-    @Tool(description = "Read the visible text content from the page currently loaded in the built-in " +
-            "browser tab. Use this to read what's on the browser page after searching or navigating.")
+    @Tool(description = "Read the visible text content from the page currently loaded in the built-in Mins Bot " +
+            "chat browser tab. ONLY relevant when the chat browser is already open (user said 'in-browser' or 'chat browser' earlier).")
     public String readBrowserPage() {
         notifier.notify("Reading browser page...");
         try {
@@ -299,7 +295,8 @@ public class PlaywrightTools {
         }
     }
 
-    @Tool(description = "Download images from the built-in browser's current page and save them to a folder. " +
+    @Tool(description = "Download images from the built-in Mins Bot chat browser's current page and save them to a folder. " +
+            "ONLY relevant when the chat browser is already open (user said 'in-browser' or 'chat browser' earlier). " +
             "Collects image URLs from the page and downloads up to maxImages of them.")
     public String downloadImagesFromBrowser(
             @ToolParam(description = "Folder name to save images into, e.g. 'cat-pictures'") String folderName,

@@ -69,6 +69,7 @@ public class ToolRouter {
     private final ExportTools exportTools;
     private final SitesConfigTools sitesConfigTools;
     private final CronConfigTools cronConfigTools;
+    private final ScreenMemoryTools screenMemoryTools;
     private final GlobalHotkeyService globalHotkeyService;
     private final PluginLoaderService pluginLoaderService;
     private final SystemTrayService systemTrayService;
@@ -116,6 +117,7 @@ public class ToolRouter {
             ExportTools exportTools,
             SitesConfigTools sitesConfigTools,
             CronConfigTools cronConfigTools,
+            ScreenMemoryTools screenMemoryTools,
             GlobalHotkeyService globalHotkeyService,
             PluginLoaderService pluginLoaderService,
             SystemTrayService systemTrayService) {
@@ -152,6 +154,7 @@ public class ToolRouter {
         this.exportTools = exportTools;
         this.sitesConfigTools = sitesConfigTools;
         this.cronConfigTools = cronConfigTools;
+        this.screenMemoryTools = screenMemoryTools;
         this.globalHotkeyService = globalHotkeyService;
         this.pluginLoaderService = pluginLoaderService;
         this.systemTrayService = systemTrayService;
@@ -225,11 +228,16 @@ public class ToolRouter {
     private List<Category> buildCategories() {
         List<Category> cats = new ArrayList<>();
 
+        cats.add(new Category("chat_browser",
+                kw("in-browser", "chat browser", "in the chat browser",
+                   "in browser tab", "built-in browser", "mins bot browser"),
+                List.of(playwrightTools, downloadTools, sitesConfigTools)));
+
         cats.add(new Category("browser",
                 kw("search", "browse", "web", "url", "page", "google", "bing",
                    "link", "website", "look up", "find online", "navigate",
-                   "surf", "http", "open youtube", "open google", "youtube", "open "),
-                List.of(playwrightTools, downloadTools, sitesConfigTools)));
+                   "surf", "http", "youtube", "open youtube", "open google"),
+                List.of(playwrightTools, downloadTools, sitesConfigTools, systemTools)));
 
         cats.add(new Category("sites",
                 kw("login", "log in", "sign in", "credential", "password",
@@ -250,7 +258,9 @@ public class ToolRouter {
                    "mute", "unmute", "volume", "ip address", "ping",
                    "quit", "exit", "close mins bot",
                    "recent", "keystroke", "system info", "running",
-                   "environment", "env var", "focus"),
+                   "environment", "env var", "focus",
+                   "open youtube", "open google", "open website",
+                   "url", "http", "browse"),
                 List.of(systemTools)));
 
         cats.add(new Category("media",
@@ -301,6 +311,14 @@ public class ToolRouter {
         cats.add(new Category("tray",
                 kw("tray", "system tray", "tray icon"),
                 List.of(systemTrayService)));
+
+        cats.add(new Category("screen_memory",
+                kw("screen memory", "what happened", "what was i doing",
+                   "remember.*screen", "last monday", "last tuesday",
+                   "last wednesday", "last thursday", "last friday",
+                   "last saturday", "last sunday", "yesterday.*do",
+                   "ocr", "capture.*remember"),
+                List.of(screenMemoryTools)));
 
         return Collections.unmodifiableList(cats);
     }

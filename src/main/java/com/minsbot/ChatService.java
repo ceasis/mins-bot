@@ -504,7 +504,7 @@ public class ChatService {
         if (step == 1) {
             return """
                     You are now in AUTONOMOUS MODE. The user is away from the computer.
-                    Review the primary directives below and plan how to accomplish them.
+                    Review the directives below and plan how to accomplish them.
                     Think step by step: what information do you need? What research should you do?
 
                     For each actionable directive, gather relevant information using the tools available.
@@ -533,7 +533,7 @@ public class ChatService {
                     Do NOT open the system browser. These tools work silently in the background.
 
                     SAVING DATA:
-                    - Do NOT write to primary_directives.dat. That file is ONLY for directive definitions.
+                    - Do NOT write to directives.md. That file is ONLY for directive definitions.
                     - Use saveDirectiveFinding(directiveName, content) to save text findings into a \
                     per-directive folder: ~/mins_bot_data/directive_{name}/
                     - Use saveDirectiveScreenshot(directiveName) to capture the current screen as an image.
@@ -552,7 +552,7 @@ public class ChatService {
         return """
                 [Autonomous step %d] You are still in AUTONOMOUS MODE. The user is still away.
 
-                Continue working on the primary directives. Use listDirectiveData to review \
+                Continue working on the directives. Use listDirectiveData to review \
                 what you've already gathered, then decide what the NEXT concrete step is.
 
                 Keep researching, gathering information, and downloading files. \
@@ -569,7 +569,7 @@ public class ChatService {
                 - Text: saveDirectiveFinding(directiveName, content)
                 - Images: searchAndDownloadImages or downloadFileToFolder with directiveName
                 - Screenshots: saveDirectiveScreenshot(directiveName)
-                - Do NOT write to primary_directives.dat — that file is only for directive definitions.
+                - Do NOT write to directives.md — that file is only for directive definitions.
 
                 Report briefly what you did this step. Be concise.
                 If you've completed all actionable directives or there's nothing more to do, \
