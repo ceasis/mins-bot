@@ -490,6 +490,25 @@ public class SystemTools {
         return systemControl.browserForward(browserName);
     }
 
+    // ═══ Wait / delay ═══
+
+    @Tool(description = "Wait/pause for a specified number of seconds before continuing. "
+            + "Essential for multi-step computer-use workflows: after switching browser tabs, "
+            + "opening apps, navigating to URLs, or any action that needs time to render before "
+            + "taking a screenshot or interacting. Max 30 seconds.")
+    public String waitSeconds(
+            @ToolParam(description = "Number of seconds to wait (1-30)") int seconds) {
+        int clamped = Math.max(1, Math.min(30, seconds));
+        notifier.notify("Waiting " + clamped + "s...");
+        try {
+            Thread.sleep(clamped * 1000L);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return "Wait interrupted after partial delay.";
+        }
+        return "Waited " + clamped + " second(s). Ready to continue.";
+    }
+
     // ═══ Helpers ═══
 
     private static String fmt(long bytes) {

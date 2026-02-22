@@ -18,8 +18,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 /**
- * Periodically OCRs the latest screenshot and stores extracted text with timestamps.
- * Uses Windows built-in OCR engine (Windows.Media.Ocr) via PowerShell.
+ * Periodically captures screen content and stores extracted text with timestamps.
+ * Live captures use GPT-4o Vision API (via {@link VisionService}) for rich understanding.
+ * Background periodic captures use Windows OCR (free, fast) for historical logs.
  *
  * Storage: ~/mins_bot_data/screen_memory/YYYY-MM-DD.txt
  * Config:  ~/mins_bot_data/minsbot_config.txt section "## Screen memory"
@@ -30,6 +31,7 @@ public class ScreenMemoryService {
     private static final Logger log = LoggerFactory.getLogger(ScreenMemoryService.class);
 
     private final SystemControlService systemControl;
+    private final VisionService visionService;
 
     private static final Path CONFIG_PATH =
             Paths.get(System.getProperty("user.home"), "mins_bot_data", "minsbot_config.txt");
@@ -53,8 +55,9 @@ public class ScreenMemoryService {
     /** Reusable OCR PowerShell script file. */
     private Path ocrScript;
 
-    public ScreenMemoryService(SystemControlService systemControl) {
+    public ScreenMemoryService(SystemControlService systemControl, VisionService visionService) {
         this.systemControl = systemControl;
+        this.visionService = visionService;
     }
 
     @PostConstruct
@@ -126,22 +129,36 @@ public class ScreenMemoryService {
     // ═══ Public methods for ScreenMemoryTools ═══
 
     /**
-     * Take a fresh screenshot, OCR it, and store the result.
+     * Take a fresh screenshot, analyze it via Vision API, and store the result.
      * Always captures "right now" so the answer matches what the user is looking at.
-     * Returns the extracted text, or null on failure.
+     * Uses GPT-4o Vision API for rich understanding; falls back to Windows OCR if Vision fails.
+     * Returns the analysis text, or null on failure.
      */
     public String captureNow() {
         systemControl.takeScreenshot();
         Path latest = findLatestScreenshot();
         if (latest == null) return null;
 
-        String text = runOcr(latest);
-        if (text == null || text.isBlank()) return null;
+        // Try Vision API first (rich understanding: text + context + app identification)
+        String fullText = null;
+        if (visionService.isAvailable()) {
+            fullText = visionService.analyzeScreenshot(latest);
+            if (fullText != null) {
+                log.debug("[ScreenMemory] Vision API returned {} chars", fullText.length());
+            }
+        }
 
-        String collapsed = text.replaceAll("[\\r\\n]+", " ").trim();
+        // Fallback: Windows OCR (text-only extraction)
+        if (fullText == null) {
+            String ocrText = runOcr(latest);
+            if (ocrText == null || ocrText.isBlank()) return null;
+            fullText = ocrText.trim();
+        }
+
+        // Compact version for daily log storage (single line, 500 chars)
+        String collapsed = fullText.replaceAll("[\\r\\n]+", " ").trim();
         if (collapsed.length() > 500) collapsed = collapsed.substring(0, 500);
 
-        // Store even if same as last (manual trigger)
         lastText = collapsed;
         String today = LocalDate.now().format(DATE_FMT);
         String time = LocalTime.now().format(TIME_FMT);
@@ -154,7 +171,9 @@ public class ScreenMemoryService {
         } catch (IOException e) {
             log.warn("[ScreenMemory] Failed to write: {}", e.getMessage());
         }
-        return collapsed;
+
+        // Return full OCR text (up to 4000 chars) with line breaks preserved
+        return fullText.length() > 4000 ? fullText.substring(0, 4000) : fullText;
     }
 
     /**

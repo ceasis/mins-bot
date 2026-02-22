@@ -2,30 +2,31 @@ package com.minsbot.agent.tools;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import java.lang.reflect.Method;
 import java.util.*;
-import java.util.regex.Pattern;
 
 /**
  * Dynamic tool selection router. Keeps each API call under OpenAI's 128-tool
- * limit by matching user messages to relevant tool categories via keyword regex.
+ * limit by using AI classification (gpt-4o-mini) to match user messages to
+ * relevant tool categories, with a hard tool-count cap enforced via reflection.
  *
- * <p>Always includes "core" tools. Adds category-specific tools when keywords
- * match. Falls back to a broad default set for generic messages.</p>
- *
- * <p>To add a new tool:
- * <ol>
- *   <li>Inject it in the constructor</li>
- *   <li>Add it to the appropriate category in {@link #buildCategories()}</li>
- *   <li>Or create a new category with keywords</li>
- * </ol></p>
+ * <p>At startup, counts the actual @Tool methods on each bean. During selection,
+ * tracks the running total and stops adding categories before exceeding the limit.
+ * This scales to any number of tools/categories — even 1000+.</p>
  */
 @Component
 public class ToolRouter {
 
     private static final Logger log = LoggerFactory.getLogger(ToolRouter.class);
+
+    /** OpenAI's maximum tools per API call. */
+    private static final int MAX_TOOLS = 128;
+    /** Leave headroom for safety (internal Spring AI wrappers, etc.). */
+    private static final int TOOL_BUDGET = MAX_TOOLS - 5; // 123
 
     // ─── All tool beans ───
 
@@ -79,14 +80,17 @@ public class ToolRouter {
     @Autowired(required = false)
     private ToolClassifierService classifier;
 
-    // ─── Registries (built once at startup) ───
+    // ─── Registries ───
+
+    /** Bean → number of @Tool methods (computed once via reflection). */
+    private final Map<Object, Integer> toolCounts = new IdentityHashMap<>();
 
     private final List<Object> coreTools;
-    private final List<Category> categories;
+    private final Map<String, List<Object>> categories;
     private final List<Object> defaultTools;
 
     private final List<Object> autonomousCoreTools;
-    private final List<Category> autonomousCategories;
+    private final Map<String, List<Object>> autonomousCategories;
     private final List<Object> autonomousDefaultTools;
 
     public ToolRouter(
@@ -166,6 +170,9 @@ public class ToolRouter {
         this.pluginLoaderService = pluginLoaderService;
         this.systemTrayService = systemTrayService;
 
+        // Count @Tool methods on every bean (once, via reflection)
+        countToolsOnAllBeans();
+
         this.coreTools = buildCoreTools();
         this.categories = buildCategories();
         this.defaultTools = buildDefaultTools();
@@ -173,70 +180,130 @@ public class ToolRouter {
         this.autonomousCoreTools = buildAutonomousCoreTools();
         this.autonomousCategories = buildAutonomousCategories();
         this.autonomousDefaultTools = buildAutonomousDefaultTools();
+
+        int coreCount = countTools(coreTools);
+        int totalRegistered = toolCounts.values().stream().mapToInt(Integer::intValue).sum();
+        log.info("[ToolRouter] {} total @Tool methods across {} beans. Core uses {} tools. Budget per request: {}",
+                totalRegistered, toolCounts.size(), coreCount, TOOL_BUDGET);
     }
 
     // ═══ Public API ═══
 
-    /** Select tools for a normal interactive chat request. */
     public Object[] selectTools(String message) {
         return doSelect(message, coreTools, categories, defaultTools);
     }
 
-    /** Select tools for an autonomous-mode step. */
     public Object[] selectToolsForAutonomous(String message) {
         return doSelect(message, autonomousCoreTools, autonomousCategories, autonomousDefaultTools);
     }
 
-    /** Returns true if the message triggers any specific tool category (not just defaults). */
     public boolean hasSpecificMatch(String message) {
-        String lower = (message == null) ? "" : message.toLowerCase();
-        for (Category cat : categories) {
-            if (cat.pattern.matcher(lower).find()) return true;
-        }
-        return false;
+        if (classifier == null || !classifier.isAvailable()) return false;
+        List<String> matched = classifier.classify(message);
+        return matched != null && !matched.isEmpty();
     }
 
-    // ═══ Selection logic ═══
+    // ═══ Selection logic (with tool count enforcement) ═══
 
     private Object[] doSelect(String message,
                               List<Object> core,
-                              List<Category> cats,
+                              Map<String, List<Object>> catMap,
                               List<Object> defaults) {
         Set<Object> selected = new LinkedHashSet<>(core);
-        String lower = (message == null) ? "" : message.toLowerCase();
+        int used = countTools(selected);
 
-        // Fast path: regex keyword matching (instant)
         boolean anyMatch = false;
-        for (Category cat : cats) {
-            if (cat.pattern.matcher(lower).find()) {
-                selected.addAll(cat.tools);
-                anyMatch = true;
-                log.debug("[ToolRouter] Regex matched '{}'", cat.name);
-            }
-        }
 
-        // AI classification fallback: when regex misses
-        if (!anyMatch && classifier != null && classifier.isAvailable()) {
+        // AI classification: ask gpt-4o-mini which categories this message needs
+        if (classifier != null && classifier.isAvailable()) {
             List<String> aiCategories = classifier.classify(message);
             for (String catName : aiCategories) {
-                for (Category cat : cats) {
-                    if (cat.name.equals(catName)) {
-                        selected.addAll(cat.tools);
-                        anyMatch = true;
-                        log.debug("[ToolRouter] AI matched '{}'", cat.name);
-                    }
+                List<Object> catTools = catMap.get(catName);
+                if (catTools == null) continue;
+
+                // Check if adding this category would exceed the budget
+                int catCost = countToolsExcluding(catTools, selected);
+                if (used + catCost > TOOL_BUDGET) {
+                    log.debug("[ToolRouter] Skipping '{}' ({} tools) — would exceed budget ({}/{})",
+                            catName, catCost, used, TOOL_BUDGET);
+                    continue;
                 }
+
+                selected.addAll(catTools);
+                used += catCost;
+                anyMatch = true;
+                log.debug("[ToolRouter] AI matched '{}' (+{} tools, total {})", catName, catCost, used);
             }
         }
 
+        // Fallback: if AI unavailable or matched nothing
         if (!anyMatch) {
-            selected.addAll(defaults);
+            for (Object bean : defaults) {
+                int cost = selected.contains(bean) ? 0 : toolCounts.getOrDefault(bean, 0);
+                if (used + cost > TOOL_BUDGET) break;
+                if (selected.add(bean)) used += cost;
+            }
         }
 
         Object[] result = selected.toArray();
-        log.info("[ToolRouter] Selected {} tool bean(s) for: {}",
-                result.length, truncate(message, 60));
+        log.info("[ToolRouter] Selected {} bean(s) ({} tools) for: {}",
+                result.length, used, truncate(message, 60));
         return result;
+    }
+
+    // ═══ Tool counting ═══
+
+    /** Count @Tool methods on a bean via reflection. Cached in toolCounts map. */
+    private void countToolsOnAllBeans() {
+        Object[] allBeans = {
+                directivesTools, directiveDataTools, memoryTools,
+                chatHistoryTool, taskStatusTool, clipboardTools,
+                playwrightTools, downloadTools, webScraperTools, browserTools,
+                fileTools, fileSystemTools, systemTools,
+                imageTools, pdfTools, ttsTools,
+                localModelTools, huggingFaceImageTool, summarizationTools, modelSwitchTools,
+                emailTools, weatherTools,
+                scheduledTaskTools, timerTools, notificationTools,
+                calculatorTools, qrTools, hashTools, unitConversionTools,
+                exportTools, sitesConfigTools, cronConfigTools,
+                screenMemoryTools, audioMemoryTools,
+                globalHotkeyService, pluginLoaderService, systemTrayService
+        };
+        for (Object bean : allBeans) {
+            if (bean != null && !toolCounts.containsKey(bean)) {
+                int count = 0;
+                for (Method m : bean.getClass().getMethods()) {
+                    if (m.isAnnotationPresent(Tool.class)) count++;
+                }
+                toolCounts.put(bean, count);
+                if (count > 0) {
+                    log.debug("[ToolRouter] {} → {} @Tool methods", bean.getClass().getSimpleName(), count);
+                }
+            }
+        }
+    }
+
+    /** Count total @Tool methods across a set of beans (deduplicates). */
+    private int countTools(Collection<Object> beans) {
+        Set<Object> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+        int total = 0;
+        for (Object bean : beans) {
+            if (seen.add(bean)) {
+                total += toolCounts.getOrDefault(bean, 0);
+            }
+        }
+        return total;
+    }
+
+    /** Count how many NEW tools these beans would add (excluding already-selected ones). */
+    private int countToolsExcluding(List<Object> beans, Set<Object> alreadySelected) {
+        int cost = 0;
+        for (Object bean : beans) {
+            if (!alreadySelected.contains(bean)) {
+                cost += toolCounts.getOrDefault(bean, 0);
+            }
+        }
+        return cost;
     }
 
     // ═══ Category definitions ═══
@@ -247,137 +314,38 @@ public class ToolRouter {
                 chatHistoryTool, taskStatusTool, clipboardTools);
     }
 
-    private List<Category> buildCategories() {
-        List<Category> cats = new ArrayList<>();
+    private Map<String, List<Object>> buildCategories() {
+        Map<String, List<Object>> map = new LinkedHashMap<>();
 
-        cats.add(new Category("chat_browser",
-                kw("in-browser", "chat browser", "in the chat browser",
-                   "in browser tab", "built-in browser", "mins bot browser"),
-                List.of(playwrightTools, downloadTools, sitesConfigTools)));
+        map.put("chat_browser", List.of(playwrightTools, downloadTools, sitesConfigTools));
+        map.put("browser",      List.of(playwrightTools, downloadTools, sitesConfigTools, systemTools));
+        map.put("sites",        List.of(sitesConfigTools));
+        map.put("files",        List.of(fileTools, fileSystemTools));
+        map.put("system",       List.of(systemTools));
+        map.put("media",        List.of(imageTools, pdfTools, ttsTools));
+        map.put("ai_model",     List.of(localModelTools, huggingFaceImageTool, summarizationTools, modelSwitchTools));
+        map.put("communication", List.of(emailTools, weatherTools));
+        map.put("scheduling",   List.of(scheduledTaskTools, timerTools, notificationTools, cronConfigTools));
+        map.put("utility",      List.of(calculatorTools, qrTools, hashTools, unitConversionTools));
+        map.put("export",       List.of(exportTools));
+        map.put("plugins",      List.of(pluginLoaderService));
+        map.put("hotkeys",      List.of(globalHotkeyService));
+        map.put("tray",         List.of(systemTrayService));
+        map.put("screen_memory", List.of(screenMemoryTools));
+        map.put("audio_memory", List.of(audioMemoryTools));
 
-        cats.add(new Category("browser",
-                kw("search", "browse", "web", "url", "page", "google", "bing",
-                   "link", "website", "look up", "find online", "navigate",
-                   "surf", "http", "youtube", "open youtube", "open google",
-                   "new tab", "close tab", "switch tab", "next tab", "previous tab",
-                   "refresh page", "go back", "go forward", "address bar"),
-                List.of(playwrightTools, downloadTools, sitesConfigTools, systemTools)));
-
-        cats.add(new Category("sites",
-                kw("login", "log in", "sign in", "credential", "password",
-                   "username", "site", "account", "saved site"),
-                List.of(sitesConfigTools)));
-
-        cats.add(new Category("files",
-                kw("file", "folder", "directory", "drive", "disk", "copy",
-                   "move", "delete", "rename", "zip", "extract", "unzip",
-                   "create", "path", "list files", "read file", "write file",
-                   "documents", "open folder"),
-                List.of(fileTools, fileSystemTools)));
-
-        cats.add(new Category("system",
-                kw("app", "window", "process", "screenshot", "wallpaper",
-                   "powershell", "cmd", "command", "close", "open app",
-                   "minimize", "lock", "shutdown", "sleep", "hibernate",
-                   "mute", "unmute", "volume", "ip address", "ping",
-                   "quit", "exit", "close mins bot",
-                   "recent", "keystroke", "system info", "running",
-                   "environment", "env var", "focus",
-                   "click", "mouse", "drag", "scroll", "double click",
-                   "right click", "cursor", "screen size", "coordinates",
-                   "open youtube", "open google", "open website",
-                   "url", "http", "browse"),
-                List.of(systemTools)));
-
-        cats.add(new Category("media",
-                kw("image", "photo", "picture", "flip", "rotate", "resize",
-                   "grayscale", "black and white", "pdf", "speak",
-                   "read aloud", "tts", "voice", "say this", "say ", "say something"),
-                List.of(imageTools, pdfTools, ttsTools)));
-
-        cats.add(new Category("ai_model",
-                kw("ollama", "model", "switch model", "local model", "openai",
-                   "classify", "nsfw", "summarize", "summary", "hugging",
-                   "huggingface", "llama", "mistral", "phi", "deepseek"),
-                List.of(localModelTools, huggingFaceImageTool,
-                        summarizationTools, modelSwitchTools)));
-
-        cats.add(new Category("communication",
-                kw("email", "send mail", "inbox", "weather",
-                   "temperature", "forecast", "rain", "sunny"),
-                List.of(emailTools, weatherTools)));
-
-        cats.add(new Category("scheduling",
-                kw("remind", "reminder", "timer", "schedule", "alarm",
-                   "recurring", "notify", "notification", "alert",
-                   "every \\d+ minute", "every \\d+ second", "every \\d+ hour",
-                   "every minute", "every hour", "every day", "cron"),
-                List.of(scheduledTaskTools, timerTools, notificationTools, cronConfigTools)));
-
-        cats.add(new Category("utility",
-                kw("calculate", "math", "qr", "hash", "sha", "md5",
-                   "convert", "unit", "miles", "km", "celsius",
-                   "fahrenheit", "encode", "decode",
-                   "\\d+\\s*[+*x/\\-]\\s*\\d+"),
-                List.of(calculatorTools, qrTools, hashTools,
-                        unitConversionTools)));
-
-        cats.add(new Category("export",
-                kw("export", "save chat", "chat history to file"),
-                List.of(exportTools)));
-
-        cats.add(new Category("plugins",
-                kw("plugin", "jar", "load plugin", "unload plugin"),
-                List.of(pluginLoaderService)));
-
-        cats.add(new Category("hotkeys",
-                kw("hotkey", "shortcut", "keyboard shortcut", "global key"),
-                List.of(globalHotkeyService)));
-
-        cats.add(new Category("tray",
-                kw("tray", "system tray", "tray icon"),
-                List.of(systemTrayService)));
-
-        cats.add(new Category("screen_memory",
-                kw("screen memory", "what happened", "what was i doing",
-                   "what am i watching", "what i'm watching", "what im watching",
-                   "what(.*)watching", "what's on screen", "what is on screen",
-                   "what am i looking at", "what i'm looking at", "what do i see",
-                   "what is on my screen", "on my screen", "looking at right now",
-                   "see right now", "what do i see right now", "how about now",
-                   "what do i watch right now",
-                   "remember.*screen", "last monday", "last tuesday",
-                   "last wednesday", "last thursday", "last friday",
-                   "last saturday", "last sunday", "yesterday.*do",
-                   "ocr", "capture.*remember", "video playback", "playback information"),
-                List.of(screenMemoryTools)));
-
-        cats.add(new Category("audio_memory",
-                kw("audio memory", "what was playing", "what was i listening",
-                   "what am i listening", "what i'm listening", "what im listening",
-                   "system audio", "speaker audio", "what song",
-                   "music playing", "capture audio", "what did i hear",
-                   "audio yesterday", "audio last", "listening to",
-                   "what.*listening", "what.*hear", "can you hear", "do you hear",
-                   "are you hearing", "hear.*(it|audio|music)", "playback",
-                   "record it", "record audio", "record.*(it|audio|music)",
-                   "start to capture", "start capture", "start capturing", "begin.*captur",
-                   "start recording", "start recording audio", "recording audio",
-                   "list audio devices", "audio capture devices", "what capture device", "no audio captured"),
-                List.of(audioMemoryTools)));
-
-        return Collections.unmodifiableList(cats);
+        return Collections.unmodifiableMap(map);
     }
 
     private List<Object> buildDefaultTools() {
         return List.of(
-                systemTools, fileTools, fileSystemTools,
-                playwrightTools, downloadTools, imageTools,
-                weatherTools, notificationTools, calculatorTools,
-                scheduledTaskTools, summarizationTools, emailTools);
+                systemTools, fileTools,
+                screenMemoryTools, audioMemoryTools,
+                scheduledTaskTools, notificationTools,
+                weatherTools);
     }
 
-    // ─── Autonomous mode (reduced palette) ───
+    // ─── Autonomous mode ───
 
     private List<Object> buildAutonomousCoreTools() {
         return List.of(
@@ -385,45 +353,19 @@ public class ToolRouter {
                 chatHistoryTool, taskStatusTool, clipboardTools);
     }
 
-    private List<Category> buildAutonomousCategories() {
-        List<Category> cats = new ArrayList<>();
+    private Map<String, List<Object>> buildAutonomousCategories() {
+        Map<String, List<Object>> map = new LinkedHashMap<>();
 
-        cats.add(new Category("browser",
-                kw("search", "browse", "web", "url", "page", "google",
-                   "link", "website", "look up", "find online", "navigate", "http"),
-                List.of(playwrightTools)));
+        map.put("browser",       List.of(playwrightTools));
+        map.put("files",         List.of(fileTools, fileSystemTools));
+        map.put("system",        List.of(systemTools));
+        map.put("media",         List.of(imageTools));
+        map.put("ai_model",      List.of(localModelTools, summarizationTools));
+        map.put("communication", List.of(emailTools));
+        map.put("scheduling",    List.of(scheduledTaskTools, cronConfigTools));
+        map.put("export",        List.of(exportTools));
 
-        cats.add(new Category("files",
-                kw("file", "folder", "directory", "drive", "disk",
-                   "copy", "move", "delete", "rename", "zip", "create", "path"),
-                List.of(fileTools, fileSystemTools)));
-
-        cats.add(new Category("system",
-                kw("app", "window", "screenshot", "powershell", "cmd",
-                   "close", "open", "minimize", "system"),
-                List.of(systemTools)));
-
-        cats.add(new Category("media",
-                kw("image", "photo", "picture", "resize"),
-                List.of(imageTools)));
-
-        cats.add(new Category("ai_model",
-                kw("ollama", "local model", "summarize", "summary", "classify"),
-                List.of(localModelTools, summarizationTools)));
-
-        cats.add(new Category("communication",
-                kw("email", "send mail"),
-                List.of(emailTools)));
-
-        cats.add(new Category("scheduling",
-                kw("schedule", "reminder", "recurring", "every minute", "every hour", "cron"),
-                List.of(scheduledTaskTools, cronConfigTools)));
-
-        cats.add(new Category("export",
-                kw("export", "save chat"),
-                List.of(exportTools)));
-
-        return Collections.unmodifiableList(cats);
+        return Collections.unmodifiableMap(map);
     }
 
     private List<Object> buildAutonomousDefaultTools() {
@@ -436,25 +378,8 @@ public class ToolRouter {
 
     // ═══ Helpers ═══
 
-    /** Build a compiled regex from keyword strings. Word-boundary aware. */
-    private static Pattern kw(String... words) {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < words.length; i++) {
-            if (i > 0) sb.append("|");
-            String w = words[i];
-            if (w.contains("\\") || w.contains("[") || w.contains("(")) {
-                sb.append("(?:").append(w).append(")");
-            } else {
-                sb.append("\\b").append(Pattern.quote(w)).append("\\b");
-            }
-        }
-        return Pattern.compile(sb.toString(), Pattern.CASE_INSENSITIVE);
-    }
-
     private static String truncate(String s, int max) {
         if (s == null) return "(null)";
         return s.length() <= max ? s : s.substring(0, max) + "...";
     }
-
-    private record Category(String name, Pattern pattern, List<Object> tools) {}
 }

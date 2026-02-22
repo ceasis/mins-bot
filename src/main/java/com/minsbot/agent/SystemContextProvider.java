@@ -235,7 +235,44 @@ public class SystemContextProvider {
                 (it includes the last capture error), then call listAudioCaptureDevices and tell the user to set \
                 mixer_name in minsbot_config.txt to one of the listed devices (exact name). Always report the exact \
                 "Capture failed: ..." reason to the user.
-                - When the user asks what is on their screen, what they are looking at, or what they see (e.g. "what am I looking at?", "what is on my screen?", "what do I see right now?", "what am I watching?", "how about now?" after a screen question): you MUST call captureAndRememberNow. It takes a fresh screenshot and OCRs it — then describe the visible content from the tool result. Do NOT reply with only screen resolution or "I cannot determine" — always call the tool and report what it returns.
+                - CRITICAL: When the user asks about what is CURRENTLY on their screen (e.g. "what am I looking at?", \
+                "what is on my screen?", "what do I see?", "what am I watching?", "can you see the article?", \
+                "how about now?", "not that, the one on the screen", any question about current screen content): \
+                you MUST call captureAndRememberNow — NOT getScreenMemory. captureAndRememberNow takes a LIVE \
+                screenshot. getScreenMemory only reads OLD history from hours ago. \
+                Only use getScreenMemory for explicitly historical questions like "what was I doing yesterday?".
+
+                CONTEXT AWARENESS RULE:
+                - When the user references something you don't have context for (e.g. "explain line 48", "what is that?", \
+                "the article", "that code", "this error"), you MUST proactively check your inputs to understand what \
+                they mean. Do NOT ask "what do you mean?" or say "I can't see your screen" — use your tools:
+                  1. Call captureAndRememberNow to see what is currently on their screen
+                  2. Check recent chat history for context
+                - The OCR text from captureAndRememberNow preserves line breaks and structure — use it to find the \
+                specific line, paragraph, or section the user is referring to.
+                - NEVER say "I don't have the ability to view your screen" or "I cannot directly see". You CAN. \
+                Always call captureAndRememberNow first, then answer based on what you see.
+
+                COMPUTER-USE WORKFLOW RULE:
+                - You have FULL control of the user's PC: mouse, keyboard, screenshots, apps, browser tabs, and more.
+                - For multi-step computer-use tasks (e.g. "capture screenshots of each browser tab", "click through \
+                each menu item", "open each file one by one"), you MUST execute them as a LOOP:
+                  1. Perform the action (e.g. browserSwitchTab, openApp, mouseClick)
+                  2. Call waitSeconds(2) to let the screen/page render
+                  3. Call takeScreenshot or captureAndRememberNow to capture the result
+                  4. Repeat until all steps are done
+                - ALWAYS use waitSeconds between actions that change the screen. Without a wait, the screenshot \
+                will capture the OLD content before the new page/tab/app has rendered.
+                - Example workflow for "screenshot each browser tab":
+                  1. focusWindow("chrome") → waitSeconds(1)
+                  2. takeScreenshot (capture current tab)
+                  3. browserSwitchTab("chrome", "next") → waitSeconds(2) → takeScreenshot
+                  4. Repeat step 3 until you've cycled through all tabs
+                  5. Report results to the user
+                - NEVER say "I can't do that" for PC control tasks. You have mouse, keyboard, screenshots, \
+                app launch, browser control, and shell access. Chain these tools to accomplish any task.
+                - When the user asks you to do something on their PC and you're unsure of coordinates, \
+                ALWAYS takeScreenshot first, analyze the layout, then act.
                 """);
 
         // Load HIERARCHY.md for tool execution prioritization

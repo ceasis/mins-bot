@@ -68,6 +68,7 @@ public class SystemControlService {
         APP_PROCESS_MAP.put("obs", List.of("obs64.exe", "obs32.exe"));
         APP_PROCESS_MAP.put("eclipse", List.of("eclipse.exe", "eclipsec.exe"));
         APP_PROCESS_MAP.put("intellij", List.of("idea64.exe", "idea.exe"));
+        APP_PROCESS_MAP.put("cursor", List.of("cursor.exe"));
         APP_PROCESS_MAP.put("file explorer", List.of("explorer.exe"));
         APP_PROCESS_MAP.put("task manager", List.of("taskmgr.exe"));
         APP_PROCESS_MAP.put("calculator", List.of("calculator.exe", "calc.exe"));
@@ -205,6 +206,7 @@ public class SystemControlService {
         launchCommands.put("vscode", new String[]{"cmd", "/c", "start", "", "code"});
         launchCommands.put("visual studio code", new String[]{"cmd", "/c", "start", "", "code"});
         launchCommands.put("eclipse", new String[]{"cmd", "/c", "start", "", "eclipse"});
+        launchCommands.put("cursor", new String[]{"cmd", "/c", "start", "", "cursor"});
         launchCommands.put("word", new String[]{"cmd", "/c", "start", "", "winword"});
         launchCommands.put("excel", new String[]{"cmd", "/c", "start", "", "excel"});
         launchCommands.put("powerpoint", new String[]{"cmd", "/c", "start", "", "powerpnt"});
@@ -363,20 +365,39 @@ public class SystemControlService {
     /**
      * Bring a window to the foreground by searching for its title or process name.
      * Uses the first matching window (case-insensitive partial match).
+     * Employs AttachThreadInput trick to bypass Windows' SetForegroundWindow restrictions.
      */
     public String focusWindow(String search) {
         if (search == null || search.isBlank()) {
             return "Provide a window title or process name to focus (e.g. 'notepad', 'chrome').";
         }
         String safe = search.trim().replace("'", "''");
-        // Find first process whose MainWindowTitle or ProcessName contains the search, then call SetForegroundWindow
         String ps = "Add-Type -TypeDefinition @\"\n" +
                 "using System; using System.Runtime.InteropServices;\n" +
-                "public class Win32 { [DllImport(\\\"user32.dll\\\")] public static extern bool SetForegroundWindow(IntPtr hwnd); }\n" +
+                "public class Win32Focus {\n" +
+                "  [DllImport(\\\"user32.dll\\\")] public static extern bool SetForegroundWindow(IntPtr hwnd);\n" +
+                "  [DllImport(\\\"user32.dll\\\")] public static extern bool ShowWindow(IntPtr hwnd, int cmd);\n" +
+                "  [DllImport(\\\"user32.dll\\\")] public static extern bool IsIconic(IntPtr hwnd);\n" +
+                "  [DllImport(\\\"user32.dll\\\")] public static extern IntPtr GetForegroundWindow();\n" +
+                "  [DllImport(\\\"user32.dll\\\")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);\n" +
+                "  [DllImport(\\\"kernel32.dll\\\")] public static extern uint GetCurrentThreadId();\n" +
+                "  [DllImport(\\\"user32.dll\\\")] public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);\n" +
+                "  public static void ForceForeground(IntPtr hwnd) {\n" +
+                "    if (IsIconic(hwnd)) ShowWindow(hwnd, 9);\n" + // SW_RESTORE
+                "    IntPtr fg = GetForegroundWindow();\n" +
+                "    uint fgPid = 0;\n" +
+                "    uint fgTid = GetWindowThreadProcessId(fg, out fgPid);\n" +
+                "    uint ourTid = GetCurrentThreadId();\n" +
+                "    if (fgTid != ourTid) AttachThreadInput(ourTid, fgTid, true);\n" +
+                "    SetForegroundWindow(hwnd);\n" +
+                "    ShowWindow(hwnd, 5);\n" + // SW_SHOW
+                "    if (fgTid != ourTid) AttachThreadInput(ourTid, fgTid, false);\n" +
+                "  }\n" +
+                "}\n" +
                 "\"@ -ErrorAction SilentlyContinue; " +
                 "$procs = Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and " +
                 "($_.MainWindowTitle -like '*" + safe + "*' -or $_.ProcessName -like '*" + safe + "*') }; " +
-                "if ($procs) { [Win32]::SetForegroundWindow($procs[0].MainWindowHandle); 'Focused: ' + $procs[0].ProcessName + ' - ' + $procs[0].MainWindowTitle } " +
+                "if ($procs) { [Win32Focus]::ForceForeground($procs[0].MainWindowHandle); 'Focused: ' + $procs[0].ProcessName + ' - ' + $procs[0].MainWindowTitle } " +
                 "else { 'No window found matching: " + safe.replace("'", "''") + "' }";
         return runPowerShell(ps);
     }

@@ -66,7 +66,7 @@ public class ToolClassifierService {
             - screen_memory: what's on screen, what was I doing/watching, OCR, screen capture
             - audio_memory: what's playing, what do you hear, system audio, music, record audio, capture audio
 
-            Return ONLY matching category names, comma-separated. If none match, return: none""";
+            Return at most 3 of the most relevant category names, comma-separated. If none match, return: none""";
 
     @PostConstruct
     void init() {
@@ -173,7 +173,9 @@ public class ToolClassifierService {
         return sb.toString().trim();
     }
 
-    /** Parse comma-separated category names, filtering to valid ones only. */
+    /** Parse comma-separated category names, filtering to valid ones only. Max 3 results. */
+    private static final int MAX_CATEGORIES = 3;
+
     private static List<String> parseCategories(String content) {
         if (content == null || content.isBlank() || content.equalsIgnoreCase("none")) {
             return Collections.emptyList();
@@ -183,6 +185,7 @@ public class ToolClassifierService {
             String name = part.trim().toLowerCase();
             if (VALID_CATEGORIES.contains(name)) {
                 result.add(name);
+                if (result.size() >= MAX_CATEGORIES) break;
             }
         }
         return result;

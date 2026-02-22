@@ -27,9 +27,10 @@ public class ScreenMemoryTools {
         this.screenMemory = screenMemory;
     }
 
-    @Tool(description = "Get the screen memory (OCR text from screenshots) for a specific date. "
+    @Tool(description = "Get HISTORICAL screen memory (OCR text from past screenshots) for a specific date. "
             + "Returns timestamped text entries showing what was on screen throughout the day. "
-            + "Use when the user asks 'what happened on Monday?', 'what was I doing yesterday?', 'what am I watching?', etc. "
+            + "ONLY use for PAST/HISTORICAL queries like 'what happened on Monday?', 'what was I doing yesterday?'. "
+            + "Do NOT use this for current screen questions — use captureAndRememberNow instead. "
             + "Pass a date like '2026-02-16', or natural words: 'today', 'yesterday', 'last monday', 'last tuesday', etc.")
     public String getScreenMemory(
             @ToolParam(description = "Date to look up: 'today', 'yesterday', 'last monday', or 'YYYY-MM-DD'") String date) {
@@ -44,10 +45,12 @@ public class ScreenMemoryTools {
         return "Screen memory for " + dateStr + ":\n" + content;
     }
 
-    @Tool(description = "Capture and remember the current screen right now. Takes the latest screenshot, "
-            + "runs OCR to extract text, and stores it with a timestamp. Returns the extracted text describing what is on screen. "
-            + "Use when the user asks 'what am I looking at?', 'what is on my screen?', 'what do I see right now?', "
-            + "'what am I watching?', 'what's on screen?', 'remember what's on screen', 'capture this'. Do NOT use getScreenSize for content questions — use this tool to describe what's visible.")
+    @Tool(description = "Take a LIVE screenshot of the current screen right now, OCR it, and return what is visible. "
+            + "ALWAYS use this tool (not getScreenMemory) when the user asks about what is CURRENTLY on their screen. "
+            + "Examples: 'what am I looking at?', 'what is on my screen?', 'what do I see right now?', "
+            + "'what am I watching?', 'what's on screen?', 'can you see the article on my screen?', "
+            + "'what's on screen right now?', 'capture this', 'what do you see?'. "
+            + "This takes a fresh screenshot — getScreenMemory only reads old history.")
     public String captureAndRememberNow() {
         notifier.notify("Capturing screen memory...");
         String text = screenMemory.captureNow();

@@ -115,7 +115,7 @@ public class FloatingAppLauncher extends Application {
             int y = (int) e.getY();
             Platform.runLater(() -> {
                 forwardClickToPage(engine, x, y);
-                webView.requestFocus(); // so keyboard input goes to the window
+                webView.requestFocus();
             });
         });
         primaryStage.setScene(scene);
@@ -156,10 +156,26 @@ public class FloatingAppLauncher extends Application {
     /**
      * Synthesize a click in the page at the given viewport coordinates.
      * Used when the WebView does not deliver mouse events to the content (keyboard works, clicks don't).
+     *
+     * Walks up from SVG children (path, svg, g, etc.) to find the actual clickable HTML parent,
+     * since SVG elements may not properly bubble synthetic click events in JavaFX WebView.
+     * Dispatches a full mousedown→mouseup→click sequence for maximum compatibility.
      */
     private static void forwardClickToPage(WebEngine engine, int x, int y) {
         try {
-            String script = "(function(){ var el = document.elementFromPoint(" + x + "," + y + "); if(el){ el.focus(); el.click(); } })();";
+            String script = "(function(){"
+                    + "var el = document.elementFromPoint(" + x + "," + y + ");"
+                    + "if(!el) return;"
+                    // If we hit an SVG child, walk up to the nearest interactive HTML ancestor
+                    + "var target = el.closest('button,a,input,select,textarea,label,[onclick],[role=button]');"
+                    + "if(!target) target = el;"
+                    + "if(typeof target.focus === 'function') target.focus();"
+                    // Dispatch full mouse event sequence for maximum compatibility
+                    + "var opts = {bubbles:true,cancelable:true,clientX:" + x + ",clientY:" + y + ",view:window};"
+                    + "target.dispatchEvent(new MouseEvent('mousedown', opts));"
+                    + "target.dispatchEvent(new MouseEvent('mouseup', opts));"
+                    + "target.dispatchEvent(new MouseEvent('click', opts));"
+                    + "})();";
             engine.executeScript(script);
         } catch (Exception ignored) {
             // Page may not be ready or JS disabled
