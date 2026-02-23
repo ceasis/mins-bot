@@ -421,20 +421,20 @@ public class ScreenMemoryService {
         // Log all detected words for debugging
         for (int i = 0; i < words.size(); i++) {
             OcrWord w = words.get(i);
-            log.info("[findText]   word[{}]: '{}' at ({},{}) {}x{} → center({},{})",
-                    i, w.text(),
-                    String.format("%.1f", w.x()), String.format("%.1f", w.y()),
-                    String.format("%.1f", w.width()), String.format("%.1f", w.height()),
-                    String.format("%.1f", w.centerX()), String.format("%.1f", w.centerY()));
+            //log.info("[findText]   word[{}]: '{}' at ({},{}) {}x{} → center({},{})",
+            //        i, w.text(),
+            //        String.format("%.1f", w.x()), String.format("%.1f", w.y()),
+            //        String.format("%.1f", w.width()), String.format("%.1f", w.height()),
+            //        String.format("%.1f", w.centerX()), String.format("%.1f", w.centerY()));
         }
 
         // Strategy 1: Exact single-word match (case-insensitive)
         for (OcrWord w : words) {
             if (w.text().equalsIgnoreCase(search)) {
-                log.info("[findText] EXACT match: '{}' bbox({},{} {}x{}) → center({}, {})",
-                        w.text(), String.format("%.1f", w.x()), String.format("%.1f", w.y()),
-                        String.format("%.1f", w.width()), String.format("%.1f", w.height()),
-                        String.format("%.2f", w.centerX()), String.format("%.2f", w.centerY()));
+                //log.info("[findText] EXACT match: '{}' bbox({},{} {}x{}) → center({}, {})",
+                //        w.text(), String.format("%.1f", w.x()), String.format("%.1f", w.y()),
+                //        String.format("%.1f", w.width()), String.format("%.1f", w.height()),
+                //        String.format("%.2f", w.centerX()), String.format("%.2f", w.centerY()));
                 return new double[]{w.centerX(), w.centerY()};
             }
         }

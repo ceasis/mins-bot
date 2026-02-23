@@ -2,6 +2,7 @@ package com.minsbot;
 
 import com.minsbot.agent.AsyncMessageService;
 import com.minsbot.agent.PcAgentService;
+import com.minsbot.agent.ScreenStateService;
 import com.minsbot.agent.SystemContextProvider;
 import com.minsbot.agent.WorkingSoundService;
 import com.minsbot.agent.tools.*;
@@ -63,6 +64,7 @@ public class ChatService {
     private final WorkingSoundService workingSound;
     private final ToolRouter toolRouter;
     private final TtsTools ttsTools;
+    private final ScreenStateService screenStateService;
 
     /** Spring AI ChatClient — null when no API key is configured. Swappable at runtime. */
     @Autowired(required = false)
@@ -92,7 +94,8 @@ public class ChatService {
                        WorkingSoundService workingSound,
                        ToolRouter toolRouter,
                        AsyncMessageService asyncMessages,
-                       TtsTools ttsTools) {
+                       TtsTools ttsTools,
+                       ScreenStateService screenStateService) {
         this.transcriptService = transcriptService;
         this.pcAgent = pcAgent;
         this.systemCtx = systemCtx;
@@ -103,6 +106,7 @@ public class ChatService {
         this.toolRouter = toolRouter;
         this.asyncMessages = asyncMessages;
         this.ttsTools = ttsTools;
+        this.screenStateService = screenStateService;
     }
 
     @PostConstruct
@@ -145,6 +149,23 @@ public class ChatService {
         }
         chatMemory.add("mins-bot-local", messages);
         log.info("[ChatService] Seeded ChatMemory with {} messages from transcript history.", messages.size());
+    }
+
+    /**
+     * Clear Spring AI ChatMemory and transcript so the AI starts fresh.
+     * Called when user clicks "Clear chat" in the UI.
+     */
+    public void clearChatMemory() {
+        if (chatMemory != null) {
+            try {
+                chatMemory.clear("mins-bot-local");
+                log.info("[ChatService] ChatMemory cleared.");
+            } catch (Exception e) {
+                log.warn("[ChatService] Failed to clear ChatMemory: {}", e.getMessage());
+            }
+        }
+        transcriptService.clearHistory();
+        log.info("[ChatService] Chat history and AI memory cleared.");
     }
 
     /** Returns and removes the next async result, or null if none. */
@@ -252,24 +273,74 @@ public class ChatService {
                 fileTools.setAsyncCallback(asyncCallback);
                 workingSound.start();
 
-                String reply = chatClient.prompt()
-                        .system(systemCtx.buildSystemMessage())
-                        .user(trimmed)
-                        .tools(toolRouter.selectTools(trimmed))
-                        .call()
-                        .content();
+                // Auto-capture live screen state with Gemini reasoning
+                String systemMessage = systemCtx.buildSystemMessage();
+                try {
+                    String screenAnalysis = screenStateService.captureAndAnalyze(trimmed);
+                    if (screenAnalysis != null && !screenAnalysis.isBlank()) {
+                        systemMessage += "\n\nLIVE SCREEN ANALYSIS (auto-captured and analyzed just now — "
+                                + "this is the GROUND TRUTH of what is on screen RIGHT NOW):\n"
+                                + screenAnalysis + "\n"
+                                + "\nCRITICAL: Use ONLY the names from this analysis. NEVER use names from chat history. "
+                                + "If a plan is provided above, EXECUTE it by calling findAndDragElement for EACH step. "
+                                + "Do NOT skip any steps. Do NOT claim success without calling the tools.\n";
+                        log.info("[ChatService] Injected Gemini screen analysis ({} chars)", screenAnalysis.length());
+                    }
+                } catch (Exception e) {
+                    log.debug("[ChatService] Screen analysis failed (non-critical): {}", e.getMessage());
+                }
+
+                final int MAX_RETRIES = 3;
+                final long RETRY_DELAY_MS = 3000;
+                Exception lastError = null;
+                final String finalSystemMessage = systemMessage;
+
+                for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+                    try {
+                        String reply = chatClient.prompt()
+                                .system(finalSystemMessage)
+                                .user(trimmed)
+                                .tools(toolRouter.selectTools(trimmed))
+                                .call()
+                                .content();
+
+                        workingSound.stop();
+
+                        if (reply != null && !reply.isBlank()) {
+                            transcriptService.save("BOT", reply);
+                            autoSpeak(reply);
+                            return reply;
+                        }
+                        break; // empty reply, fall through to fallback
+                    } catch (Exception e) {
+                        lastError = e;
+                        boolean isNetworkError = e instanceof org.springframework.web.client.ResourceAccessException
+                                || (e.getCause() != null && (e.getCause() instanceof java.net.SocketException
+                                    || e.getCause() instanceof java.io.IOException));
+
+                        if (isNetworkError && attempt < MAX_RETRIES) {
+                            log.warn("[ChatService] AI call failed (attempt {}/{}): {} — retrying in {}s",
+                                    attempt, MAX_RETRIES, e.getMessage(), RETRY_DELAY_MS / 1000);
+                            asyncMessages.push("Connection error. Retrying... (attempt " + (attempt + 1) + "/" + MAX_RETRIES + ")");
+                            try { Thread.sleep(RETRY_DELAY_MS); } catch (InterruptedException ie) {
+                                Thread.currentThread().interrupt();
+                                break;
+                            }
+                        } else {
+                            workingSound.stop();
+                            log.error("[ChatService] Spring AI error (attempt {}/{}): {}", attempt, MAX_RETRIES, e.getMessage(), e);
+                            String errorReply = "AI error: " + e.getMessage();
+                            if (attempt > 1) errorReply = "AI error after " + attempt + " attempts: " + e.getMessage();
+                            transcriptService.save("BOT(error)", errorReply);
+                            return errorReply;
+                        }
+                    }
+                }
 
                 workingSound.stop();
-
-                if (reply != null && !reply.isBlank()) {
-                    transcriptService.save("BOT", reply);
-                    autoSpeak(reply);
-                    return reply;
-                }
             } catch (Exception e) {
                 workingSound.stop();
-                log.error("[ChatService] Spring AI error: {}", e.getMessage(), e);
-                // Tell the user what went wrong instead of silently falling back
+                log.error("[ChatService] Unexpected error: {}", e.getMessage(), e);
                 String errorReply = "AI error: " + e.getMessage();
                 transcriptService.save("BOT(error)", errorReply);
                 return errorReply;
@@ -468,12 +539,30 @@ public class ChatService {
                 fileTools.setAsyncCallback(asyncCallback);
                 workingSound.start();
 
-                String reply = chatClient.prompt()
-                        .system(systemCtx.buildSystemMessage())
-                        .user(prompt)
-                        .tools(toolRouter.selectToolsForAutonomous(prompt))
-                        .call()
-                        .content();
+                String reply = null;
+                for (int attempt = 1; attempt <= 3; attempt++) {
+                    try {
+                        reply = chatClient.prompt()
+                                .system(systemCtx.buildSystemMessage())
+                                .user(prompt)
+                                .tools(toolRouter.selectToolsForAutonomous(prompt))
+                                .call()
+                                .content();
+                        break; // success
+                    } catch (Exception retryEx) {
+                        boolean isNetworkError = retryEx instanceof org.springframework.web.client.ResourceAccessException
+                                || (retryEx.getCause() != null && (retryEx.getCause() instanceof java.net.SocketException
+                                    || retryEx.getCause() instanceof java.io.IOException));
+                        if (isNetworkError && attempt < 3) {
+                            log.warn("[Autonomous] AI call failed (attempt {}/3): {} — retrying in 3s",
+                                    attempt, retryEx.getMessage());
+                            asyncMessages.push("Connection error during autonomous work. Retrying... (attempt " + (attempt + 1) + "/3)");
+                            Thread.sleep(3000);
+                        } else {
+                            throw retryEx; // non-network error or final attempt — propagate
+                        }
+                    }
+                }
 
                 workingSound.stop();
 

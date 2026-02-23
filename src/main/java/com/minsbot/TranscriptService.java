@@ -65,6 +65,14 @@ public class TranscriptService {
         }
     }
 
+    /** Clear the in-memory chat history ring buffer (does NOT delete history files). */
+    public void clearHistory() {
+        synchronized (recentMemory) {
+            recentMemory.clear();
+        }
+        log.info("[Transcript] In-memory history cleared.");
+    }
+
     /**
      * Returns recent history as structured maps for the REST API.
      * Each entry: {speaker, text, time, isUser}.

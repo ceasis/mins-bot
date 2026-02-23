@@ -1,6 +1,7 @@
 package com.minsbot.agent.tools;
 
 import com.minsbot.MinsBotQuitService;
+import com.minsbot.agent.GeminiVisionService;
 import com.minsbot.agent.ScreenMemoryService;
 import com.minsbot.agent.SystemControlService;
 import com.minsbot.agent.TextractService;
@@ -36,16 +37,19 @@ public class SystemTools {
     private final ToolExecutionNotifier notifier;
     private final MinsBotQuitService quitService;
     private final VisionService visionService;
+    private final GeminiVisionService geminiVisionService;
     private final ScreenMemoryService screenMemoryService;
     private final TextractService textractService;
 
     public SystemTools(SystemControlService systemControl, ToolExecutionNotifier notifier,
                        MinsBotQuitService quitService, VisionService visionService,
+                       GeminiVisionService geminiVisionService,
                        ScreenMemoryService screenMemoryService, TextractService textractService) {
         this.systemControl = systemControl;
         this.notifier = notifier;
         this.quitService = quitService;
         this.visionService = visionService;
+        this.geminiVisionService = geminiVisionService;
         this.screenMemoryService = screenMemoryService;
         this.textractService = textractService;
     }
@@ -584,7 +588,24 @@ public class SystemTools {
             }
         }
 
-        System.out.println("[locate] OCR+Textract miss for '" + searchText + "' — trying AI vision...");
+        // Try Google Gemini Vision (fast model)
+        if (geminiVisionService.isAvailable()) {
+            System.out.println("[locate] OCR+Textract miss — trying Gemini Vision for '" + elementDescription + "'...");
+            int imgW = ctx.imgWidth() > 0 ? ctx.imgWidth() : ctx.logicalWidth();
+            int imgH = ctx.imgHeight() > 0 ? ctx.imgHeight() : ctx.logicalHeight();
+            int[] geminiCoords = geminiVisionService.findElementCoordinates(
+                    ctx.imagePath(), elementDescription, imgW, imgH);
+            if (geminiCoords != null) {
+                int sx = (int) Math.round(geminiCoords[0] * ctx.scaleX());
+                int sy = (int) Math.round(geminiCoords[1] * ctx.scaleY());
+                System.out.println("[locate] GEMINI MATCH: '" + elementDescription + "' → screen(" + sx + "," + sy + ")");
+                return new ElementLocation(sx, sy, "Gemini", ctx.imgWidth(), ctx.imgHeight(),
+                        ctx.logicalWidth(), ctx.logicalHeight(), ctx.scaleX(), ctx.scaleY());
+            }
+        }
+
+        // Fallback: OpenAI Vision (gpt-4o-mini)
+        System.out.println("[locate] OCR+Textract+Gemini miss for '" + searchText + "' — trying OpenAI vision...");
         if (!visionService.isAvailable()) return null;
 
         int[] visionCoords = visionService.findElementCoordinates(
@@ -595,8 +616,8 @@ public class SystemTools {
 
         int sx = (int) Math.round(visionCoords[0] * ctx.scaleX());
         int sy = (int) Math.round(visionCoords[1] * ctx.scaleY());
-        System.out.println("[locate] VISION MATCH: '" + elementDescription + "' → screen(" + sx + "," + sy + ")");
-        return new ElementLocation(sx, sy, "AI vision", ctx.imgWidth(), ctx.imgHeight(),
+        System.out.println("[locate] OPENAI VISION MATCH: '" + elementDescription + "' → screen(" + sx + "," + sy + ")");
+        return new ElementLocation(sx, sy, "OpenAI vision", ctx.imgWidth(), ctx.imgHeight(),
                 ctx.logicalWidth(), ctx.logicalHeight(), ctx.scaleX(), ctx.scaleY());
     }
 
@@ -875,37 +896,52 @@ public class SystemTools {
 
             System.out.println("[drag] OCR+Textract verify: '" + searchText + "' not found — checking with AI vision...");
 
-            // ── Phase 3: AI vision (gpt-4o) on cropped region around source location ──
-            if (!visionService.isAvailable()) {
-                System.out.println("[drag] AI vision not available — trusting OCR result → SUCCESS");
-                return DragVerifyResult.SUCCESS;
-            }
-
             Path cropPath = cropAroundSource(verifyCtx, sourceScreenX, sourceScreenY);
-            if (cropPath == null) {
-                System.out.println("[drag] Could not crop image — trusting OCR result → SUCCESS");
+            Path verifyImage = (cropPath != null) ? cropPath : verifyCtx.imagePath();
+
+            // ── Phase 3: Gemini reasoning model (gemini-2.5-pro) ──
+            if (geminiVisionService.isAvailable()) {
+                System.out.println("[drag] Trying Gemini reasoning verify for '" + sourceDescription + "'...");
+                String geminiResponse = geminiVisionService.verifyDrag(verifyImage, sourceDescription);
+                if (geminiResponse != null && !geminiResponse.isBlank()) {
+                    String geminiFirst = geminiResponse.split("\\r?\\n")[0].trim().toUpperCase();
+                    System.out.println("[drag] Gemini verify: " + geminiResponse.replace("\n", " | "));
+
+                    if (geminiFirst.startsWith("YES")) {
+                        System.out.println("[drag] OCR + Gemini confirm source is gone → SUCCESS");
+                        return DragVerifyResult.SUCCESS;
+                    } else if (geminiFirst.startsWith("NO")) {
+                        System.out.println("[drag] Gemini says source still visible → FAILED");
+                        return DragVerifyResult.FAILED;
+                    }
+                }
+            }
+
+            // ── Phase 4: OpenAI gpt-4o fallback ──
+            if (!visionService.isAvailable()) {
+                System.out.println("[drag] No AI vision available — trusting OCR result → SUCCESS");
                 return DragVerifyResult.SUCCESS;
             }
 
-            String aiResponse = visionService.verifyDragStrong(cropPath, sourceDescription);
+            String aiResponse = visionService.verifyDragStrong(verifyImage, sourceDescription);
             if (aiResponse == null || aiResponse.isBlank()) {
-                System.out.println("[drag] AI vision returned empty — trusting OCR result → SUCCESS");
+                System.out.println("[drag] OpenAI vision returned empty — trusting OCR result → SUCCESS");
                 return DragVerifyResult.SUCCESS;
             }
 
             String firstLine = aiResponse.split("\\r?\\n")[0].trim().toUpperCase();
-            System.out.println("[drag] AI vision (strong): " + aiResponse.replace("\n", " | "));
+            System.out.println("[drag] OpenAI vision (strong): " + aiResponse.replace("\n", " | "));
 
             if (firstLine.startsWith("YES")) {
-                System.out.println("[drag] Both OCR and AI confirm source is gone → SUCCESS");
+                System.out.println("[drag] OCR + OpenAI confirm source is gone → SUCCESS");
                 return DragVerifyResult.SUCCESS;
             } else if (firstLine.startsWith("NO")) {
-                System.out.println("[drag] AI vision says source still visible (OCR missed it) → FAILED");
+                System.out.println("[drag] OpenAI says source still visible → FAILED");
                 return DragVerifyResult.FAILED;
             }
 
             // AI returned something ambiguous — trust OCR
-            System.out.println("[drag] AI vision ambiguous — trusting OCR result → SUCCESS");
+            System.out.println("[drag] AI ambiguous — trusting OCR result → SUCCESS");
             return DragVerifyResult.SUCCESS;
         } catch (Exception e) {
             System.out.println("[drag] Verification failed: " + e.getMessage());

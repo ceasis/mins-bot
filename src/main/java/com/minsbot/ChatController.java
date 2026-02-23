@@ -51,6 +51,13 @@ public class ChatController {
         return Map.of("hasResult", false);
     }
 
+    /** Clear AI conversation memory and transcript history. Called by the UI "Clear chat" button. */
+    @PostMapping(value = "/chat/clear", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, String> clearChat() {
+        chatService.clearChatMemory();
+        return Map.of("status", "ok");
+    }
+
     /** Poll for tool execution status updates while a request is in-flight. */
     @GetMapping(value = "/chat/status", produces = MediaType.APPLICATION_JSON_VALUE)
     public Map<String, Object> pollToolStatus() {

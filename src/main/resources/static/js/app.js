@@ -84,11 +84,12 @@
   document.addEventListener('dragenter', noDrag, true);
   document.addEventListener('dragleave', noDrag, true);
 
-  // Clear chat
+  // Clear chat — also clears AI memory so the bot starts fresh
   if (clearBtn) {
     clearBtn.addEventListener('click', function () {
       messagesEl.innerHTML = '';
       appendMessage('Chat cleared. How can I help?', false);
+      fetch('/api/chat/clear', { method: 'POST' }).catch(function () {});
     });
   }
 
