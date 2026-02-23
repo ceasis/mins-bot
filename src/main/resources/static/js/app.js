@@ -6,6 +6,7 @@
   const voiceBtn = document.getElementById('voice-btn');
   const voiceStatus = document.getElementById('voice-status');
   const clearBtn = document.getElementById('clear-btn');
+  const headerThinkingEl = document.getElementById('header-thinking');
   const quitCountdownEl = document.getElementById('quit-countdown');
   const quitCountdownLabel = document.getElementById('quit-countdown-label');
   const quitCountdownFill = document.getElementById('quit-countdown-fill');
@@ -132,29 +133,85 @@
   }
 
   function buildMessageContent(el, text) {
-    var parts = linkifyPaths(text);
-    if (parts.length <= 1 && (parts.length === 0 || parts[0].type === 'text')) {
-      el.textContent = text;
+    // Extract [img:URL] markers and split text around them
+    var imgRegex = /\[img:(\/api\/screenshot\?file=[^\]]+)\]/g;
+    var segments = [];
+    var lastIdx = 0;
+    var match;
+    while ((match = imgRegex.exec(text)) !== null) {
+      if (match.index > lastIdx) {
+        segments.push({ type: 'text', value: text.substring(lastIdx, match.index) });
+      }
+      segments.push({ type: 'img', value: match[1] });
+      lastIdx = imgRegex.lastIndex;
+    }
+    if (lastIdx < text.length) {
+      segments.push({ type: 'text', value: text.substring(lastIdx) });
+    }
+
+    // If no images, fall back to original text+path rendering
+    if (segments.length === 0 || (segments.length === 1 && segments[0].type === 'text')) {
+      var parts = linkifyPaths(text);
+      if (parts.length <= 1 && (parts.length === 0 || parts[0].type === 'text')) {
+        el.textContent = text;
+        return;
+      }
+      for (var i = 0; i < parts.length; i++) {
+        if (parts[i].type === 'text') {
+          el.appendChild(document.createTextNode(parts[i].value));
+        } else {
+          var link = document.createElement('span');
+          link.className = 'path-link';
+          link.textContent = parts[i].value;
+          link.dataset.path = parts[i].value;
+          link.addEventListener('click', function (e) {
+            e.stopPropagation();
+            var p = this.dataset.path;
+            fetch('/api/open-path', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ path: p })
+            });
+          });
+          el.appendChild(link);
+        }
+      }
       return;
     }
-    for (var i = 0; i < parts.length; i++) {
-      if (parts[i].type === 'text') {
-        el.appendChild(document.createTextNode(parts[i].value));
+
+    // Render segments with embedded images
+    for (var j = 0; j < segments.length; j++) {
+      if (segments[j].type === 'text') {
+        var textParts = linkifyPaths(segments[j].value);
+        for (var k = 0; k < textParts.length; k++) {
+          if (textParts[k].type === 'text') {
+            el.appendChild(document.createTextNode(textParts[k].value));
+          } else {
+            var plink = document.createElement('span');
+            plink.className = 'path-link';
+            plink.textContent = textParts[k].value;
+            plink.dataset.path = textParts[k].value;
+            plink.addEventListener('click', function (e) {
+              e.stopPropagation();
+              fetch('/api/open-path', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: this.dataset.path })
+              });
+            });
+            el.appendChild(plink);
+          }
+        }
       } else {
-        var link = document.createElement('span');
-        link.className = 'path-link';
-        link.textContent = parts[i].value;
-        link.dataset.path = parts[i].value;
-        link.addEventListener('click', function (e) {
+        var img = document.createElement('img');
+        img.src = segments[j].value;
+        img.className = 'chat-screenshot';
+        img.alt = 'Screenshot';
+        img.addEventListener('click', function (e) {
           e.stopPropagation();
-          var p = this.dataset.path;
-          fetch('/api/open-path', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ path: p })
-          });
+          window.open(this.src, '_blank');
         });
-        el.appendChild(link);
+        el.appendChild(img);
       }
     }
   }
@@ -189,6 +246,10 @@
   }
 
   function showThinking() {
+    if (headerThinkingEl) {
+      headerThinkingEl.hidden = false;
+      headerThinkingEl.removeAttribute('aria-hidden');
+    }
     var el = document.createElement('div');
     el.className = 'thinking';
     el.id = 'thinking-indicator';
@@ -202,6 +263,10 @@
   }
 
   function hideThinking() {
+    if (headerThinkingEl) {
+      headerThinkingEl.hidden = true;
+      headerThinkingEl.setAttribute('aria-hidden', 'true');
+    }
     var el = document.getElementById('thinking-indicator');
     if (el) el.remove();
   }
@@ -636,7 +701,7 @@
     fetch('/api/browser/refresh', { method: 'POST' }).then(function () { setTimeout(refreshBrowserView, 500); });
   });
 
-  // ═══ Load chat history or show greeting ═══
+  // ═══ Start with clear chat (no history loaded) ═══
 
   function appendHistoryMessage(text, isUser, time) {
     var wrapper = document.createElement('div');
@@ -657,22 +722,7 @@
     messagesEl.appendChild(wrapper);
   }
 
-  (async function loadHistory() {
-    try {
-      var res = await fetch('/api/chat/history');
-      var data = await res.json();
-      if (data.messages && data.messages.length > 0) {
-        for (var i = 0; i < data.messages.length; i++) {
-          var m = data.messages[i];
-          appendHistoryMessage(m.text, m.isUser, m.time);
-          if (m.isUser) addToInputHistory(m.text);
-        }
-        messagesEl.scrollTop = messagesEl.scrollHeight;
-      } else {
-        appendMessage('Hi! I\'m Mins Bot. Ask me anything or give me a command.', false);
-      }
-    } catch (e) {
-      appendMessage('Hi! I\'m Mins Bot. Ask me anything or give me a command.', false);
-    }
-  })();
+  // On startup: show clear chat with greeting (same as Clear button)
+  messagesEl.innerHTML = '';
+  appendMessage('Chat cleared. How can I help?', false);
 })();

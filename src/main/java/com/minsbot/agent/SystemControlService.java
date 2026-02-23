@@ -14,7 +14,10 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -176,6 +179,24 @@ public class SystemControlService {
     public String openApp(String appName) {
         String lower = appName.toLowerCase().trim();
 
+        // Try to focus an existing window first — don't launch a new instance if already running.
+        // Look up process names for this app and check if any have a visible window.
+        List<String> processNames = null;
+        for (Map.Entry<String, List<String>> entry : APP_PROCESS_MAP.entrySet()) {
+            if (lower.contains(entry.getKey())) {
+                processNames = entry.getValue();
+                break;
+            }
+        }
+        if (processNames != null) {
+            // Check if any matching process has a visible window
+            String focusResult = focusWindow(lower);
+            if (focusResult != null && focusResult.startsWith("Focused:")) {
+                return "Focused existing " + lower + " window. " + focusResult;
+            }
+            // Not running — fall through to launch
+        }
+
         // Common app launch commands — more specific entries first to avoid partial matches
         // (e.g. "notepad++" must come before "notepad")
         Map<String, String[]> launchCommands = new LinkedHashMap<>();
@@ -315,10 +336,13 @@ public class SystemControlService {
             java.awt.Rectangle screenRect = new java.awt.Rectangle(
                     java.awt.Toolkit.getDefaultToolkit().getScreenSize());
             java.awt.image.BufferedImage image = new java.awt.Robot().createScreenCapture(screenRect);
+            java.time.LocalDateTime now = java.time.LocalDateTime.now();
             java.nio.file.Path dir = java.nio.file.Paths.get(
-                    System.getProperty("user.home"), "mins_bot_data", "screenshots");
+                    System.getProperty("user.home"), "mins_bot_data", "screenshots")
+                    .resolve(now.format(java.time.format.DateTimeFormatter.ofPattern("yyyy_MMM")))
+                    .resolve(now.format(java.time.format.DateTimeFormatter.ofPattern("d")));
             java.nio.file.Files.createDirectories(dir);
-            String filename = java.time.LocalDateTime.now()
+            String filename = now
                     .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"))
                     + "_manual.png";
             java.nio.file.Path file = dir.resolve(filename);
@@ -469,6 +493,89 @@ public class SystemControlService {
 
     // ── Mouse control ──
 
+    // Shared Robot for multi-step drag operations (startDrag → continueDrag → endDrag)
+    private Robot dragRobot;
+
+    /**
+     * Check if the user has moved the mouse away from where the bot placed it.
+     * Returns true if the actual cursor position differs from expected by more than 5px.
+     */
+    public boolean isUserOverriding(int expectedX, int expectedY) {
+        try {
+            java.awt.Point actual = java.awt.MouseInfo.getPointerInfo().getLocation();
+            return Math.abs(actual.x - expectedX) > 5 || Math.abs(actual.y - expectedY) > 5;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Begin a drag: move to (x, y), press left button, and keep it held.
+     * Follow with {@link #continueDrag(int, int)} calls and finish with {@link #endDrag()}.
+     */
+    public synchronized String startDrag(int x, int y) {
+        try {
+            dragRobot = new Robot();
+            dragRobot.mouseMove(x, y);
+            dragRobot.delay(100);
+            dragRobot.mousePress(InputEvent.BUTTON1_DOWN_MASK);
+            dragRobot.delay(100);
+            log.info("[drag] startDrag at ({}, {})", x, y);
+            return "Drag started at (" + x + ", " + y + ").";
+        } catch (Exception e) {
+            dragRobot = null;
+            return "Start drag failed: " + e.getMessage();
+        }
+    }
+
+    /** Returned by continueDrag when user mouse override is detected. */
+    public static final String ABORTED = "ABORTED";
+
+    /**
+     * Continue a drag: smoothly move to (toX, toY) while button is held.
+     * Uses 10 sub-steps for smooth movement within the segment.
+     * Returns {@link #ABORTED} if user mouse movement is detected after the move.
+     */
+    public synchronized String continueDrag(int toX, int toY) {
+        if (dragRobot == null) return "No active drag.";
+        try {
+            java.awt.Point pos = java.awt.MouseInfo.getPointerInfo().getLocation();
+            int fromX = pos.x, fromY = pos.y;
+            int steps = 10;
+            for (int i = 1; i <= steps; i++) {
+                int cx = fromX + (toX - fromX) * i / steps;
+                int cy = fromY + (toY - fromY) * i / steps;
+                dragRobot.mouseMove(cx, cy);
+                dragRobot.delay(5);
+            }
+            // Check if user moved the mouse away from where we placed it
+            if (isUserOverriding(toX, toY)) {
+                log.info("[drag] User mouse override detected at continueDrag target ({}, {})", toX, toY);
+                return ABORTED;
+            }
+            return "Moved to (" + toX + ", " + toY + ").";
+        } catch (Exception e) {
+            return "Continue drag failed: " + e.getMessage();
+        }
+    }
+
+    /**
+     * End a drag: release the mouse button and clean up.
+     */
+    public synchronized String endDrag() {
+        if (dragRobot == null) return "No active drag.";
+        try {
+            dragRobot.delay(100);
+            dragRobot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK);
+            log.info("[drag] endDrag — released");
+            return "Drag released.";
+        } catch (Exception e) {
+            return "End drag failed: " + e.getMessage();
+        } finally {
+            dragRobot = null;
+        }
+    }
+
     /**
      * Move the mouse cursor to the given screen coordinates.
      */
@@ -534,18 +641,18 @@ public class SystemControlService {
         try {
             Robot robot = new Robot();
             robot.mouseMove(fromX, fromY);
-            robot.delay(50);
+            robot.delay(100);
             robot.mousePress(InputEvent.BUTTON1_DOWN_MASK);
-            robot.delay(50);
-            // Smooth drag in steps
-            int steps = 20;
+            robot.delay(100);
+            // Smooth drag in steps (slow enough for Windows to register drag-and-drop)
+            int steps = 25;
             for (int i = 1; i <= steps; i++) {
                 int cx = fromX + (toX - fromX) * i / steps;
                 int cy = fromY + (toY - fromY) * i / steps;
                 robot.mouseMove(cx, cy);
-                robot.delay(10);
+                robot.delay(11);
             }
-            robot.delay(50);
+            robot.delay(100);
             robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK);
             return "Dragged from (" + fromX + "," + fromY + ") to (" + toX + "," + toY + ").";
         } catch (Exception e) {
@@ -586,34 +693,54 @@ public class SystemControlService {
     // ── Browser keyboard shortcuts ──
 
     /**
+     * Focus a window and send keystrokes in a SINGLE PowerShell process.
+     * This prevents focus loss that occurs when focusWindow() and sendKeys() run
+     * as separate processes (Windows gives focus back to Mins Bot between them).
+     *
+     * Uses WScript.Shell.AppActivate (title match) + SendKeys in one process.
+     */
+    private String focusAndSendKeys(String windowSearch, String keys) {
+        String safe = (windowSearch != null ? windowSearch : "").trim().replace("'", "''");
+        String escaped = (keys != null ? keys : "").replace("'", "''").replace("`", "``").replace("\"", "`\"");
+        String ps = "$ws = New-Object -ComObject WScript.Shell; " +
+                "if ($ws.AppActivate('" + safe + "')) { " +
+                "Start-Sleep -Milliseconds 300; " +
+                "$ws.SendKeys('" + escaped + "'); 'OK' " +
+                "} else { 'Window not found: " + safe + "' }";
+        return runPowerShell(ps);
+    }
+
+    /**
      * Navigate the PC browser to a URL by focusing it, hitting Ctrl+L, typing the URL, and pressing Enter.
+     * All done in a single PowerShell process to prevent focus loss.
      */
     public String browserNavigate(String browserName, String url) {
-        focusWindow(browserName != null ? browserName : "chrome");
-        try { Thread.sleep(300); } catch (InterruptedException ignored) {}
-        sendKeys("^l"); // Focus address bar
-        try { Thread.sleep(200); } catch (InterruptedException ignored) {}
-        sendKeys(url + "{ENTER}");
-        return "Navigated " + (browserName != null ? browserName : "browser") + " to: " + url;
+        String browser = browserName != null ? browserName : "chrome";
+        String safe = browser.trim().replace("'", "''");
+        String urlEscaped = url.replace("'", "''").replace("`", "``").replace("\"", "`\"");
+        String ps = "$ws = New-Object -ComObject WScript.Shell; " +
+                "$ws.AppActivate('" + safe + "'); Start-Sleep -Milliseconds 300; " +
+                "$ws.SendKeys('^l'); Start-Sleep -Milliseconds 300; " +
+                "$ws.SendKeys('" + urlEscaped + "{ENTER}')";
+        runPowerShell(ps);
+        return "Navigated " + browser + " to: " + url;
     }
 
     /**
      * Open a new tab in the PC browser.
      */
     public String browserNewTab(String browserName) {
-        focusWindow(browserName != null ? browserName : "chrome");
-        try { Thread.sleep(200); } catch (InterruptedException ignored) {}
-        sendKeys("^t");
-        return "Opened new tab in " + (browserName != null ? browserName : "browser") + ".";
+        String browser = browserName != null ? browserName : "chrome";
+        focusAndSendKeys(browser, "^t");
+        return "Opened new tab in " + browser + ".";
     }
 
     /**
      * Close the current tab in the PC browser.
      */
     public String browserCloseTab(String browserName) {
-        focusWindow(browserName != null ? browserName : "chrome");
-        try { Thread.sleep(200); } catch (InterruptedException ignored) {}
-        sendKeys("^w");
+        String browser = browserName != null ? browserName : "chrome";
+        focusAndSendKeys(browser, "^w");
         return "Closed current tab.";
     }
 
@@ -621,14 +748,10 @@ public class SystemControlService {
      * Switch to the next/previous tab in the PC browser.
      */
     public String browserSwitchTab(String browserName, String direction) {
-        focusWindow(browserName != null ? browserName : "chrome");
-        try { Thread.sleep(200); } catch (InterruptedException ignored) {}
-        if ("previous".equalsIgnoreCase(direction) || "prev".equalsIgnoreCase(direction)
-                || "left".equalsIgnoreCase(direction)) {
-            sendKeys("^+{TAB}");
-        } else {
-            sendKeys("^{TAB}");
-        }
+        String browser = browserName != null ? browserName : "chrome";
+        String keys = ("previous".equalsIgnoreCase(direction) || "prev".equalsIgnoreCase(direction)
+                || "left".equalsIgnoreCase(direction)) ? "^+{TAB}" : "^{TAB}";
+        focusAndSendKeys(browser, keys);
         return "Switched to " + (direction != null ? direction : "next") + " tab.";
     }
 
@@ -636,9 +759,7 @@ public class SystemControlService {
      * Refresh the current page in the PC browser.
      */
     public String browserRefresh(String browserName) {
-        focusWindow(browserName != null ? browserName : "chrome");
-        try { Thread.sleep(200); } catch (InterruptedException ignored) {}
-        sendKeys("{F5}");
+        focusAndSendKeys(browserName != null ? browserName : "chrome", "{F5}");
         return "Refreshed browser page.";
     }
 
@@ -646,9 +767,7 @@ public class SystemControlService {
      * Go back in the PC browser.
      */
     public String browserBack(String browserName) {
-        focusWindow(browserName != null ? browserName : "chrome");
-        try { Thread.sleep(200); } catch (InterruptedException ignored) {}
-        sendKeys("%{LEFT}");
+        focusAndSendKeys(browserName != null ? browserName : "chrome", "%{LEFT}");
         return "Went back in browser.";
     }
 
@@ -656,10 +775,163 @@ public class SystemControlService {
      * Go forward in the PC browser.
      */
     public String browserForward(String browserName) {
-        focusWindow(browserName != null ? browserName : "chrome");
-        try { Thread.sleep(200); } catch (InterruptedException ignored) {}
-        sendKeys("%{RIGHT}");
+        focusAndSendKeys(browserName != null ? browserName : "chrome", "%{RIGHT}");
         return "Went forward in browser.";
+    }
+
+    // ── Browser tab capture ──
+
+    /**
+     * Cycle through all browser tabs, optionally filtering by title keyword.
+     * Phase 1: Single PowerShell process discovers ALL tab titles (fast — one C# compile).
+     * Phase 2: Java navigates to each matching tab via Ctrl+Tab and takes a screenshot.
+     *
+     * @param browserName   e.g. "chrome", "edge", "firefox"
+     * @param filterKeyword if non-null/non-empty, only capture tabs whose title contains this (case-insensitive)
+     * @return summary of captured screenshots
+     */
+    public String captureAllBrowserTabs(String browserName, String filterKeyword) {
+        String browser = (browserName != null && !browserName.isBlank()) ? browserName : "chrome";
+        boolean hasFilter = filterKeyword != null && !filterKeyword.isBlank();
+        String filterLower = hasFilter ? filterKeyword.toLowerCase() : "";
+
+        // 1. Focus the browser
+        focusWindow(browser);
+        sleep(800);
+
+        // 2. Discover all tab titles using a SINGLE PowerShell process
+        //    (compiles C# once, cycles Ctrl+Tab inside PS, returns all titles)
+        List<String> allTitles = discoverBrowserTabTitles();
+        if (allTitles.isEmpty()) {
+            return "Could not detect browser tabs. Is " + browser + " open?";
+        }
+        log.info("[BrowserCapture] Discovered {} tabs: {}", allTitles.size(), allTitles);
+
+        // After discovery, browser is back on the starting tab (index 0).
+        // Re-focus to make sure keyboard input reaches the browser.
+        focusWindow(browser);
+        sleep(300);
+
+        // 3. Find matching tab indices
+        List<Integer> matchingIndices = new ArrayList<>();
+        for (int i = 0; i < allTitles.size(); i++) {
+            if (!hasFilter || allTitles.get(i).toLowerCase().contains(filterLower)) {
+                matchingIndices.add(i);
+            }
+        }
+
+        if (matchingIndices.isEmpty()) {
+            StringBuilder msg = new StringBuilder();
+            msg.append("No tabs found matching '").append(filterKeyword != null ? filterKeyword : "")
+               .append("' in ").append(browser).append(". Found ")
+               .append(allTitles.size()).append(" total tab(s):\n");
+            for (int i = 0; i < allTitles.size(); i++) {
+                msg.append("  ").append(i + 1).append(". ").append(allTitles.get(i)).append("\n");
+            }
+            return msg.toString();
+        }
+
+        // 4. Navigate to each matching tab and screenshot.
+        //    We start at index 0; use focusAndSendKeys for atomic focus+Ctrl+Tab.
+        List<String> capturedFiles = new ArrayList<>();
+        List<String> capturedTitles = new ArrayList<>();
+        int currentIndex = 0;
+
+        for (int targetIndex : matchingIndices) {
+            int totalTabs = allTitles.size();
+            int steps = (targetIndex - currentIndex + totalTabs) % totalTabs;
+            for (int s = 0; s < steps; s++) {
+                focusAndSendKeys(browser, "^{TAB}");
+                sleep(400);
+            }
+            sleep(1500); // wait for the tab to fully render
+            String file = takeScreenshot();
+            capturedFiles.add(file);
+            capturedTitles.add(allTitles.get(targetIndex));
+            currentIndex = targetIndex;
+        }
+
+        // 5. Build result
+        StringBuilder sb = new StringBuilder();
+        sb.append("Captured ").append(capturedFiles.size()).append(" tab(s)");
+        if (hasFilter) sb.append(" matching '").append(filterKeyword).append("'");
+        sb.append(" out of ").append(allTitles.size()).append(" total tab(s) in ").append(browser).append(":\n\n");
+        for (int i = 0; i < capturedFiles.size(); i++) {
+            sb.append(i + 1).append(". ").append(capturedTitles.get(i)).append("\n");
+            sb.append("   ").append(capturedFiles.get(i)).append("\n");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Discover all browser tab titles using a single PowerShell process.
+     * Compiles C# Win32 API once, then cycles Ctrl+Tab and reads each title.
+     * Returns the list of all tab titles in order. After this method, the browser
+     * is back on the starting tab (cycled fully).
+     */
+    private List<String> discoverBrowserTabTitles() {
+        Path script = null;
+        try {
+            script = Files.createTempFile("mins_bot_tabs_", ".ps1");
+            String ps1 =
+                    "Add-Type -TypeDefinition @\"\n" +
+                    "using System; using System.Runtime.InteropServices; using System.Text;\n" +
+                    "public class WinTab {\n" +
+                    "    [DllImport(\"\"\"user32.dll\"\"\")] public static extern IntPtr GetForegroundWindow();\n" +
+                    "    [DllImport(\"\"\"user32.dll\"\"\", CharSet=CharSet.Auto)]\n" +
+                    "    public static extern int GetWindowText(IntPtr h, StringBuilder s, int c);\n" +
+                    "    public static string Title() {\n" +
+                    "        var s = new StringBuilder(512);\n" +
+                    "        GetWindowText(GetForegroundWindow(), s, 512);\n" +
+                    "        return s.ToString();\n" +
+                    "    }\n" +
+                    "}\n" +
+                    "\"@\n" +
+                    "$ws = New-Object -ComObject WScript.Shell\n" +
+                    "$start = [WinTab]::Title()\n" +
+                    "Write-Output \"TAB:$start\"\n" +
+                    "for ($i = 0; $i -lt 30; $i++) {\n" +
+                    "    $ws.SendKeys('^{TAB}')\n" +
+                    "    Start-Sleep -Milliseconds 800\n" +
+                    "    $t = [WinTab]::Title()\n" +
+                    "    if ($t -eq $start) { break }\n" +
+                    "    if ([string]::IsNullOrWhiteSpace($t)) { break }\n" +
+                    "    Write-Output \"TAB:$t\"\n" +
+                    "}\n";
+            Files.writeString(script, ps1, StandardCharsets.UTF_8);
+
+            Process p = new ProcessBuilder(
+                    "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                    "-File", script.toString())
+                    .redirectErrorStream(true)
+                    .start();
+            String output = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            boolean done = p.waitFor(60, TimeUnit.SECONDS);
+            if (!done) p.destroyForcibly();
+
+            List<String> titles = new ArrayList<>();
+            for (String line : output.split("\\r?\\n")) {
+                String trimmed = line.trim();
+                if (trimmed.startsWith("TAB:")) {
+                    String title = trimmed.substring(4).trim();
+                    if (!title.isEmpty()) {
+                        titles.add(title);
+                    }
+                }
+            }
+            return titles;
+        } catch (Exception e) {
+            log.warn("[BrowserCapture] Tab discovery failed: {}", e.getMessage());
+            return List.of();
+        } finally {
+            try {
+                if (script != null) Files.deleteIfExists(script);
+            } catch (Exception ignored) {}
+        }
+    }
+
+    private static void sleep(long ms) {
+        try { Thread.sleep(ms); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
     }
 
     // ── Internals ──

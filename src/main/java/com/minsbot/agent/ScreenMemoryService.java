@@ -13,7 +13,9 @@ import java.nio.file.*;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
@@ -45,6 +47,8 @@ public class ScreenMemoryService {
 
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm:ss");
+    private static final DateTimeFormatter YEAR_MONTH_FMT = DateTimeFormatter.ofPattern("yyyy_MMM");
+    private static final DateTimeFormatter DAY_FMT = DateTimeFormatter.ofPattern("d");
 
     private volatile boolean enabled = true;
     private volatile int intervalSeconds = 60;
@@ -52,8 +56,17 @@ public class ScreenMemoryService {
     /** Last OCR text — used for deduplication. */
     private volatile String lastText = "";
 
-    /** Reusable OCR PowerShell script file. */
+    /** Reusable OCR PowerShell script file (flat text output). */
     private Path ocrScript;
+
+    /** OCR script that outputs word-level bounding boxes. */
+    private Path ocrBoundsScript;
+
+    /** A single OCR-detected word with its bounding rectangle in image pixels (sub-pixel precision). */
+    public record OcrWord(String text, double x, double y, double width, double height) {
+        public double centerX() { return x + width / 2.0; }
+        public double centerY() { return y + height / 2.0; }
+    }
 
     public ScreenMemoryService(SystemControlService systemControl, VisionService visionService) {
         this.systemControl = systemControl;
@@ -65,12 +78,16 @@ public class ScreenMemoryService {
         Files.createDirectories(SCREEN_MEMORY_DIR);
         loadConfigFromFile();
         createOcrScript();
+        createOcrBoundsScript();
     }
 
     @PreDestroy
     public void cleanup() {
         try {
             if (ocrScript != null) Files.deleteIfExists(ocrScript);
+        } catch (IOException ignored) {}
+        try {
+            if (ocrBoundsScript != null) Files.deleteIfExists(ocrBoundsScript);
         } catch (IOException ignored) {}
     }
 
@@ -110,13 +127,15 @@ public class ScreenMemoryService {
         if (collapsed.equals(lastText)) return;
         lastText = collapsed;
 
-        // Append to daily file
-        String today = LocalDate.now().format(DATE_FMT);
+        // Append to daily file: screen_memory/2026_Feb/23.txt
+        LocalDate today = LocalDate.now();
         String time = LocalTime.now().format(TIME_FMT);
         String entry = "[" + time + "] " + collapsed + "\n";
 
-        Path dayFile = SCREEN_MEMORY_DIR.resolve(today + ".txt");
+        Path monthDir = SCREEN_MEMORY_DIR.resolve(today.format(YEAR_MONTH_FMT));
         try {
+            Files.createDirectories(monthDir);
+            Path dayFile = monthDir.resolve(today.format(DAY_FMT) + ".txt");
             Files.writeString(dayFile, entry, StandardCharsets.UTF_8,
                     StandardOpenOption.CREATE, StandardOpenOption.APPEND);
             log.debug("[ScreenMemory] Stored entry: [{}] {}...", time,
@@ -160,12 +179,14 @@ public class ScreenMemoryService {
         if (collapsed.length() > 500) collapsed = collapsed.substring(0, 500);
 
         lastText = collapsed;
-        String today = LocalDate.now().format(DATE_FMT);
+        LocalDate today = LocalDate.now();
         String time = LocalTime.now().format(TIME_FMT);
         String entry = "[" + time + "] " + collapsed + "\n";
 
-        Path dayFile = SCREEN_MEMORY_DIR.resolve(today + ".txt");
+        Path monthDir = SCREEN_MEMORY_DIR.resolve(today.format(YEAR_MONTH_FMT));
         try {
+            Files.createDirectories(monthDir);
+            Path dayFile = monthDir.resolve(today.format(DAY_FMT) + ".txt");
             Files.writeString(dayFile, entry, StandardCharsets.UTF_8,
                     StandardOpenOption.CREATE, StandardOpenOption.APPEND);
         } catch (IOException e) {
@@ -180,33 +201,41 @@ public class ScreenMemoryService {
      * Read screen memory text for a specific date (YYYY-MM-DD).
      */
     public String readMemory(String dateStr) {
-        Path dayFile = SCREEN_MEMORY_DIR.resolve(dateStr + ".txt");
-        if (!Files.exists(dayFile)) return null;
+        // New path: screen_memory/2026_Feb/23.txt
         try {
-            return Files.readString(dayFile, StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            log.warn("[ScreenMemory] Failed to read {}: {}", dateStr, e.getMessage());
-            return null;
+            LocalDate date = LocalDate.parse(dateStr, DATE_FMT);
+            Path newPath = SCREEN_MEMORY_DIR.resolve(date.format(YEAR_MONTH_FMT)).resolve(date.format(DAY_FMT) + ".txt");
+            if (Files.exists(newPath)) return Files.readString(newPath, StandardCharsets.UTF_8);
+        } catch (Exception ignored) {}
+        // Backwards compat: screen_memory/2026-02-23.txt
+        Path oldPath = SCREEN_MEMORY_DIR.resolve(dateStr + ".txt");
+        if (Files.exists(oldPath)) {
+            try { return Files.readString(oldPath, StandardCharsets.UTF_8); }
+            catch (IOException e) { log.warn("[ScreenMemory] Failed to read {}: {}", dateStr, e.getMessage()); }
         }
+        return null;
     }
 
     /**
-     * List available screen memory dates (file names without extension).
+     * List available screen memory dates.
      */
     public String listDates() {
-        try (Stream<Path> files = Files.list(SCREEN_MEMORY_DIR)) {
+        try (Stream<Path> files = Files.walk(SCREEN_MEMORY_DIR)) {
             StringBuilder sb = new StringBuilder();
             files.filter(p -> p.toString().endsWith(".txt"))
                     .sorted(Comparator.reverseOrder())
                     .forEach(p -> {
-                        String name = p.getFileName().toString().replace(".txt", "");
+                        Path rel = SCREEN_MEMORY_DIR.relativize(p);
+                        String label = rel.getNameCount() == 2
+                                ? rel.getName(0) + "/" + rel.getName(1).toString().replace(".txt", "")
+                                : p.getFileName().toString().replace(".txt", "");
                         try {
                             long size = Files.size(p);
                             long lines = Files.lines(p).count();
-                            sb.append(name).append(" (").append(lines)
+                            sb.append(label).append(" (").append(lines)
                                     .append(" entries, ").append(size / 1024).append("KB)\n");
                         } catch (IOException e) {
-                            sb.append(name).append("\n");
+                            sb.append(label).append("\n");
                         }
                     });
             return sb.length() == 0 ? "No screen memory files yet." : sb.toString().trim();
@@ -283,12 +312,231 @@ public class ScreenMemoryService {
         }
     }
 
+    // ═══ OCR with bounding boxes (for element location) ═══
+
+    private void createOcrBoundsScript() {
+        if (!isWindows()) return;
+        try {
+            ocrBoundsScript = Files.createTempFile("mins_bot_ocr_bounds_", ".ps1");
+            String script = """
+                    param([string]$ImagePath)
+                    Add-Type -AssemblyName System.Runtime.WindowsRuntime
+                    $null = [Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType = WindowsRuntime]
+                    $null = [Windows.Graphics.Imaging.BitmapDecoder, Windows.Foundation, ContentType = WindowsRuntime]
+                    $null = [Windows.Storage.StorageFile, Windows.Foundation, ContentType = WindowsRuntime]
+
+                    $asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() |
+                        Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and
+                        $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0]
+                    Function Await($WinRtTask, $ResultType) {
+                        $asTask = $asTaskGeneric.MakeGenericMethod($ResultType)
+                        $netTask = $asTask.Invoke($null, @($WinRtTask))
+                        $netTask.Wait(-1) | Out-Null
+                        $netTask.Result
+                    }
+
+                    $file = Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($ImagePath)) ([Windows.Storage.StorageFile])
+                    $stream = Await ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStream])
+                    $decoder = Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
+                    $bitmap = Await ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
+                    $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
+                    $result = Await ($engine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
+
+                    foreach ($line in $result.Lines) {
+                        foreach ($word in $line.Words) {
+                            $r = $word.BoundingRect
+                            Write-Output ("WORD|" + $r.X.ToString("F2") + "|" + $r.Y.ToString("F2") + "|" + $r.Width.ToString("F2") + "|" + $r.Height.ToString("F2") + "|" + $word.Text)
+                        }
+                    }
+                    $stream.Dispose()
+                    """;
+            Files.writeString(ocrBoundsScript, script, StandardCharsets.UTF_8);
+            log.debug("[ScreenMemory] OCR bounds script created: {}", ocrBoundsScript);
+        } catch (IOException e) {
+            log.warn("[ScreenMemory] Failed to create OCR bounds script: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Run OCR on an image and return word-level bounding boxes.
+     * Each word includes its text and pixel coordinates within the image.
+     */
+    public List<OcrWord> runOcrWithBounds(Path imagePath) {
+        if (ocrBoundsScript == null || !Files.exists(ocrBoundsScript)) return List.of();
+        try {
+            Process p = new ProcessBuilder(
+                    "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                    "-File", ocrBoundsScript.toString(), imagePath.toString())
+                    .redirectErrorStream(true)
+                    .start();
+            String output = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+            boolean done = p.waitFor(30, TimeUnit.SECONDS);
+            if (!done) {
+                p.destroyForcibly();
+                log.info("[ScreenMemory] OCR bounds timed out for: {}", imagePath.getFileName());
+                return List.of();
+            }
+
+            List<OcrWord> words = new ArrayList<>();
+            for (String line : output.split("\\r?\\n")) {
+                if (!line.startsWith("WORD|")) continue;
+                String[] parts = line.split("\\|", 6);
+                if (parts.length < 6) continue;
+                try {
+                    words.add(new OcrWord(
+                            parts[5],
+                            Double.parseDouble(parts[1]),
+                            Double.parseDouble(parts[2]),
+                            Double.parseDouble(parts[3]),
+                            Double.parseDouble(parts[4])));
+                } catch (NumberFormatException ignored) {}
+            }
+            log.info("[ScreenMemory] OCR bounds: {} words detected from {}", words.size(), imagePath.getFileName());
+            return words;
+        } catch (Exception e) {
+            log.info("[ScreenMemory] OCR bounds failed: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    /**
+     * Find text on a screenshot using OCR bounding boxes.
+     * Tries exact word match, then multi-word consecutive match, then substring match.
+     *
+     * @param imagePath  path to the screenshot PNG
+     * @param searchText the text to find (e.g. "Selection", "Sign In", "Submit")
+     * @return double[] {centerX, centerY} in image-pixel coordinates (sub-pixel), or null if not found
+     */
+    public double[] findTextOnScreen(Path imagePath, String searchText) {
+        List<OcrWord> words = runOcrWithBounds(imagePath);
+        if (words.isEmpty()) {
+            log.info("[findText] No OCR words detected — OCR may have failed");
+            return null;
+        }
+
+        String search = searchText.trim();
+        String searchLower = search.toLowerCase();
+        log.info("[findText] Searching for '{}' among {} OCR words", search, words.size());
+
+        // Log all detected words for debugging
+        for (int i = 0; i < words.size(); i++) {
+            OcrWord w = words.get(i);
+            log.info("[findText]   word[{}]: '{}' at ({},{}) {}x{} → center({},{})",
+                    i, w.text(),
+                    String.format("%.1f", w.x()), String.format("%.1f", w.y()),
+                    String.format("%.1f", w.width()), String.format("%.1f", w.height()),
+                    String.format("%.1f", w.centerX()), String.format("%.1f", w.centerY()));
+        }
+
+        // Strategy 1: Exact single-word match (case-insensitive)
+        for (OcrWord w : words) {
+            if (w.text().equalsIgnoreCase(search)) {
+                log.info("[findText] EXACT match: '{}' bbox({},{} {}x{}) → center({}, {})",
+                        w.text(), String.format("%.1f", w.x()), String.format("%.1f", w.y()),
+                        String.format("%.1f", w.width()), String.format("%.1f", w.height()),
+                        String.format("%.2f", w.centerX()), String.format("%.2f", w.centerY()));
+                return new double[]{w.centerX(), w.centerY()};
+            }
+        }
+
+        // Strategy 2: Multi-word consecutive match (e.g. "Sign In" → words "Sign" + "In")
+        String[] tokens = search.split("\\s+");
+        if (tokens.length > 1) {
+            for (int i = 0; i <= words.size() - tokens.length; i++) {
+                boolean match = true;
+                for (int j = 0; j < tokens.length; j++) {
+                    if (!words.get(i + j).text().equalsIgnoreCase(tokens[j])) {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match) {
+                    // Merge bounding boxes of all matched words
+                    double minX = Double.MAX_VALUE, minY = Double.MAX_VALUE;
+                    double maxX = 0, maxY = 0;
+                    for (int j = 0; j < tokens.length; j++) {
+                        OcrWord w = words.get(i + j);
+                        minX = Math.min(minX, w.x());
+                        minY = Math.min(minY, w.y());
+                        maxX = Math.max(maxX, w.x() + w.width());
+                        maxY = Math.max(maxY, w.y() + w.height());
+                    }
+                    double cx = (minX + maxX) / 2.0;
+                    double cy = (minY + maxY) / 2.0;
+                    log.info("[findText] MULTI-WORD match: '{}' → merged box ({},{})–({},{}) → center({}, {})",
+                            search, String.format("%.1f", minX), String.format("%.1f", minY),
+                            String.format("%.1f", maxX), String.format("%.1f", maxY),
+                            String.format("%.2f", cx), String.format("%.2f", cy));
+                    return new double[]{cx, cy};
+                }
+            }
+        }
+
+        // Strategy 3: Substring match (word contains the search text, or search text contains the word)
+        for (OcrWord w : words) {
+            if (w.text().toLowerCase().contains(searchLower) || searchLower.contains(w.text().toLowerCase())) {
+                // For substring, only match if lengths are reasonably close (avoid matching "S" in "Settings")
+                if (w.text().length() >= searchLower.length() / 2) {
+                    log.info("[findText] SUBSTRING match: '{}' contains/matches '{}' bbox({},{} {}x{}) → center({}, {})",
+                            w.text(), search, String.format("%.1f", w.x()), String.format("%.1f", w.y()),
+                            String.format("%.1f", w.width()), String.format("%.1f", w.height()),
+                            String.format("%.2f", w.centerX()), String.format("%.2f", w.centerY()));
+                    return new double[]{w.centerX(), w.centerY()};
+                }
+            }
+        }
+
+        // Strategy 4: Check consecutive words joined with spaces (OCR may split differently)
+        for (int i = 0; i < words.size(); i++) {
+            StringBuilder joined = new StringBuilder(words.get(i).text());
+            double startX = words.get(i).x(), startY = words.get(i).y();
+            double endX = words.get(i).x() + words.get(i).width();
+            double endY = words.get(i).y() + words.get(i).height();
+            for (int j = i + 1; j < Math.min(i + 5, words.size()); j++) {
+                joined.append(" ").append(words.get(j).text());
+                endX = Math.max(endX, words.get(j).x() + words.get(j).width());
+                endY = Math.max(endY, words.get(j).y() + words.get(j).height());
+                if (joined.toString().toLowerCase().contains(searchLower)) {
+                    double cx = (startX + endX) / 2.0;
+                    double cy = (startY + endY) / 2.0;
+                    log.info("[findText] JOINED match: '{}' contains '{}' → center({}, {})",
+                            joined, search, String.format("%.2f", cx), String.format("%.2f", cy));
+                    return new double[]{cx, cy};
+                }
+            }
+        }
+
+        // Strategy 5: Join consecutive words WITHOUT spaces (handles OCR splitting filenames
+        // on punctuation, e.g. "file1" + ".txt" → "file1.txt", or "file1." + "txt")
+        for (int i = 0; i < words.size(); i++) {
+            StringBuilder noSpace = new StringBuilder(words.get(i).text());
+            double startX = words.get(i).x(), startY = words.get(i).y();
+            double endX = words.get(i).x() + words.get(i).width();
+            double endY = words.get(i).y() + words.get(i).height();
+            for (int j = i + 1; j < Math.min(i + 4, words.size()); j++) {
+                noSpace.append(words.get(j).text());
+                endX = Math.max(endX, words.get(j).x() + words.get(j).width());
+                endY = Math.max(endY, words.get(j).y() + words.get(j).height());
+                if (noSpace.toString().toLowerCase().contains(searchLower)) {
+                    double cx = (startX + endX) / 2.0;
+                    double cy = (startY + endY) / 2.0;
+                    log.info("[findText] NO-SPACE JOIN match: '{}' contains '{}' → center({}, {})",
+                            noSpace, search, String.format("%.2f", cx), String.format("%.2f", cy));
+                    return new double[]{cx, cy};
+                }
+            }
+        }
+
+        log.info("[findText] NO MATCH for '{}' in {} OCR words", search, words.size());
+        return null;
+    }
+
     // ═══ Helpers ═══
 
     private Path findLatestScreenshot() {
         if (!Files.exists(SCREENSHOTS_DIR)) return null;
-        try (Stream<Path> files = Files.list(SCREENSHOTS_DIR)) {
-            return files.filter(p -> p.toString().endsWith(".png"))
+        try (Stream<Path> files = Files.walk(SCREENSHOTS_DIR)) {
+            return files.filter(p -> p.toString().endsWith(".png") && Files.isRegularFile(p))
                     .max(Comparator.comparingLong(p -> {
                         try { return Files.getLastModifiedTime(p).toMillis(); }
                         catch (IOException e) { return 0L; }

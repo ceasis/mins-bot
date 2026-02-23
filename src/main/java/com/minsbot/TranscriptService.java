@@ -22,6 +22,8 @@ public class TranscriptService {
     private static final Logger log = LoggerFactory.getLogger(TranscriptService.class);
     private static final DateTimeFormatter FILE_FMT = DateTimeFormatter.ofPattern("yyyyMMdd");
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final DateTimeFormatter YEAR_MONTH_FMT = DateTimeFormatter.ofPattern("yyyy_MMM");
+    private static final DateTimeFormatter DAY_FMT = DateTimeFormatter.ofPattern("d");
     private static final int MEMORY_SIZE = 500;
 
     private Path historyDir;
@@ -42,11 +44,9 @@ public class TranscriptService {
 
     /** Loads the most recent history file into the in-memory ring buffer on startup. */
     private void loadLatestHistory() {
-        try (DirectoryStream<Path> stream = Files.newDirectoryStream(historyDir, "chat_history_*.txt")) {
-            List<Path> files = new ArrayList<>();
-            stream.forEach(files::add);
+        try (Stream<Path> walk = Files.walk(historyDir)) {
+            List<Path> files = walk.filter(p -> p.toString().endsWith(".txt")).sorted(Comparator.reverseOrder()).toList();
             if (files.isEmpty()) return;
-            files.sort((a, b) -> b.getFileName().toString().compareTo(a.getFileName().toString()));
             Path latest = files.get(0);
             List<String> lines = Files.readAllLines(latest, StandardCharsets.UTF_8);
             synchronized (recentMemory) {
@@ -96,8 +96,9 @@ public class TranscriptService {
         if (text == null || text.isBlank()) return;
         try {
             LocalDateTime now = LocalDateTime.now();
-            String filename = "chat_history_" + now.format(FILE_FMT) + ".txt";
-            Path file = historyDir.resolve(filename);
+            Path monthDir = historyDir.resolve(now.format(YEAR_MONTH_FMT));
+            Files.createDirectories(monthDir);
+            Path file = monthDir.resolve(now.format(DAY_FMT) + ".txt");
             String line = "[" + now.format(TIME_FMT) + "] " + speaker + ": " + text.trim();
             Files.writeString(file, line + System.lineSeparator(), StandardCharsets.UTF_8,
                     StandardOpenOption.CREATE, StandardOpenOption.APPEND);
@@ -130,15 +131,13 @@ public class TranscriptService {
         }
     }
 
-    /** Searches all chat_history_*.txt files for lines matching the query. Returns up to maxResults lines. */
+    /** Searches all chat history files for lines matching the query. Returns up to maxResults lines. */
     public List<String> searchHistoryFiles(String query, int maxResults) {
         List<String> results = new ArrayList<>();
         String lower = query.toLowerCase();
-        try (DirectoryStream<Path> stream = Files.newDirectoryStream(historyDir, "chat_history_*.txt")) {
-            // Collect and sort files newest-first
-            List<Path> files = new ArrayList<>();
-            stream.forEach(files::add);
-            files.sort((a, b) -> b.getFileName().toString().compareTo(a.getFileName().toString()));
+        try (Stream<Path> walk = Files.walk(historyDir)) {
+            List<Path> files = walk.filter(p -> p.toString().endsWith(".txt"))
+                    .sorted(Comparator.reverseOrder()).toList();
 
             for (Path file : files) {
                 try (Stream<String> lines = Files.lines(file, StandardCharsets.UTF_8)) {

@@ -180,7 +180,84 @@ public class FfmpegProvider {
         return names;
     }
 
-    /** Raw output from the last listDshowAudioDevices() run. Use when list was empty to debug. */
+    /**
+     * List DirectShow video device names (Windows only). Use these as camera_name / video= in dshow.
+     * Runs the same command as listDshowAudioDevices but parses the video section instead.
+     */
+    public List<String> listDshowVideoDevices() {
+        Path ffmpeg = getFfmpegPath();
+        if (ffmpeg == null || !isWindows()) {
+            lastListDevicesOutput = ffmpeg == null ? "ffmpeg not available" : "Windows only";
+            return Collections.emptyList();
+        }
+        ProcessBuilder pb = new ProcessBuilder(
+                ffmpeg.toAbsolutePath().toString(),
+                "-list_devices", "true", "-f", "dshow", "-i", "dummy"
+        );
+        pb.redirectErrorStream(true);
+        try {
+            Process p = pb.start();
+            String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            p.waitFor();
+            lastListDevicesOutput = out;
+            return parseVideoDevicesFromListOutput(out);
+        } catch (Exception e) {
+            lastListDevicesOutput = "Error: " + e.getMessage();
+            log.debug("[Ffmpeg] list dshow video devices failed: {}", e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    /**
+     * Parse ffmpeg -list_devices dshow output for video device names.
+     * Mirrors parseAudioDevicesFromListOutput but looks for video section / (video) annotation.
+     */
+    private static List<String> parseVideoDevicesFromListOutput(String out) {
+        List<String> names = new ArrayList<>();
+        Pattern quotedName = Pattern.compile("\"([^\"]+)\"");
+        boolean inVideoSection = false;
+
+        for (String line : out.split("\\r?\\n")) {
+            String lower = line.toLowerCase();
+
+            // Section headers toggle which section we're in
+            if (lower.contains("directshow video devices") || lower.contains("video devices:")) {
+                inVideoSection = true;
+                continue;
+            }
+            if (lower.contains("directshow audio devices") || lower.contains("audio devices:")) {
+                inVideoSection = false;
+                continue;
+            }
+
+            // Format 1: per-line "(video)" annotation
+            if (lower.contains("(video)")) {
+                Matcher m = quotedName.matcher(line);
+                if (m.find()) {
+                    String name = m.group(1).trim();
+                    if (!name.isEmpty() && !name.startsWith("@device")) {
+                        names.add(name);
+                    }
+                }
+                continue;
+            }
+
+            // Format 2: section-based — pick quoted names in the video section
+            if (inVideoSection) {
+                if (lower.contains("alternative name")) continue;
+                Matcher m = quotedName.matcher(line);
+                if (m.find()) {
+                    String name = m.group(1).trim();
+                    if (!name.isEmpty() && !name.startsWith("@device")) {
+                        names.add(name);
+                    }
+                }
+            }
+        }
+        return names;
+    }
+
+    /** Raw output from the last listDshowAudioDevices() or listDshowVideoDevices() run. Use when list was empty to debug. */
     public String getLastListDevicesOutput() {
         return lastListDevicesOutput;
     }

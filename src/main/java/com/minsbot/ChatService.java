@@ -40,17 +40,13 @@ public class ChatService {
     private static final String AUDIO_RESULT_PREFIX = "__AUDIO_RESULT__";
 
     private static final String PLANNING_PROMPT = """
-            You are a task planner. Analyze the user's request and list the specific steps needed \
-            to accomplish it as a brief numbered list.
-
-            Available capabilities: file management (list/copy/move/delete/rename/zip), \
-            web browsing & search, system commands (PowerShell/CMD/screenshot/apps), \
-            image editing (flip/rotate/resize), downloads, email, weather, calculations, \
-            QR codes, scheduling/timers, TTS/voice, PDF text extraction, memory/notes.
+            You are a task status reporter. Analyze the user's request and output a SINGLE short sentence \
+            describing what you will do. This is shown to the user as a brief status while work happens.
 
             Rules:
-            - Be concise — 2-6 steps max
-            - Reference specific actions (e.g. "List Downloads folder" not "Analyze files")
+            - Output ONE sentence only, max 15 words. Example: "Opening Gmail and composing a new email."
+            - NEVER output numbered steps, bullet points, or lists. Just one brief sentence.
+            - NEVER include instructions or explanations. Just state the action.
             - If it's a simple question, greeting, or needs no tools, respond with just: SKIP
             """;
 
@@ -66,6 +62,7 @@ public class ChatService {
     private final ToolExecutionNotifier toolNotifier;
     private final WorkingSoundService workingSound;
     private final ToolRouter toolRouter;
+    private final TtsTools ttsTools;
 
     /** Spring AI ChatClient — null when no API key is configured. Swappable at runtime. */
     @Autowired(required = false)
@@ -94,7 +91,8 @@ public class ChatService {
                        ToolExecutionNotifier toolNotifier,
                        WorkingSoundService workingSound,
                        ToolRouter toolRouter,
-                       AsyncMessageService asyncMessages) {
+                       AsyncMessageService asyncMessages,
+                       TtsTools ttsTools) {
         this.transcriptService = transcriptService;
         this.pcAgent = pcAgent;
         this.systemCtx = systemCtx;
@@ -104,6 +102,7 @@ public class ChatService {
         this.workingSound = workingSound;
         this.toolRouter = toolRouter;
         this.asyncMessages = asyncMessages;
+        this.ttsTools = ttsTools;
     }
 
     @PostConstruct
@@ -214,6 +213,9 @@ public class ChatService {
         // Cancel any pending 30-second quit when user sends a new message
         quitService.cancelPendingQuit();
 
+        // Stop any currently playing TTS audio so the bot can respond to new input
+        ttsTools.stopPlayback();
+
         // Quit command: reply and schedule quit in 30 sec if no response
         if (isQuitCommand(trimmed)) {
             transcriptService.save("BOT", QUIT_REPLY);
@@ -261,6 +263,7 @@ public class ChatService {
 
                 if (reply != null && !reply.isBlank()) {
                     transcriptService.save("BOT", reply);
+                    autoSpeak(reply);
                     return reply;
                 }
             } catch (Exception e) {
@@ -277,6 +280,7 @@ public class ChatService {
         String agentReply = pcAgent.tryExecute(trimmed, asyncCallback);
         if (agentReply != null) {
             transcriptService.save("BOT", agentReply);
+            autoSpeak(agentReply);
             return agentReply;
         }
 
@@ -291,6 +295,13 @@ public class ChatService {
         String fallback = "I'm not sure how to respond to that. Could you rephrase?";
         transcriptService.save("BOT", fallback);
         return fallback;
+    }
+
+    /** Auto-speak the reply if TTS auto_speak is enabled. Non-blocking (runs on background thread). */
+    private void autoSpeak(String reply) {
+        if (ttsTools.isAutoSpeak()) {
+            ttsTools.speakAsync(reply);
+        }
     }
 
     /** True if the user message is a quit request (e.g. "quit", "exit", "close mins bot"). */

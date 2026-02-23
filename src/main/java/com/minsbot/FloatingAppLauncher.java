@@ -182,6 +182,35 @@ public class FloatingAppLauncher extends Application {
         }
     }
 
+    /**
+     * Hide the Mins Bot window (iconify) so it doesn't appear in screenshots.
+     * Used by element-finding tools to prevent OCR from matching chat text.
+     * Blocks until the minimize is applied on the JavaFX thread.
+     */
+    public static void hideWindow() {
+        if (primaryStageRef == null) return;
+        CountDownLatch latch = new CountDownLatch(1);
+        Platform.runLater(() -> {
+            try {
+                primaryStageRef.setIconified(true);
+            } finally {
+                latch.countDown();
+            }
+        });
+        try { latch.await(2, TimeUnit.SECONDS); } catch (InterruptedException ignored) {}
+        try { Thread.sleep(200); } catch (InterruptedException ignored) {} // wait for minimize animation
+    }
+
+    /**
+     * Restore the Mins Bot window after hiding it.
+     */
+    public static void showWindow() {
+        if (primaryStageRef == null) return;
+        Platform.runLater(() -> {
+            primaryStageRef.setIconified(false);
+        });
+    }
+
     /** Re-read bot name from config and update the window title. Called on startup and by ConfigScanService. */
     public static void refreshBotName() {
         if (primaryStageRef == null) return;

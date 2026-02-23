@@ -43,7 +43,8 @@ public class ToolClassifierService {
     private static final Set<String> VALID_CATEGORIES = Set.of(
             "chat_browser", "browser", "sites", "files", "system", "media",
             "ai_model", "communication", "scheduling", "utility", "export",
-            "plugins", "hotkeys", "tray", "screen_memory", "audio_memory"
+            "plugins", "hotkeys", "tray", "screen_memory", "audio_memory",
+            "playlist"
     );
 
     private static final String SYSTEM_PROMPT = """
@@ -53,7 +54,7 @@ public class ToolClassifierService {
             - browser: web search, URLs, opening websites, tabs
             - sites: login credentials, saved sites, passwords
             - files: file/folder operations, disk, zip, read/write files
-            - system: apps, windows, processes, screenshots, mouse/keyboard control, volume, shutdown
+            - system: apps, windows, processes, screenshots, mouse/keyboard control, volume, shutdown, click on element, find button, click button
             - media: images, photos, PDF, text-to-speech, voice
             - ai_model: ollama, model switching, summarization, huggingface
             - communication: email, weather
@@ -65,6 +66,7 @@ public class ToolClassifierService {
             - tray: system tray
             - screen_memory: what's on screen, what was I doing/watching, OCR, screen capture
             - audio_memory: what's playing, what do you hear, system audio, music, record audio, capture audio
+            - playlist: detected songs, music playlist, what songs have I listened to, add/remove song from playlist
 
             Return at most 3 of the most relevant category names, comma-separated. If none match, return: none""";
 

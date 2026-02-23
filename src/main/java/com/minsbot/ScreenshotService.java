@@ -25,6 +25,8 @@ public class ScreenshotService {
 
     private static final Logger log = LoggerFactory.getLogger(ScreenshotService.class);
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
+    private static final DateTimeFormatter YEAR_MONTH_FMT = DateTimeFormatter.ofPattern("yyyy_MMM");
+    private static final DateTimeFormatter DAY_FMT = DateTimeFormatter.ofPattern("d");
 
     @Value("${app.screenshot.interval-seconds:5}")
     private int intervalSeconds;
@@ -80,12 +82,17 @@ public class ScreenshotService {
         try {
             Instant cutoff = Instant.now().minus(maxAgeDays, ChronoUnit.DAYS);
             int deleted = 0;
-            try (DirectoryStream<Path> stream = Files.newDirectoryStream(screenshotDir, "*.png")) {
-                for (Path file : stream) {
-                    if (Files.getLastModifiedTime(file).toInstant().isBefore(cutoff)) {
-                        Files.deleteIfExists(file);
-                        deleted++;
-                    }
+            try (var walk = Files.walk(screenshotDir)) {
+                var oldFiles = walk
+                        .filter(p -> p.toString().endsWith(".png"))
+                        .filter(p -> {
+                            try { return Files.getLastModifiedTime(p).toInstant().isBefore(cutoff); }
+                            catch (IOException e) { return false; }
+                        })
+                        .toList();
+                for (Path file : oldFiles) {
+                    Files.deleteIfExists(file);
+                    deleted++;
                 }
             }
             if (deleted > 0) {
@@ -100,8 +107,13 @@ public class ScreenshotService {
         try {
             Rectangle screenRect = new Rectangle(Toolkit.getDefaultToolkit().getScreenSize());
             BufferedImage image = robot.createScreenCapture(screenRect);
-            String filename = LocalDateTime.now().format(FMT) + ".png";
-            Path file = screenshotDir.resolve(filename);
+            LocalDateTime now = LocalDateTime.now();
+            Path dayDir = screenshotDir
+                    .resolve(now.format(YEAR_MONTH_FMT))
+                    .resolve(now.format(DAY_FMT));
+            Files.createDirectories(dayDir);
+            String filename = now.format(FMT) + ".png";
+            Path file = dayDir.resolve(filename);
             ImageIO.write(image, "png", file.toFile());
         } catch (Exception e) {
             log.error("Screenshot capture failed", e);

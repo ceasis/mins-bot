@@ -3,6 +3,7 @@ package com.minsbot.agent.tools;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
+import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -73,6 +74,7 @@ public class ToolRouter {
     private final CronConfigTools cronConfigTools;
     private final ScreenMemoryTools screenMemoryTools;
     private final AudioMemoryTools audioMemoryTools;
+    private final PlaylistTools playlistTools;
     private final GlobalHotkeyService globalHotkeyService;
     private final PluginLoaderService pluginLoaderService;
     private final SystemTrayService systemTrayService;
@@ -128,6 +130,7 @@ public class ToolRouter {
             CronConfigTools cronConfigTools,
             ScreenMemoryTools screenMemoryTools,
             AudioMemoryTools audioMemoryTools,
+            PlaylistTools playlistTools,
             GlobalHotkeyService globalHotkeyService,
             PluginLoaderService pluginLoaderService,
             SystemTrayService systemTrayService) {
@@ -166,6 +169,7 @@ public class ToolRouter {
         this.cronConfigTools = cronConfigTools;
         this.screenMemoryTools = screenMemoryTools;
         this.audioMemoryTools = audioMemoryTools;
+        this.playlistTools = playlistTools;
         this.globalHotkeyService = globalHotkeyService;
         this.pluginLoaderService = pluginLoaderService;
         this.systemTrayService = systemTrayService;
@@ -266,18 +270,21 @@ public class ToolRouter {
                 scheduledTaskTools, timerTools, notificationTools,
                 calculatorTools, qrTools, hashTools, unitConversionTools,
                 exportTools, sitesConfigTools, cronConfigTools,
-                screenMemoryTools, audioMemoryTools,
+                screenMemoryTools, audioMemoryTools, playlistTools,
                 globalHotkeyService, pluginLoaderService, systemTrayService
         };
         for (Object bean : allBeans) {
             if (bean != null && !toolCounts.containsKey(bean)) {
+                // Unwrap CGLIB proxy to get the original class — proxy methods lose @Tool annotations
+                Class<?> targetClass = AopUtils.isAopProxy(bean)
+                        ? AopUtils.getTargetClass(bean) : bean.getClass();
                 int count = 0;
-                for (Method m : bean.getClass().getMethods()) {
+                for (Method m : targetClass.getMethods()) {
                     if (m.isAnnotationPresent(Tool.class)) count++;
                 }
                 toolCounts.put(bean, count);
                 if (count > 0) {
-                    log.debug("[ToolRouter] {} → {} @Tool methods", bean.getClass().getSimpleName(), count);
+                    log.debug("[ToolRouter] {} → {} @Tool methods", targetClass.getSimpleName(), count);
                 }
             }
         }
@@ -332,7 +339,8 @@ public class ToolRouter {
         map.put("hotkeys",      List.of(globalHotkeyService));
         map.put("tray",         List.of(systemTrayService));
         map.put("screen_memory", List.of(screenMemoryTools));
-        map.put("audio_memory", List.of(audioMemoryTools));
+        map.put("audio_memory", List.of(audioMemoryTools, playlistTools));
+        map.put("playlist",     List.of(playlistTools));
 
         return Collections.unmodifiableMap(map);
     }

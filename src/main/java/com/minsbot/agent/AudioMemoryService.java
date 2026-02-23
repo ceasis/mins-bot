@@ -53,6 +53,8 @@ public class AudioMemoryService {
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm:ss");
     private static final DateTimeFormatter FILE_TIME_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
+    private static final DateTimeFormatter YEAR_MONTH_FMT = DateTimeFormatter.ofPattern("yyyy_MMM");
+    private static final DateTimeFormatter DAY_FMT = DateTimeFormatter.ofPattern("d");
 
     private static final String FORMAT_WAV = "wav";
     private static final String FORMAT_MP3 = "mp3";
@@ -72,11 +74,14 @@ public class AudioMemoryService {
 
     private final ChatService chatService;
     private final FfmpegProvider ffmpegProvider;
+    private final PlaylistService playlistService;
 
     public AudioMemoryService(@org.springframework.context.annotation.Lazy ChatService chatService,
-                             FfmpegProvider ffmpegProvider) {
+                             FfmpegProvider ffmpegProvider,
+                             @org.springframework.context.annotation.Lazy PlaylistService playlistService) {
         this.chatService = chatService;
         this.ffmpegProvider = ffmpegProvider;
+        this.playlistService = playlistService;
     }
 
     @PostConstruct
@@ -155,35 +160,47 @@ public class AudioMemoryService {
         lastText = collapsed;
 
         appendToDaily(collapsed);
+
+        // Auto-detect music and save to playlist
+        if (playlistService != null && playlistService.isEnabled()) {
+            try { playlistService.classifyAndSave(collapsed); }
+            catch (Exception e) { log.debug("[AudioMemory] Playlist classification failed: {}", e.getMessage()); }
+        }
+
         return collapsed;
     }
 
     public String readMemory(String dateStr) {
-        Path dayFile = AUDIO_MEMORY_DIR.resolve(dateStr + ".txt");
-        if (!Files.exists(dayFile)) return null;
-        try {
-            return Files.readString(dayFile, StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            log.warn("[AudioMemory] Failed to read {}: {}", dateStr, e.getMessage());
-            return null;
+        // New path: audio_memory/2026_Feb/23.txt
+        Path newPath = resolveDayFile(AUDIO_MEMORY_DIR, dateStr);
+        if (newPath != null && Files.exists(newPath)) {
+            try { return Files.readString(newPath, StandardCharsets.UTF_8); }
+            catch (IOException e) { log.warn("[AudioMemory] Failed to read {}: {}", dateStr, e.getMessage()); return null; }
         }
+        // Backwards compat: audio_memory/2026-02-23.txt
+        Path oldPath = AUDIO_MEMORY_DIR.resolve(dateStr + ".txt");
+        if (Files.exists(oldPath)) {
+            try { return Files.readString(oldPath, StandardCharsets.UTF_8); }
+            catch (IOException e) { log.warn("[AudioMemory] Failed to read {}: {}", dateStr, e.getMessage()); return null; }
+        }
+        return null;
     }
 
     public String listDates() {
         if (!Files.exists(AUDIO_MEMORY_DIR)) return "No audio memory files yet.";
-        try (Stream<Path> files = Files.list(AUDIO_MEMORY_DIR)) {
+        try (Stream<Path> files = Files.walk(AUDIO_MEMORY_DIR)) {
             StringBuilder sb = new StringBuilder();
             files.filter(p -> p.toString().endsWith(".txt"))
                     .sorted(Comparator.reverseOrder())
                     .forEach(p -> {
-                        String name = p.getFileName().toString().replace(".txt", "");
+                        String label = dayFileLabel(AUDIO_MEMORY_DIR, p);
                         try {
                             long size = Files.size(p);
                             long lines = Files.lines(p).count();
-                            sb.append(name).append(" (").append(lines)
+                            sb.append(label).append(" (").append(lines)
                                     .append(" entries, ").append(size / 1024).append("KB)\n");
                         } catch (IOException e) {
-                            sb.append(name).append("\n");
+                            sb.append(label).append("\n");
                         }
                     });
             return sb.length() == 0 ? "No audio memory files yet." : sb.toString().trim();
@@ -208,6 +225,12 @@ public class AudioMemoryService {
         lastText = collapsed;
 
         appendToDaily(collapsed);
+
+        // Auto-detect music and save to playlist
+        if (playlistService != null && playlistService.isEnabled()) {
+            try { playlistService.classifyAndSave(collapsed); }
+            catch (Exception e) { log.debug("[AudioMemory] Playlist classification failed: {}", e.getMessage()); }
+        }
     }
 
     /**
@@ -444,12 +467,14 @@ public class AudioMemoryService {
     }
 
     private void appendToDaily(String text) {
-        String today = LocalDate.now().format(DATE_FMT);
+        LocalDate today = LocalDate.now();
         String time = LocalTime.now().format(TIME_FMT);
         String entry = "[" + time + "] " + text + "\n";
 
-        Path dayFile = AUDIO_MEMORY_DIR.resolve(today + ".txt");
+        Path monthDir = AUDIO_MEMORY_DIR.resolve(today.format(YEAR_MONTH_FMT));
         try {
+            Files.createDirectories(monthDir);
+            Path dayFile = monthDir.resolve(today.format(DAY_FMT) + ".txt");
             Files.writeString(dayFile, entry, StandardCharsets.UTF_8,
                     StandardOpenOption.CREATE, StandardOpenOption.APPEND);
             log.debug("[AudioMemory] Stored: [{}] {}...", time,
@@ -462,23 +487,27 @@ public class AudioMemoryService {
     private void saveClipIfEnabled(byte[] wav) {
         if (!keepClips) return;
         try {
-            Files.createDirectories(CLIPS_DIR);
-            String baseName = LocalDateTime.now().format(FILE_TIME_FMT);
+            LocalDateTime now = LocalDateTime.now();
+            Path dayDir = CLIPS_DIR
+                    .resolve(now.format(YEAR_MONTH_FMT))
+                    .resolve(now.format(DAY_FMT));
+            Files.createDirectories(dayDir);
+            String baseName = now.format(FILE_TIME_FMT);
             if (FORMAT_MP3.equalsIgnoreCase(clipFormat)) {
                 Path wavPath = Files.createTempFile("mins_audio_", ".wav");
                 try {
                     Files.write(wavPath, wav);
-                    Path mp3Path = CLIPS_DIR.resolve(baseName + ".mp3");
+                    Path mp3Path = dayDir.resolve(baseName + ".mp3");
                     if (convertWavToMp3(wavPath, mp3Path)) {
                         log.debug("[AudioMemory] Saved MP3 clip: {}", mp3Path.getFileName());
                     } else {
-                        Files.write(CLIPS_DIR.resolve(baseName + ".wav"), wav);
+                        Files.write(dayDir.resolve(baseName + ".wav"), wav);
                     }
                 } finally {
                     Files.deleteIfExists(wavPath);
                 }
             } else {
-                Files.write(CLIPS_DIR.resolve(baseName + ".wav"), wav);
+                Files.write(dayDir.resolve(baseName + ".wav"), wav);
             }
         } catch (IOException e) {
             log.warn("[AudioMemory] Failed to save clip: {}", e.getMessage());
@@ -541,6 +570,27 @@ public class AudioMemoryService {
         } catch (IOException e) {
             log.warn("[AudioMemory] Could not read config: {}", e.getMessage());
         }
+    }
+
+    /** Resolve "2026-02-23" → baseDir/2026_Feb/23.txt */
+    private static Path resolveDayFile(Path baseDir, String dateStr) {
+        try {
+            LocalDate date = LocalDate.parse(dateStr, DATE_FMT);
+            return baseDir.resolve(date.format(YEAR_MONTH_FMT)).resolve(date.format(DAY_FMT) + ".txt");
+        } catch (Exception e) { return null; }
+    }
+
+    /** Build a display label from a day file path (e.g. "2026_Feb/23.txt" → "2026-02-23"). */
+    private static String dayFileLabel(Path baseDir, Path file) {
+        Path rel = baseDir.relativize(file);
+        // New structure: 2026_Feb/23.txt
+        if (rel.getNameCount() == 2) {
+            String monthDir = rel.getName(0).toString(); // "2026_Feb"
+            String dayFile = rel.getName(1).toString().replace(".txt", ""); // "23"
+            return monthDir + "/" + dayFile;
+        }
+        // Old flat structure: 2026-02-23.txt
+        return file.getFileName().toString().replace(".txt", "");
     }
 
     private static boolean isWindows() {

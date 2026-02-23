@@ -1,6 +1,7 @@
 package com.minsbot.agent;
 
 import com.minsbot.FloatingAppLauncher;
+import com.minsbot.agent.tools.TtsTools;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -44,6 +45,9 @@ public class ConfigScanService {
     private final IdleDetectionService idleDetection;
     private final ScreenMemoryService screenMemory;
     private final AudioMemoryService audioMemory;
+    private final WebcamMemoryService webcamMemory;
+    private final TtsTools ttsTools;
+    private final PlaylistService playlistService;
 
     /** Last-modified timestamp for each file, used to detect changes. */
     private final Map<String, FileTime> lastModified = new LinkedHashMap<>();
@@ -51,11 +55,17 @@ public class ConfigScanService {
     public ConfigScanService(WorkingSoundService workingSound,
                              IdleDetectionService idleDetection,
                              ScreenMemoryService screenMemory,
-                             AudioMemoryService audioMemory) {
+                             AudioMemoryService audioMemory,
+                             WebcamMemoryService webcamMemory,
+                             TtsTools ttsTools,
+                             PlaylistService playlistService) {
         this.workingSound = workingSound;
         this.idleDetection = idleDetection;
         this.screenMemory = screenMemory;
         this.audioMemory = audioMemory;
+        this.webcamMemory = webcamMemory;
+        this.ttsTools = ttsTools;
+        this.playlistService = playlistService;
     }
 
     @PostConstruct
@@ -99,6 +109,9 @@ public class ConfigScanService {
                 idleDetection.reloadConfig();
                 screenMemory.reloadConfig();
                 audioMemory.reloadConfig();
+                webcamMemory.reloadConfig();
+                ttsTools.reloadConfig();
+                playlistService.reloadConfig();
                 FloatingAppLauncher.refreshBotName();
             }
             // personal_config.txt, cron_config.txt, system_config.txt:

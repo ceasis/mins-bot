@@ -112,6 +112,35 @@ html, body {
   color: #a1a1aa;
 }
 
+/* Header “processing” indicator (ECG/pulse) – right of “Mins Bot” when thinking */
+.header-thinking {
+  display: none;
+  align-items: center;
+  margin-left: 4px;
+  color: rgba(99, 102, 241, 0.9);
+}
+.header-thinking[hidden] {
+  display: none !important;
+}
+.header-thinking:not([hidden]) {
+  display: inline-flex;
+}
+.header-ecg {
+  width: 28px;
+  height: 11px;
+  overflow: visible;
+}
+.header-ecg-line {
+  stroke-dasharray: 60;
+  stroke-dashoffset: 60;
+  animation: header-ecg-draw 1.2s ease-in-out infinite;
+}
+@keyframes header-ecg-draw {
+  0%   { stroke-dashoffset: 60; opacity: 0.6; }
+  50%  { stroke-dashoffset: 0;  opacity: 1; }
+  100% { stroke-dashoffset: -60; opacity: 0.6; }
+}
+
 .btn-icon {
   display: inline-flex;
   align-items: center;
@@ -337,6 +366,19 @@ html, body {
   font-size: 10px;
   color: #52525b;
   padding: 0 4px;
+}
+
+.chat-screenshot {
+  display: block;
+  max-width: 100%;
+  margin-top: 6px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.1);
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.chat-screenshot:hover {
+  opacity: 0.85;
 }
 
 /* Thinking indicator */
