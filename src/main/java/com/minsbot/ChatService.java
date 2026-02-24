@@ -287,7 +287,7 @@ public class ChatService {
                         log.info("[ChatService] Injected Gemini screen analysis ({} chars)", screenAnalysis.length());
                     }
                 } catch (Exception e) {
-                    log.debug("[ChatService] Screen analysis failed (non-critical): {}", e.getMessage());
+                    log.warn("[ChatService] Screen analysis failed: {}", e.getMessage());
                 }
 
                 final int MAX_RETRIES = 3;

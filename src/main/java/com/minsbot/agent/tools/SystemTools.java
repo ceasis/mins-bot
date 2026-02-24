@@ -467,6 +467,41 @@ public class SystemTools {
         return systemControl.getScreenSize();
     }
 
+    // ═══ User abort detection ═══
+
+    /**
+     * Two-sample approach: check if the user is actively moving the mouse.
+     * Samples cursor position, waits briefly, re-samples.
+     * If the cursor moved significantly, the user is active — abort.
+     */
+    private boolean checkUserAbort() {
+        try {
+            java.awt.Point p1 = java.awt.MouseInfo.getPointerInfo().getLocation();
+            Thread.sleep(80);
+            java.awt.Point p2 = java.awt.MouseInfo.getPointerInfo().getLocation();
+            if (Math.abs(p2.x - p1.x) > 3 || Math.abs(p2.y - p1.y) > 3) {
+                System.out.println("[abort] User mouse activity detected: (" + p1.x + "," + p1.y
+                        + ") → (" + p2.x + "," + p2.y + ")");
+                return true;
+            }
+            return false;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Post-move check: the bot moved the cursor to (expectedX, expectedY).
+     * If the actual cursor is far from there, the user moved it — abort.
+     */
+    private boolean checkUserAbort(int expectedX, int expectedY) {
+        if (systemControl.isUserOverriding(expectedX, expectedY)) {
+            System.out.println("[abort] User mouse movement detected — aborting action");
+            return true;
+        }
+        return false;
+    }
+
     // ═══ Element location: shared logic ═══
 
     /** Result of locating an element on screen. */
@@ -624,11 +659,10 @@ public class SystemTools {
     // ═══ Element click: OCR-first, AI vision fallback ═══
 
     @Tool(description = "Find a UI element on screen by description and click on it. Takes a screenshot, "
-            + "uses OCR to locate text-based elements with pixel-perfect accuracy, and falls back to AI vision "
-            + "for non-text elements. Automatically hides the Mins Bot window during capture to avoid OCR interference. "
+            + "uses OCR/Textract/Gemini/AI vision to locate the element. Retries up to 5 times with fresh screenshots. "
+            + "Automatically hides the Mins Bot window during capture. "
             + "Use when you need to click a button, link, input field, tab, icon, or any "
-            + "visible element. Example: findAndClickElement('the Submit button') "
-            + "or findAndClickElement('the search input field') or findAndClickElement('the Selection tab').")
+            + "visible element. Example: findAndClickElement('the Submit button').")
     public String findAndClickElement(
             @ToolParam(description = "Description of the element to find and click, e.g. 'the Submit button', "
                     + "'the search input field', 'the Selection tab', 'the close icon'") String elementDescription) {
@@ -636,17 +670,36 @@ public class SystemTools {
 
         hideMinsBotWindow();
         try {
-            ScreenshotContext ctx = captureScreen();
-            if (ctx == null) return "Could not take screenshot.";
+            for (int attempt = 1; attempt <= 5; attempt++) {
+                if (attempt > 1) {
+                    System.out.println("[click] Retry " + attempt + "/5 for '" + elementDescription + "'...");
+                    try { Thread.sleep(1000); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+                }
 
-            ElementLocation loc = locateOnImage(ctx, elementDescription);
-            if (loc == null) {
-                return "Could not find '" + elementDescription + "' on screen (tried OCR + AI vision). "
-                        + "Try with a more specific description. " + screenshotUrl(ctx.imagePath());
+                // Check if user is actively moving mouse before we act
+                if (checkUserAbort()) {
+                    return "Click aborted: user mouse movement detected.";
+                }
+
+                ScreenshotContext ctx = captureScreen();
+                if (ctx == null) continue;
+
+                ElementLocation loc = locateOnImage(ctx, elementDescription);
+                if (loc != null) {
+                    // Final check right before clicking
+                    if (checkUserAbort()) {
+                        return "Click aborted: user moved the mouse.";
+                    }
+                    String clickResult = systemControl.mouseClick(loc.screenX(), loc.screenY(), "left");
+                    return loc.summary(elementDescription) + ". " + clickResult;
+                }
+
+                if (attempt == 5) {
+                    return "Could not find '" + elementDescription + "' on screen after 5 attempts. "
+                            + screenshotUrl(ctx.imagePath());
+                }
             }
-
-            String clickResult = systemControl.mouseClick(loc.screenX(), loc.screenY(), "left");
-            return loc.summary(elementDescription) + ". " + clickResult;
+            return "Could not find '" + elementDescription + "' on screen after 5 attempts.";
         } finally {
             showMinsBotWindow();
         }
@@ -688,55 +741,73 @@ public class SystemTools {
     /** Result of verifying a drag operation. */
     private enum DragVerifyResult { SUCCESS, MOVED, FAILED, UNKNOWN }
 
-    @Tool(description = "Find two elements on screen and drag one to the other. Takes a SINGLE screenshot, "
-            + "locates both the source and target via OCR/vision, and performs the mouse drag. "
+    @Tool(description = "Find two elements on screen and drag one to the other. Takes a screenshot, "
+            + "locates both the source and target via OCR/Textract/Gemini/AI vision, and performs the mouse drag. "
             + "Automatically hides the Mins Bot window during capture to avoid OCR interference. "
-            + "Retries up to 3 times with fresh screenshots until verification confirms the drag succeeded. "
-            + "Use when the user says 'drag X into Y', 'drag X to Y', 'move X into Y folder'. "
-            + "Example: findAndDragElement('my_file.txt', 'TARGET folder') drags the file into the folder.")
+            + "Retries up to 5 times with fresh screenshots. ALWAYS use this tool for moving files on screen. "
+            + "Use when the user says 'drag X into Y', 'move X into Y', 'put X in Y'. "
+            + "Example: findAndDragElement('ANIMALS.txt', 'LIVING') drags the file into the folder.")
     public String findAndDragElement(
-            @ToolParam(description = "Description of the source element to drag, e.g. 'my_file.txt', 'the icon'") String sourceDescription,
-            @ToolParam(description = "Description of the target to drag onto, e.g. 'TARGET folder', 'Recycle Bin'") String targetDescription) {
+            @ToolParam(description = "Description of the source element to drag, e.g. 'ANIMALS.txt', 'my_file.txt'") String sourceDescription,
+            @ToolParam(description = "Description of the target to drag onto, e.g. 'LIVING', 'TARGET folder'") String targetDescription) {
         notifier.notify("Dragging: " + sourceDescription + " → " + targetDescription);
 
         hideMinsBotWindow();
         try {
-            int maxAttempts = 3;
+            int maxAttempts = 5;
+            boolean dragAttempted = false;
+
             for (int attempt = 1; attempt <= maxAttempts; attempt++) {
                 System.out.println("[drag] Attempt " + attempt + "/" + maxAttempts);
 
                 if (attempt > 1) {
-                    notifier.notify("Retry " + attempt + "/3: " + sourceDescription + " → " + targetDescription);
+                    notifier.notify("Retry " + attempt + "/" + maxAttempts + ": " + sourceDescription + " → " + targetDescription);
+                    // Wait before retry to let screen settle
+                    try { Thread.sleep(1000); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
                 }
 
-                // Take a fresh screenshot each attempt (source/target may have shifted)
+                // Before taking screenshot, check if user is actively moving mouse
+                if (checkUserAbort()) {
+                    return "Drag aborted: user mouse movement detected.";
+                }
+
+                // Take a fresh screenshot each attempt
                 ScreenshotContext ctx = captureScreen();
-                if (ctx == null) return "Could not take screenshot.";
+                if (ctx == null) {
+                    System.out.println("[drag] Screenshot failed on attempt " + attempt + " — retrying...");
+                    continue;
+                }
 
                 ElementLocation source = locateOnImage(ctx, sourceDescription);
                 if (source == null) {
-                    if (attempt == 1) {
-                        return "Could not find source '" + sourceDescription + "' on screen. Try a more specific description. "
-                                + screenshotUrl(ctx.imagePath());
+                    if (dragAttempted) {
+                        // Source not found after a drag was attempted — likely moved successfully
+                        System.out.println("[drag] Source '" + sourceDescription + "' no longer found after drag — likely moved.");
+                        return "Drag verified: '" + sourceDescription + "' is no longer visible on screen (moved successfully).";
                     }
-                    // On retry, source not found likely means it was already dragged successfully
-                    System.out.println("[drag] Source '" + sourceDescription + "' no longer found on retry — likely already moved.");
-                    return "Drag verified: '" + sourceDescription + "' is no longer visible on screen (moved successfully on previous attempt).";
+                    System.out.println("[drag] Source '" + sourceDescription + "' not found on attempt " + attempt
+                            + " — retrying with fresh screenshot...");
+                    continue; // retry with a new screenshot
                 }
 
                 ElementLocation target = locateOnImage(ctx, targetDescription);
                 if (target == null) {
-                    return "Found source '" + sourceDescription + "' but could not find target '" + targetDescription
-                            + "' on screen. Try a more specific description. " + screenshotUrl(ctx.imagePath());
+                    System.out.println("[drag] Target '" + targetDescription + "' not found on attempt " + attempt
+                            + " — retrying...");
+                    continue; // retry with a new screenshot
                 }
 
                 System.out.println("[drag] Attempt " + attempt + ": dragging from (" + source.screenX() + "," + source.screenY()
                         + ") to (" + target.screenX() + "," + target.screenY() + ")");
 
-                // Use fast atomic drag — segmented drag is too slow (OCR at each 30px
-                // checkpoint causes Windows to cancel the drag-and-drop operation)
                 String dragResult = systemControl.mouseDrag(
                         source.screenX(), source.screenY(), target.screenX(), target.screenY());
+                dragAttempted = true;
+
+                // Check if user moved mouse during/after drag
+                if (checkUserAbort(target.screenX(), target.screenY())) {
+                    return "Drag aborted: user moved the mouse during drag.";
+                }
 
                 // Wait for UI to settle
                 try { Thread.sleep(1500); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
@@ -756,19 +827,17 @@ public class SystemTools {
 
                 if (verify == DragVerifyResult.FAILED && attempt < maxAttempts) {
                     System.out.println("[drag] Attempt " + attempt + " failed verification — retrying...");
-                    try { Thread.sleep(500); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
                     continue;
-                }
-
-                // Last attempt or unknown — return what we have
-                if (attempt == maxAttempts) {
-                    return "Dragged '" + sourceDescription + "' → '" + targetDescription
-                            + "' but after " + maxAttempts + " attempts, the source element may still be near its original position. "
-                            + "The drag may not have succeeded — please verify visually.";
                 }
             }
 
-            return "Drag failed after " + maxAttempts + " attempts.";
+            // All attempts exhausted
+            String failureMsg = dragAttempted
+                    ? "Dragged '" + sourceDescription + "' → '" + targetDescription
+                        + "' but after " + maxAttempts + " attempts, the drag may not have succeeded."
+                    : "Could not find '" + sourceDescription + "' or '" + targetDescription
+                        + "' on screen after " + maxAttempts + " attempts with fresh screenshots.";
+            return failureMsg;
         } finally {
             showMinsBotWindow();
         }

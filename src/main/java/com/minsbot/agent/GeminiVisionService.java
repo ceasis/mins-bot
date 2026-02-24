@@ -177,15 +177,32 @@ public class GeminiVisionService {
      * @return Gemini's response, or null on failure
      */
     public String analyze(Path imagePath, String prompt) {
-        if (!isAvailable() || imagePath == null || !Files.exists(imagePath)) return null;
+        if (!isAvailable()) {
+            log.warn("[Gemini] analyze — NOT AVAILABLE (apiKey={}, httpClient={})",
+                    apiKey != null && !apiKey.isBlank() ? "SET" : "EMPTY",
+                    httpClient != null ? "OK" : "NULL");
+            return null;
+        }
+        if (imagePath == null || !Files.exists(imagePath)) {
+            log.warn("[Gemini] analyze — image path invalid: {}", imagePath);
+            return null;
+        }
 
         try {
             byte[] imageBytes = Files.readAllBytes(imagePath);
+            log.info("[Gemini] analyze — image: {} ({} bytes), model: {}",
+                    imagePath.getFileName(), imageBytes.length, model);
             String base64 = Base64.getEncoder().encodeToString(imageBytes);
             String mediaType = imagePath.toString().toLowerCase().endsWith(".png") ? "image/png" : "image/jpeg";
-            return callGemini(base64, prompt, mediaType, model);
+            String result = callGemini(base64, prompt, mediaType, model);
+            if (result == null || result.isBlank()) {
+                log.warn("[Gemini] analyze — callGemini returned null/empty");
+            } else {
+                log.info("[Gemini] analyze — SUCCESS: {} chars", result.length());
+            }
+            return result;
         } catch (Exception e) {
-            log.info("[Gemini] analyze — FAILED: {}", e.getMessage());
+            log.warn("[Gemini] analyze — FAILED: {}", e.getMessage(), e);
             return null;
         }
     }
@@ -201,7 +218,7 @@ public class GeminiVisionService {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(url))
                     .header("Content-Type", "application/json")
-                    .timeout(Duration.ofSeconds(30))
+                    .timeout(Duration.ofSeconds(60))
                     .POST(HttpRequest.BodyPublishers.ofString(requestBody))
                     .build();
 
@@ -209,14 +226,19 @@ public class GeminiVisionService {
                     HttpResponse.BodyHandlers.ofString());
 
             if (response.statusCode() != 200) {
-                log.info("[Gemini] API returned HTTP {}: {}", response.statusCode(),
-                        truncate(response.body(), 300));
+                log.warn("[Gemini] API returned HTTP {} for model '{}': {}", response.statusCode(),
+                        modelName, truncate(response.body(), 500));
                 return null;
             }
 
-            return extractContent(response.body());
+            String content = extractContent(response.body());
+            if (content == null || content.isBlank()) {
+                log.warn("[Gemini] extractContent returned null/empty from response: {}",
+                        truncate(response.body(), 300));
+            }
+            return content;
         } catch (Exception e) {
-            log.info("[Gemini] API call failed: {}", e.getMessage());
+            log.warn("[Gemini] API call failed for model '{}': {}", modelName, e.getMessage());
             return null;
         }
     }

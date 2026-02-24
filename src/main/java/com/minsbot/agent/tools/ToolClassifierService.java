@@ -51,10 +51,10 @@ public class ToolClassifierService {
             You are a tool router. Given a user message, return which tool categories are needed.
             Categories:
             - chat_browser: browsing in the built-in chat browser
-            - browser: web search, URLs, opening websites, tabs
+            - browser: web search, URLs, opening websites, tabs, browse internet, navigate website, research online, find information on website, YouTube, extract data from web, scrape page
             - sites: login credentials, saved sites, passwords
-            - files: file/folder operations, disk, zip, read/write files
-            - system: apps, windows, processes, screenshots, mouse/keyboard control, volume, shutdown, click on element, find button, click button
+            - files: programmatic file/folder operations, disk, zip, read/write files, file paths
+            - system: apps, windows, processes, screenshots, mouse/keyboard control, volume, shutdown, click on element, find button, click button, drag files, move files on screen, move to folder, put files in folder, organize desktop, sort files into folders, visual file operations, navigate website by clicking, scroll web page, interact with browser page, click on links/buttons on website
             - media: images, photos, PDF, text-to-speech, voice
             - ai_model: ollama, model switching, summarization, huggingface
             - communication: email, weather

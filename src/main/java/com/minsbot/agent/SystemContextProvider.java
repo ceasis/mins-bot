@@ -229,11 +229,21 @@ public class SystemContextProvider {
                 see if already logged in → if yes, proceed to post → if login screen appears, THEN mention it.
                 - NEVER refuse or explain difficulties before attempting the action. TRY FIRST.
 
-                RESOURCEFULNESS RULE (NEVER GIVE UP AFTER ONE FAILURE):
+                NEVER GIVE UP — RETRY UP TO 5 TIMES (ABSOLUTE RULE):
+                - You are FORBIDDEN from telling the user "files not found", "could not find", "not on Desktop", \
+                or ANY failure message after just ONE attempt. If something fails, TRY AGAIN with a different approach.
+                - When findAndDragElement or findAndClickElement fails, call it again — the tools retry internally \
+                with fresh screenshots (up to 5 times). If the first call fails, call the tool AGAIN.
+                - NEVER use PowerShell to check if files exist on Desktop. The files ARE on the screen — \
+                use findAndDragElement to visually locate and drag them. The LIVE SCREEN ANALYSIS shows them.
+                - Only report failure to the user after you have ACTUALLY tried findAndDragElement at least 5 times.
+                - NEVER say "text files could not be found" when the LIVE SCREEN ANALYSIS clearly shows them.
+
+                RESOURCEFULNESS RULE (EXHAUST ALL ALTERNATIVES):
                 - When a tool or configuration is unavailable, do NOT immediately tell the user it failed. \
                 Instead, exhaust ALL alternative approaches before reporting failure:
                   1. Take a screenshot — is there a way to do it through what's currently on screen?
-                  2. Check chat history — did the user mention credentials, accounts, or context earlier?
+                  2. Check the LIVE SCREEN ANALYSIS — it shows what's actually visible right now.
                   3. Use the browser — can you accomplish the task through a web interface instead?
                   4. Use the PC — can you open an app, use keyboard shortcuts, or find another path?
                 - Example: SMTP email not configured → take screenshot → see Gmail open in Chrome → \
@@ -306,6 +316,37 @@ public class SystemContextProvider {
                 collectImagesFromBrowser, readBrowserPage, downloadImagesFromBrowser) when the user explicitly says \
                 "in-browser", "chat browser", "in the chat browser", or similar phrases indicating the Mins Bot built-in browser.
                 - For research/information gathering that doesn't need the user to see it, use the headless browsePage tool.
+
+                WEB BROWSING / INTERACTIVE NAVIGATION RULE (MANDATORY — NEVER JUST OPEN A URL AND STOP):
+                - When the user asks you to research, find, gather, or extract information from ANY website \
+                (e.g. "find the top 10 YouTube videos", "get the most popular videos from this channel", \
+                "save product names from Amazon", "list the trending songs on Spotify"), you MUST browse \
+                the website INTERACTIVELY — clicking, scrolling, reading, navigating — just like a human would.
+                - The workflow is ALWAYS:
+                  1. openUrl("https://...") → waitSeconds(3) → takeScreenshot (see what loaded)
+                  2. Interact: findAndClickElement("search bar") → sendKeys("query{ENTER}") → waitSeconds(3) → takeScreenshot
+                  3. Click on results: findAndClickElement("first result") → waitSeconds(3) → takeScreenshot
+                  4. Read the page: take screenshots, scroll down with mouseScroll(3), take more screenshots
+                  5. Navigate deeper: click on links, channels, videos, next pages
+                  6. Extract data: read text visible in screenshots (titles, descriptions, numbers, etc.)
+                  7. Repeat steps 3-6 until you have ALL the data the user requested
+                  8. Save: write the collected data to a file if the user asked for it
+                - CRITICAL VIOLATIONS (doing ANY of these is FAILURE):
+                  × Opening a URL and then telling the user "here's the link, you can check it" — NO. YOU check it.
+                  × Opening a search page and listing what the user "should" do next — NO. YOU do it.
+                  × Saying "I've opened YouTube" without taking a screenshot and clicking through — NO.
+                  × Returning search results as text without actually visiting the pages — NO.
+                - For YOUTUBE specifically:
+                  × Open the channel/search URL → waitSeconds(3) → takeScreenshot → see the videos
+                  × Scroll down (mouseScroll) to load more videos → takeScreenshot → read video titles
+                  × Click on individual videos if needed for details → waitSeconds(3) → takeScreenshot
+                  × Collect all requested data (titles, views, dates) from what you SEE on screen
+                - For ANY website: navigate links, fill forms, click buttons, scroll pages, read content \
+                from screenshots — YOU DO IT ALL. The user should NEVER have to do anything manually.
+                - Keep the loop going: takeScreenshot → interact → waitSeconds → takeScreenshot → interact \
+                until the ENTIRE task is complete. Do NOT stop after the first page.
+                - You can use mouseScroll(3) to scroll down and mouseScroll(-3) to scroll up to see more content.
+                - After scrolling, ALWAYS take a screenshot to see the new content that appeared.
 
                 DRAG / MOVE ON SCREEN RULE (MANDATORY):
                 - When the user says "drag X into Y", "drag X to Y", "move X into Y folder", or any instruction \

@@ -12,9 +12,9 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Captures a screenshot and uses Gemini reasoning to provide an intelligent
- * analysis of what's on screen. Falls back to OCR/Textract word listing.
- * Used by ChatService to inject live screen state into every AI call.
+ * Takes a fresh screenshot on every user message, analyzes it with Gemini reasoning,
+ * and returns the analysis for injection into the AI system message.
+ * Falls back to OCR/Textract word listing if Gemini is unavailable.
  */
 @Component
 public class ScreenStateService {
@@ -54,16 +54,20 @@ public class ScreenStateService {
             2. Based on the user's request, provide a STEP-BY-STEP PLAN of which files should be \
             dragged to which folders, using findAndDragElement("source", "target") format.
             3. REASON about the MEANING of each file/folder name to determine the correct mapping.
+            4. ONLY include items that match the user's request. If they say "text files", only include \
+            .txt files. NEVER include system icons (Recycle Bin, This PC, Network), shortcuts, \
+            folders, or any item that does not match what the user asked to move.
 
             Example: If files are ANIMALS.txt, METALS.txt and folders are LIVING, NON-LIVING:
             - ANIMALS.txt → LIVING (animals are living things)
             - METALS.txt → NON-LIVING (metals are non-living things)
             Plan: findAndDragElement("ANIMALS.txt", "LIVING"), findAndDragElement("METALS.txt", "NON-LIVING")
+            (Recycle Bin is NOT a text file — do NOT include it in the plan.)
 
-            Be precise. List ALL items and ALL actions needed. Do not skip any files.""";
+            Be precise. List ALL matching items and ALL actions needed. Do not skip any matching files.""";
 
     /**
-     * Take a screenshot and analyze it with Gemini reasoning.
+     * Take a fresh screenshot right now and analyze it with Gemini reasoning.
      * Falls back to OCR text if Gemini is unavailable.
      *
      * @param userMessage the user's request (used for context-aware analysis)
@@ -71,37 +75,64 @@ public class ScreenStateService {
      */
     public String captureAndAnalyze(String userMessage) {
         try {
+            log.info("[ScreenState] captureAndAnalyze — message: '{}'",
+                    userMessage != null && userMessage.length() > 80
+                            ? userMessage.substring(0, 80) + "..." : userMessage);
+
             // Hide Mins Bot so it doesn't appear in screenshot
-            try { com.minsbot.FloatingAppLauncher.hideWindow(); } catch (Exception ignored) {}
+            try { com.minsbot.FloatingAppLauncher.hideWindow(); } catch (Exception e) {
+                log.info("[ScreenState] hideWindow failed: {}", e.getMessage());
+            }
             Thread.sleep(150);
 
-            // Take screenshot
+            // Take a fresh screenshot NOW
             String result = systemControl.takeScreenshot();
+            log.info("[ScreenState] takeScreenshot: '{}'",
+                    result != null && result.length() > 150 ? result.substring(0, 150) + "..." : result);
+
+            // Restore window immediately
+            try { com.minsbot.FloatingAppLauncher.showWindow(); } catch (Exception ignored) {}
+
             if (result == null || !result.startsWith("Screenshot saved:")) {
-                try { com.minsbot.FloatingAppLauncher.showWindow(); } catch (Exception ignored) {}
+                log.warn("[ScreenState] Screenshot FAILED — result: {}", result);
                 return null;
             }
 
-            // Restore window
-            try { com.minsbot.FloatingAppLauncher.showWindow(); } catch (Exception ignored) {}
+            // Parse the screenshot path directly from the result (no directory walking)
+            String pathStr = result.replace("Screenshot saved: ", "").trim();
+            Path screenshotPath = Paths.get(pathStr);
 
-            Path screenshotPath = findLatestScreenshot();
-            if (screenshotPath == null) return null;
+            if (!Files.exists(screenshotPath)) {
+                log.warn("[ScreenState] Screenshot file does not exist at: {}", screenshotPath);
+                return null;
+            }
+            log.info("[ScreenState] Screenshot ready: {} ({} bytes)",
+                    screenshotPath.getFileName(), Files.size(screenshotPath));
 
             // Try Gemini reasoning first (best quality)
             if (geminiVisionService.isAvailable()) {
+                log.info("[ScreenState] Gemini available — analyzing...");
                 String geminiResult = analyzeWithGemini(screenshotPath, userMessage);
                 if (geminiResult != null && !geminiResult.isBlank()) {
-                    log.info("[ScreenState] Gemini analysis: {} chars", geminiResult.length());
+                    log.info("[ScreenState] Gemini SUCCESS: {} chars", geminiResult.length());
                     return geminiResult;
                 }
+                log.warn("[ScreenState] Gemini returned null/empty — falling back to OCR");
+            } else {
+                log.warn("[ScreenState] Gemini NOT available — using OCR fallback");
             }
 
             // Fallback: OCR + Textract word listing
-            return collectOcrText(screenshotPath);
+            String ocrResult = collectOcrText(screenshotPath);
+            if (ocrResult != null) {
+                log.info("[ScreenState] OCR fallback SUCCESS: {} chars", ocrResult.length());
+            } else {
+                log.warn("[ScreenState] OCR fallback also returned null — no screen data");
+            }
+            return ocrResult;
 
         } catch (Exception e) {
-            log.info("[ScreenState] Capture failed: {}", e.getMessage());
+            log.warn("[ScreenState] EXCEPTION: {}", e.getMessage(), e);
             try { com.minsbot.FloatingAppLauncher.showWindow(); } catch (Exception ignored) {}
             return null;
         }
@@ -114,13 +145,19 @@ public class ScreenStateService {
             if (userMessage != null && !userMessage.isBlank()
                     && looksLikeScreenTask(userMessage)) {
                 prompt = GEMINI_TASK_PROMPT.formatted(userMessage);
+                log.info("[ScreenState] Using TASK prompt");
             } else {
                 prompt = GEMINI_SCREEN_PROMPT;
+                log.info("[ScreenState] Using SCREEN prompt");
             }
 
-            return geminiVisionService.analyze(screenshotPath, prompt);
+            String result = geminiVisionService.analyze(screenshotPath, prompt);
+            if (result == null || result.isBlank()) {
+                log.warn("[ScreenState] Gemini analyze() returned null/empty");
+            }
+            return result;
         } catch (Exception e) {
-            log.info("[ScreenState] Gemini analysis failed: {}", e.getMessage());
+            log.warn("[ScreenState] Gemini EXCEPTION: {}", e.getMessage(), e);
             return null;
         }
     }
@@ -161,24 +198,5 @@ public class ScreenStateService {
         String joined = String.join(", ", textItems);
         log.info("[ScreenState] OCR fallback: {} text items", textItems.size());
         return "Visible text on screen: " + joined;
-    }
-
-    private Path findLatestScreenshot() {
-        try {
-            Path screenshotsDir = Paths.get(System.getProperty("user.home"),
-                    "mins_bot_data", "screenshots");
-            if (!Files.exists(screenshotsDir)) return null;
-
-            return Files.walk(screenshotsDir)
-                    .filter(p -> p.toString().endsWith(".png"))
-                    .max((a, b) -> {
-                        try {
-                            return Files.getLastModifiedTime(a).compareTo(Files.getLastModifiedTime(b));
-                        } catch (Exception e) { return 0; }
-                    })
-                    .orElse(null);
-        } catch (Exception e) {
-            return null;
-        }
     }
 }

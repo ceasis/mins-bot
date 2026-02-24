@@ -327,7 +327,7 @@ public class ToolRouter {
         map.put("chat_browser", List.of(playwrightTools, downloadTools, sitesConfigTools));
         map.put("browser",      List.of(playwrightTools, downloadTools, sitesConfigTools, systemTools));
         map.put("sites",        List.of(sitesConfigTools));
-        map.put("files",        List.of(fileTools, fileSystemTools));
+        map.put("files",        List.of(fileTools, fileSystemTools, systemTools));
         map.put("system",       List.of(systemTools));
         map.put("media",        List.of(imageTools, pdfTools, ttsTools));
         map.put("ai_model",     List.of(localModelTools, huggingFaceImageTool, summarizationTools, modelSwitchTools));
