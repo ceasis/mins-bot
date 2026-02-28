@@ -440,6 +440,135 @@ public class SystemControlService {
     }
 
     /**
+     * Focus a window and type text into it in a single PowerShell invocation.
+     * More reliable than separate focusWindow + sendKeys calls because there's no
+     * gap where another window can steal focus.
+     */
+    public String focusAndType(String windowSearch, String text) {
+        if (windowSearch == null || windowSearch.isBlank()) return "No window specified.";
+        if (text == null) text = "";
+        String safe = windowSearch.trim().replace("'", "''");
+        String escaped = text.replace("'", "''").replace("`", "``").replace("\"", "`\"");
+
+        // Use WScript.Shell.AppActivate to focus, then SendKeys in one script
+        String ps = "$ws = New-Object -ComObject WScript.Shell; " +
+                "if ($ws.AppActivate('" + safe + "')) { " +
+                "Start-Sleep -Milliseconds 300; " +
+                "$ws.SendKeys('" + escaped + "'); 'Typed into: " + safe.replace("'", "''") + "' " +
+                "} else { 'Could not focus window: " + safe.replace("'", "''") + "' }";
+        String result = runPowerShell(ps);
+        log.info("[focusAndType] window='{}' text='{}' result='{}'", windowSearch, text, result);
+        return result;
+    }
+
+    /**
+     * Type text using java.awt.Robot key events. Types directly into whatever window/field
+     * currently has keyboard focus — no PowerShell, no AppActivate, no risk of Windows Search.
+     * Supports printable characters and special tokens: {ENTER}, {TAB}, {ESC}, {BACKSPACE}.
+     */
+    public String typeViaRobot(String text) {
+        if (text == null || text.isEmpty()) return "Nothing to type.";
+        try {
+            Robot robot = new Robot();
+            robot.setAutoDelay(30);
+
+            int i = 0;
+            while (i < text.length()) {
+                // Check for special key tokens like {ENTER}, {TAB}, etc.
+                if (text.charAt(i) == '{') {
+                    int close = text.indexOf('}', i);
+                    if (close > i) {
+                        String token = text.substring(i + 1, close).toUpperCase();
+                        switch (token) {
+                            case "ENTER" -> robot.keyPress(java.awt.event.KeyEvent.VK_ENTER);
+                            case "TAB" -> robot.keyPress(java.awt.event.KeyEvent.VK_TAB);
+                            case "ESC", "ESCAPE" -> robot.keyPress(java.awt.event.KeyEvent.VK_ESCAPE);
+                            case "BACKSPACE", "BS" -> robot.keyPress(java.awt.event.KeyEvent.VK_BACK_SPACE);
+                            case "DELETE", "DEL" -> robot.keyPress(java.awt.event.KeyEvent.VK_DELETE);
+                            case "UP" -> robot.keyPress(java.awt.event.KeyEvent.VK_UP);
+                            case "DOWN" -> robot.keyPress(java.awt.event.KeyEvent.VK_DOWN);
+                            case "LEFT" -> robot.keyPress(java.awt.event.KeyEvent.VK_LEFT);
+                            case "RIGHT" -> robot.keyPress(java.awt.event.KeyEvent.VK_RIGHT);
+                            default -> log.debug("[typeViaRobot] Unknown token: {}", token);
+                        }
+                        switch (token) {
+                            case "ENTER" -> robot.keyRelease(java.awt.event.KeyEvent.VK_ENTER);
+                            case "TAB" -> robot.keyRelease(java.awt.event.KeyEvent.VK_TAB);
+                            case "ESC", "ESCAPE" -> robot.keyRelease(java.awt.event.KeyEvent.VK_ESCAPE);
+                            case "BACKSPACE", "BS" -> robot.keyRelease(java.awt.event.KeyEvent.VK_BACK_SPACE);
+                            case "DELETE", "DEL" -> robot.keyRelease(java.awt.event.KeyEvent.VK_DELETE);
+                            case "UP" -> robot.keyRelease(java.awt.event.KeyEvent.VK_UP);
+                            case "DOWN" -> robot.keyRelease(java.awt.event.KeyEvent.VK_DOWN);
+                            case "LEFT" -> robot.keyRelease(java.awt.event.KeyEvent.VK_LEFT);
+                            case "RIGHT" -> robot.keyRelease(java.awt.event.KeyEvent.VK_RIGHT);
+                        }
+                        robot.delay(50);
+                        i = close + 1;
+                        continue;
+                    }
+                }
+
+                // Regular character: use Toolkit to find the right keycode
+                char c = text.charAt(i);
+                typeChar(robot, c);
+                i++;
+            }
+
+            log.info("[typeViaRobot] Typed {} characters into focused field", text.length());
+            return "Typed '" + text + "' via Robot into the focused field.";
+        } catch (Exception e) {
+            log.error("[typeViaRobot] Failed: {}", e.getMessage());
+            return "Robot typing failed: " + e.getMessage();
+        }
+    }
+
+    /** Type a single character using Robot, handling uppercase and symbols. */
+    private void typeChar(Robot robot, char c) {
+        try {
+            // Use clipboard paste for non-ASCII or complex characters
+            if (c > 127 || isComplexChar(c)) {
+                // Copy char to clipboard and paste
+                java.awt.datatransfer.StringSelection sel = new java.awt.datatransfer.StringSelection(String.valueOf(c));
+                Toolkit.getDefaultToolkit().getSystemClipboard().setContents(sel, null);
+                robot.keyPress(java.awt.event.KeyEvent.VK_CONTROL);
+                robot.keyPress(java.awt.event.KeyEvent.VK_V);
+                robot.keyRelease(java.awt.event.KeyEvent.VK_V);
+                robot.keyRelease(java.awt.event.KeyEvent.VK_CONTROL);
+                robot.delay(30);
+                return;
+            }
+
+            int keyCode = java.awt.event.KeyEvent.getExtendedKeyCodeForChar(c);
+            if (keyCode == java.awt.event.KeyEvent.VK_UNDEFINED) {
+                // Fallback: clipboard paste
+                java.awt.datatransfer.StringSelection sel = new java.awt.datatransfer.StringSelection(String.valueOf(c));
+                Toolkit.getDefaultToolkit().getSystemClipboard().setContents(sel, null);
+                robot.keyPress(java.awt.event.KeyEvent.VK_CONTROL);
+                robot.keyPress(java.awt.event.KeyEvent.VK_V);
+                robot.keyRelease(java.awt.event.KeyEvent.VK_V);
+                robot.keyRelease(java.awt.event.KeyEvent.VK_CONTROL);
+                robot.delay(30);
+                return;
+            }
+
+            boolean shift = Character.isUpperCase(c) || "~!@#$%^&*()_+{}|:\"<>?".indexOf(c) >= 0;
+            if (shift) robot.keyPress(java.awt.event.KeyEvent.VK_SHIFT);
+            robot.keyPress(keyCode);
+            robot.keyRelease(keyCode);
+            if (shift) robot.keyRelease(java.awt.event.KeyEvent.VK_SHIFT);
+            robot.delay(20);
+        } catch (Exception e) {
+            log.debug("[typeChar] Failed for '{}': {}", c, e.getMessage());
+        }
+    }
+
+    /** Check if a character needs special handling (symbols that vary by keyboard layout). */
+    private boolean isComplexChar(char c) {
+        return "~`!@#$%^&*()_+-={}[]|\\:;\"'<>?,./".indexOf(c) >= 0 && Character.isLetter(c) == false
+                && !Character.isDigit(c) && c != ' ';
+    }
+
+    /**
      * Open an application with optional arguments (e.g. a file path or URL).
      * Example: openAppWithArgs("notepad", "C:\\file.txt") or openAppWithArgs("chrome", "https://example.com").
      */
@@ -708,6 +837,51 @@ public class SystemControlService {
                 "$ws.SendKeys('" + escaped + "'); 'OK' " +
                 "} else { 'Window not found: " + safe + "' }";
         return runPowerShell(ps);
+    }
+
+    /**
+     * Get the URL of the currently active browser tab.
+     * Focuses the browser, copies the address bar content to clipboard via Ctrl+L → Ctrl+C,
+     * reads the clipboard, and presses Escape to deselect.
+     *
+     * @param browserName browser name (chrome, edge, firefox)
+     * @return the current tab URL, or null if unable to retrieve
+     */
+    public String getCurrentBrowserUrl(String browserName) {
+        String browser = browserName != null ? browserName : "chrome";
+        String safe = browser.trim().replace("'", "''");
+        // Focus browser → Ctrl+L (address bar) → Ctrl+A (select all) → Ctrl+C (copy) → Escape
+        String ps = "$ws = New-Object -ComObject WScript.Shell; " +
+                "if ($ws.AppActivate('" + safe + "')) { " +
+                "Start-Sleep -Milliseconds 300; " +
+                "$ws.SendKeys('^l'); Start-Sleep -Milliseconds 200; " +
+                "$ws.SendKeys('^a'); Start-Sleep -Milliseconds 100; " +
+                "$ws.SendKeys('^c'); Start-Sleep -Milliseconds 200; " +
+                "$ws.SendKeys('{ESCAPE}'); " +
+                "Add-Type -AssemblyName System.Windows.Forms; " +
+                "[System.Windows.Forms.Clipboard]::GetText() " +
+                "} else { '' }";
+        String result = runPowerShell(ps);
+        if (result == null || result.isBlank() || result.contains("Window not found")) {
+            return null;
+        }
+        String url = result.trim();
+        // Validate it looks like a URL
+        if (url.startsWith("http://") || url.startsWith("https://") || url.contains(".")) {
+            return url;
+        }
+        return null;
+    }
+
+    /**
+     * Check if a browser process is currently running.
+     */
+    public boolean isBrowserRunning(String browserName) {
+        String browser = browserName != null ? browserName : "chrome";
+        String processName = browser.toLowerCase();
+        String ps = "Get-Process -Name '" + processName + "' -ErrorAction SilentlyContinue | Select-Object -First 1 | ForEach-Object { 'RUNNING' }";
+        String result = runPowerShell(ps);
+        return result != null && result.trim().contains("RUNNING");
     }
 
     /**

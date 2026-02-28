@@ -21,9 +21,7 @@ import java.util.List;
 public class DirectivesTools {
 
     private static final Path DIRECTIVES_FILE =
-            Paths.get(System.getProperty("user.home"), "mins_bot_data", "directives.md");
-
-    /** Legacy path — checked for migration on first read. */
+            Paths.get(System.getProperty("user.home"), "mins_bot_data", "directives.txt");
     private static final Path LEGACY_FILE =
             Paths.get(System.getProperty("user.home"), "mins_bot_data", "primary_directives.dat");
 
@@ -203,7 +201,7 @@ public class DirectivesTools {
         return null;
     }
 
-    /** Migrate primary_directives.dat → directives.md if needed. */
+    /** Migrate primary_directives.dat → directives.txt if needed. */
     private static void migrateLegacyFile() {
         if (!Files.exists(DIRECTIVES_FILE) && Files.exists(LEGACY_FILE)) {
             try {

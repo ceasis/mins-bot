@@ -431,10 +431,10 @@ public class ScreenMemoryService {
         // Strategy 1: Exact single-word match (case-insensitive)
         for (OcrWord w : words) {
             if (w.text().equalsIgnoreCase(search)) {
-                //log.info("[findText] EXACT match: '{}' bbox({},{} {}x{}) → center({}, {})",
-                //        w.text(), String.format("%.1f", w.x()), String.format("%.1f", w.y()),
-                //        String.format("%.1f", w.width()), String.format("%.1f", w.height()),
-                //        String.format("%.2f", w.centerX()), String.format("%.2f", w.centerY()));
+                log.info("[findText] EXACT match: '{}' bbox({},{} {}x{}) → center({}, {})",
+                        w.text(), String.format("%.1f", w.x()), String.format("%.1f", w.y()),
+                        String.format("%.1f", w.width()), String.format("%.1f", w.height()),
+                        String.format("%.2f", w.centerX()), String.format("%.2f", w.centerY()));
                 return new double[]{w.centerX(), w.centerY()};
             }
         }
@@ -472,17 +472,16 @@ public class ScreenMemoryService {
             }
         }
 
-        // Strategy 3: Substring match (word contains the search text, or search text contains the word)
+        // Strategy 3: Substring match (OCR word contains the search text)
+        // Only forward direction: "Sending" contains "Send" → match.
+        // NEVER reverse: "Send" contains "en" would be a false positive.
         for (OcrWord w : words) {
-            if (w.text().toLowerCase().contains(searchLower) || searchLower.contains(w.text().toLowerCase())) {
-                // For substring, only match if lengths are reasonably close (avoid matching "S" in "Settings")
-                if (w.text().length() >= searchLower.length() / 2) {
-                    log.info("[findText] SUBSTRING match: '{}' contains/matches '{}' bbox({},{} {}x{}) → center({}, {})",
-                            w.text(), search, String.format("%.1f", w.x()), String.format("%.1f", w.y()),
-                            String.format("%.1f", w.width()), String.format("%.1f", w.height()),
-                            String.format("%.2f", w.centerX()), String.format("%.2f", w.centerY()));
-                    return new double[]{w.centerX(), w.centerY()};
-                }
+            if (w.text().toLowerCase().contains(searchLower) && w.text().length() >= searchLower.length()) {
+                log.info("[findText] SUBSTRING match: '{}' contains '{}' bbox({},{} {}x{}) → center({}, {})",
+                        w.text(), search, String.format("%.1f", w.x()), String.format("%.1f", w.y()),
+                        String.format("%.1f", w.width()), String.format("%.1f", w.height()),
+                        String.format("%.2f", w.centerX()), String.format("%.2f", w.centerY()));
+                return new double[]{w.centerX(), w.centerY()};
             }
         }
 

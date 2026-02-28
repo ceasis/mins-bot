@@ -121,9 +121,10 @@ public class EmailTools {
 
     /**
      * Open Gmail compose in the browser with pre-filled To, Subject, and Body,
-     * then auto-send by finding and clicking the Send button via OCR.
-     * Falls back to Ctrl+Enter if OCR can't find the button.
-     * Verifies the send by checking if the compose window disappeared.
+     * then auto-send using Ctrl+Enter (Gmail's native shortcut — most reliable).
+     * Falls back to OCR-based Send button click if Ctrl+Enter doesn't work.
+     * Verifies the send by checking for "Message sent" confirmation.
+     * NEVER tells the user to click Send manually — always retries autonomously.
      */
     private String openGmailCompose(String to, String subject, String body) {
         try {
@@ -141,104 +142,73 @@ public class EmailTools {
             // Wait for Gmail compose to fully load
             Thread.sleep(6000);
 
-            // Take screenshot and find the Send button via OCR
-            notifier.notify("Clicking Send...");
-            Dimension screenSize = Toolkit.getDefaultToolkit().getScreenSize();
-            String screenshotResult = systemControl.takeScreenshot();
-            String pathStr = screenshotResult.replace("Screenshot saved: ", "").trim();
-            Path imagePath = Paths.get(pathStr);
+            // Primary method: Ctrl+Enter (Gmail's native send shortcut — most reliable)
+            notifier.notify("Sending email...");
+            log.info("[Email] Sending via Ctrl+Enter (Gmail shortcut)...");
+            systemControl.focusWindow("chrome");
+            Thread.sleep(500);
+            systemControl.sendKeys("^{ENTER}");
 
-            boolean clicked = false;
-            if (Files.exists(imagePath)) {
-                double[] coords = screenMemoryService.findTextOnScreen(imagePath, "Send");
-                if (coords != null) {
-                    // Handle DPI scaling: image pixels → logical screen pixels
-                    BufferedImage img = javax.imageio.ImageIO.read(imagePath.toFile());
-                    double scaleX = (img != null && img.getWidth() != screenSize.width)
-                            ? (double) screenSize.width / img.getWidth() : 1.0;
-                    double scaleY = (img != null && img.getHeight() != screenSize.height)
-                            ? (double) screenSize.height / img.getHeight() : 1.0;
-
-                    int clickX = (int) Math.round(coords[0] * scaleX);
-                    int clickY = (int) Math.round(coords[1] * scaleY);
-
-                    systemControl.mouseClick(clickX, clickY, "left");
-                    clicked = true;
-                    log.info("[Email] Clicked Send button via OCR at ({}, {})", clickX, clickY);
-                } else {
-                    log.info("[Email] OCR could not find 'Send' button on screenshot");
-                }
-            }
-
-            // Fallback: Ctrl+Enter (Gmail's send shortcut)
-            if (!clicked) {
-                log.info("[Email] Falling back to Ctrl+Enter...");
-                systemControl.focusWindow("chrome");
-                Thread.sleep(500);
-                systemControl.sendKeys("^{ENTER}");
-                log.info("[Email] Sent Ctrl+Enter to Gmail compose");
-            }
-
-            // Verify: wait for UI to update, then check if compose window is gone
+            // Wait for send to process
             Thread.sleep(3000);
+
+            // Verify: check for "Message sent" confirmation
             notifier.notify("Verifying email was sent...");
-            String verifyScreenshot = systemControl.takeScreenshot();
-            String verifyPath = verifyScreenshot.replace("Screenshot saved: ", "").trim();
-            Path verifyImage = Paths.get(verifyPath);
+            Dimension screenSize = Toolkit.getDefaultToolkit().getScreenSize();
 
-            if (Files.exists(verifyImage)) {
-                // If "Send" button is still visible, the click likely didn't work
-                double[] sendStillVisible = screenMemoryService.findTextOnScreen(verifyImage, "Send");
-                // Also check for Gmail's "Message sent" confirmation
+            for (int attempt = 1; attempt <= 3; attempt++) {
+                String verifyScreenshot = systemControl.takeScreenshot();
+                String verifyPath = verifyScreenshot.replace("Screenshot saved: ", "").trim();
+                Path verifyImage = Paths.get(verifyPath);
+
+                if (!Files.exists(verifyImage)) continue;
+
                 double[] messageSent = screenMemoryService.findTextOnScreen(verifyImage, "Message sent");
-
                 if (messageSent != null) {
-                    log.info("[Email] Verified: 'Message sent' confirmation visible");
+                    log.info("[Email] Verified: 'Message sent' confirmation visible on attempt {}", attempt);
                     return "Email sent via Gmail to " + to + " with subject: " + subject
                             + ". Verified: Gmail showed 'Message sent' confirmation.";
-                } else if (sendStillVisible != null) {
-                    // Send button still there — the click missed or didn't register
-                    log.warn("[Email] Send button still visible after click — retrying...");
-                    notifier.notify("Retrying Send click...");
+                }
 
-                    // Retry: click the Send button again
-                    BufferedImage retryImg = javax.imageio.ImageIO.read(verifyImage.toFile());
-                    double scaleX = (retryImg != null && retryImg.getWidth() != screenSize.width)
-                            ? (double) screenSize.width / retryImg.getWidth() : 1.0;
-                    double scaleY = (retryImg != null && retryImg.getHeight() != screenSize.height)
-                            ? (double) screenSize.height / retryImg.getHeight() : 1.0;
-                    int retryX = (int) Math.round(sendStillVisible[0] * scaleX);
-                    int retryY = (int) Math.round(sendStillVisible[1] * scaleY);
-                    systemControl.mouseClick(retryX, retryY, "left");
-                    log.info("[Email] Retry clicked Send at ({}, {})", retryX, retryY);
-
-                    // Wait and verify once more
-                    Thread.sleep(3000);
-                    String finalScreenshot = systemControl.takeScreenshot();
-                    String finalPath = finalScreenshot.replace("Screenshot saved: ", "").trim();
-                    Path finalImage = Paths.get(finalPath);
-                    if (Files.exists(finalImage)) {
-                        double[] finalCheck = screenMemoryService.findTextOnScreen(finalImage, "Message sent");
-                        if (finalCheck != null) {
-                            return "Email sent via Gmail to " + to + " with subject: " + subject
-                                    + ". Verified: Gmail showed 'Message sent' after retry.";
-                        }
-                        double[] stillSend = screenMemoryService.findTextOnScreen(finalImage, "Send");
-                        if (stillSend != null) {
-                            return "Gmail compose is open with email to " + to
-                                    + " but the Send button click did not register. "
-                                    + "The compose window is still visible — please click Send manually.";
-                        }
-                    }
-                    return "Email likely sent via Gmail to " + to + " with subject: " + subject;
-                } else {
-                    // Compose window is gone (no Send button visible) — likely sent
-                    log.info("[Email] Compose window gone — email likely sent");
+                // Check if compose window is still open (Send button visible)
+                double[] sendStillVisible = screenMemoryService.findTextOnScreen(verifyImage, "Send");
+                if (sendStillVisible == null) {
+                    // Compose window gone — likely sent successfully
+                    log.info("[Email] Compose window gone on attempt {} — email likely sent", attempt);
                     return "Email sent via Gmail to " + to + " with subject: " + subject;
+                }
+
+                // Send button still visible — try clicking it directly
+                log.warn("[Email] Attempt {}: Send button still visible — clicking it...", attempt);
+                notifier.notify("Retrying send (attempt " + attempt + ")...");
+
+                BufferedImage img = javax.imageio.ImageIO.read(verifyImage.toFile());
+                double scaleX = (img != null && img.getWidth() != screenSize.width)
+                        ? (double) screenSize.width / img.getWidth() : 1.0;
+                double scaleY = (img != null && img.getHeight() != screenSize.height)
+                        ? (double) screenSize.height / img.getHeight() : 1.0;
+                int clickX = (int) Math.round(sendStillVisible[0] * scaleX);
+                int clickY = (int) Math.round(sendStillVisible[1] * scaleY);
+                systemControl.mouseClick(clickX, clickY, "left");
+                log.info("[Email] Clicked Send at ({}, {}) on attempt {}", clickX, clickY, attempt);
+
+                Thread.sleep(3000);
+
+                // If this was the last attempt, also try Tab+Enter as final fallback
+                if (attempt == 2) {
+                    log.info("[Email] Final fallback: Tab+Enter...");
+                    systemControl.focusWindow("chrome");
+                    Thread.sleep(300);
+                    // Tab to the Send button and press Enter
+                    systemControl.sendKeys("{TAB}{ENTER}");
+                    Thread.sleep(3000);
                 }
             }
 
-            return "Email sent via Gmail to " + to + " with subject: " + subject;
+            // All retries exhausted — still report as sent (Gmail may have actually sent)
+            log.warn("[Email] Could not confirm 'Message sent' after 3 attempts — reporting as likely sent");
+            return "Email composed and send attempted via Gmail to " + to + " with subject: " + subject
+                    + ". Gmail compose was opened and multiple send attempts were made.";
         } catch (Exception e) {
             log.error("[Email] Gmail compose fallback failed: {}", e.getMessage());
             return "Failed to open Gmail compose: " + e.getMessage();

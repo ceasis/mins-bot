@@ -80,7 +80,7 @@ public class PlaywrightService {
         return ensurePlaywright().chromium().connectOverCDP(endpoint);
     }
 
-    /** Launch headless Chromium with standard options. */
+    /** Launch headless Chromium with stealth/anti-detection options. */
     private Browser launchChromium(Playwright pw) {
         return pw.chromium().launch(
                 new BrowserType.LaunchOptions()
@@ -88,7 +88,19 @@ public class PlaywrightService {
                         .setArgs(List.of(
                                 "--disable-gpu",
                                 "--no-sandbox",
-                                "--disable-dev-shm-usage"
+                                "--disable-dev-shm-usage",
+                                // ─── Stealth / anti-bot detection ───
+                                "--disable-blink-features=AutomationControlled",
+                                "--disable-features=IsolateOrigins,site-per-process",
+                                "--disable-infobars",
+                                "--window-size=1920,1080",
+                                "--start-maximized",
+                                "--disable-extensions",
+                                "--disable-popup-blocking",
+                                "--disable-background-networking",
+                                "--metrics-recording-only",
+                                "--no-first-run",
+                                "--disable-default-apps"
                         ))
         );
     }
@@ -106,16 +118,42 @@ public class PlaywrightService {
         }
     }
 
-    /** Create a fresh browser context + page with sensible defaults. */
+    // Realistic Chrome UA — update periodically to match latest stable Chrome
+    private static final String CHROME_UA =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+
+    /** Stealth JS injected into every new context to evade bot detection. */
+    private static final String STEALTH_JS = """
+            // Hide webdriver flag
+            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+            // Fake plugins array (real Chrome always has at least 3)
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [
+                    { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' },
+                    { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' },
+                    { name: 'Native Client', filename: 'internal-nacl-plugin' }
+                ]
+            });
+            // Fake languages
+            Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+            // Override chrome.runtime to look like a real browser
+            window.chrome = { runtime: {}, loadTimes: function(){}, csi: function(){} };
+            // Remove Playwright-specific markers
+            delete window.__playwright;
+            delete window.__pw_manual;
+            """;
+
+    /** Create a fresh browser context + page with stealth defaults. */
     private Page newPage() {
         BrowserContext context = getBrowser().newContext(
                 new Browser.NewContextOptions()
-                        .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-                                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                        .setUserAgent(CHROME_UA)
                         .setViewportSize(1920, 1080)
                         .setLocale("en-US")
+                        .setTimezoneId("America/New_York")
         );
         context.setDefaultTimeout(30000);
+        context.addInitScript(STEALTH_JS);
         return context.newPage();
     }
 
@@ -354,17 +392,18 @@ public class PlaywrightService {
 
     // ─── Viewer API (for browser tab) ─────────────────────────────────────
 
-    /** Get or create the persistent viewer page. */
+    /** Get or create the persistent viewer page (with stealth). */
     public synchronized Page getViewerPage() {
         if (viewerPage == null || viewerPage.isClosed()) {
             viewerContext = getBrowser().newContext(
                     new Browser.NewContextOptions()
-                            .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-                                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                            .setUserAgent(CHROME_UA)
                             .setViewportSize(1280, 720)
                             .setLocale("en-US")
+                            .setTimezoneId("America/New_York")
             );
             viewerContext.setDefaultTimeout(30000);
+            viewerContext.addInitScript(STEALTH_JS);
             viewerPage = viewerContext.newPage();
         }
         return viewerPage;

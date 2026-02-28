@@ -33,10 +33,11 @@ public class ToolRouter {
 
     private final DirectivesTools directivesTools;
     private final DirectiveDataTools directiveDataTools;
-    private final MemoryTools memoryTools;
     private final ChatHistoryTool chatHistoryTool;
     private final TaskStatusTool taskStatusTool;
     private final ClipboardTools clipboardTools;
+    private final TodoListTools todoListTools;
+    private final PersonalConfigTools personalConfigTools;
 
     private final PlaywrightTools playwrightTools;
     private final DownloadTools downloadTools;
@@ -45,6 +46,7 @@ public class ToolRouter {
 
     private final FileTools fileTools;
     private final FileSystemTools fileSystemTools;
+    private final ExcelTools excelTools;
 
     private final SystemTools systemTools;
 
@@ -75,6 +77,12 @@ public class ToolRouter {
     private final ScreenMemoryTools screenMemoryTools;
     private final AudioMemoryTools audioMemoryTools;
     private final PlaylistTools playlistTools;
+    private final ChromeCdpTools chromeCdpTools;
+    private final SoftwareTools softwareTools;
+    private final NetworkTools networkTools;
+    private final PrinterTools printerTools;
+    private final ScreenRecordTools screenRecordTools;
+    private final ScreenWatchingTools screenWatchingTools;
     private final GlobalHotkeyService globalHotkeyService;
     private final PluginLoaderService pluginLoaderService;
     private final SystemTrayService systemTrayService;
@@ -98,16 +106,19 @@ public class ToolRouter {
     public ToolRouter(
             DirectivesTools directivesTools,
             DirectiveDataTools directiveDataTools,
-            MemoryTools memoryTools,
             ChatHistoryTool chatHistoryTool,
             TaskStatusTool taskStatusTool,
             ClipboardTools clipboardTools,
+            TodoListTools todoListTools,
+            PersonalConfigTools personalConfigTools,
             PlaywrightTools playwrightTools,
             DownloadTools downloadTools,
             WebScraperTools webScraperTools,
             BrowserTools browserTools,
+            ChromeCdpTools chromeCdpTools,
             FileTools fileTools,
             FileSystemTools fileSystemTools,
+            ExcelTools excelTools,
             SystemTools systemTools,
             ImageTools imageTools,
             PdfTools pdfTools,
@@ -131,22 +142,30 @@ public class ToolRouter {
             ScreenMemoryTools screenMemoryTools,
             AudioMemoryTools audioMemoryTools,
             PlaylistTools playlistTools,
+            SoftwareTools softwareTools,
+            NetworkTools networkTools,
+            PrinterTools printerTools,
+            ScreenRecordTools screenRecordTools,
+            ScreenWatchingTools screenWatchingTools,
             GlobalHotkeyService globalHotkeyService,
             PluginLoaderService pluginLoaderService,
             SystemTrayService systemTrayService) {
 
         this.directivesTools = directivesTools;
         this.directiveDataTools = directiveDataTools;
-        this.memoryTools = memoryTools;
         this.chatHistoryTool = chatHistoryTool;
         this.taskStatusTool = taskStatusTool;
         this.clipboardTools = clipboardTools;
+        this.todoListTools = todoListTools;
+        this.personalConfigTools = personalConfigTools;
         this.playwrightTools = playwrightTools;
         this.downloadTools = downloadTools;
         this.webScraperTools = webScraperTools;
         this.browserTools = browserTools;
+        this.chromeCdpTools = chromeCdpTools;
         this.fileTools = fileTools;
         this.fileSystemTools = fileSystemTools;
+        this.excelTools = excelTools;
         this.systemTools = systemTools;
         this.imageTools = imageTools;
         this.pdfTools = pdfTools;
@@ -170,6 +189,11 @@ public class ToolRouter {
         this.screenMemoryTools = screenMemoryTools;
         this.audioMemoryTools = audioMemoryTools;
         this.playlistTools = playlistTools;
+        this.softwareTools = softwareTools;
+        this.networkTools = networkTools;
+        this.printerTools = printerTools;
+        this.screenRecordTools = screenRecordTools;
+        this.screenWatchingTools = screenWatchingTools;
         this.globalHotkeyService = globalHotkeyService;
         this.pluginLoaderService = pluginLoaderService;
         this.systemTrayService = systemTrayService;
@@ -260,10 +284,10 @@ public class ToolRouter {
     /** Count @Tool methods on a bean via reflection. Cached in toolCounts map. */
     private void countToolsOnAllBeans() {
         Object[] allBeans = {
-                directivesTools, directiveDataTools, memoryTools,
-                chatHistoryTool, taskStatusTool, clipboardTools,
-                playwrightTools, downloadTools, webScraperTools, browserTools,
-                fileTools, fileSystemTools, systemTools,
+                directivesTools, directiveDataTools,
+                chatHistoryTool, taskStatusTool, clipboardTools, todoListTools, personalConfigTools,
+                playwrightTools, downloadTools, webScraperTools, browserTools, chromeCdpTools,
+                fileTools, fileSystemTools, excelTools, systemTools,
                 imageTools, pdfTools, ttsTools,
                 localModelTools, huggingFaceImageTool, summarizationTools, modelSwitchTools,
                 emailTools, weatherTools,
@@ -271,6 +295,7 @@ public class ToolRouter {
                 calculatorTools, qrTools, hashTools, unitConversionTools,
                 exportTools, sitesConfigTools, cronConfigTools,
                 screenMemoryTools, audioMemoryTools, playlistTools,
+                softwareTools, networkTools, printerTools, screenRecordTools, screenWatchingTools,
                 globalHotkeyService, pluginLoaderService, systemTrayService
         };
         for (Object bean : allBeans) {
@@ -317,19 +342,25 @@ public class ToolRouter {
 
     private List<Object> buildCoreTools() {
         return List.of(
-                directivesTools, directiveDataTools, memoryTools,
-                chatHistoryTool, taskStatusTool, clipboardTools);
+                directivesTools, directiveDataTools,
+                chatHistoryTool, taskStatusTool, clipboardTools, todoListTools,
+                personalConfigTools);
     }
 
     private Map<String, List<Object>> buildCategories() {
         Map<String, List<Object>> map = new LinkedHashMap<>();
 
         map.put("chat_browser", List.of(playwrightTools, downloadTools, sitesConfigTools));
-        map.put("browser",      List.of(playwrightTools, downloadTools, sitesConfigTools, systemTools));
+        map.put("browser",      List.of(playwrightTools, downloadTools, sitesConfigTools, systemTools, chromeCdpTools));
+        map.put("cdp",          List.of(chromeCdpTools));
         map.put("sites",        List.of(sitesConfigTools));
-        map.put("files",        List.of(fileTools, fileSystemTools, systemTools));
-        map.put("system",       List.of(systemTools));
-        map.put("media",        List.of(imageTools, pdfTools, ttsTools));
+        map.put("files",        List.of(fileTools, fileSystemTools, excelTools, systemTools));
+        map.put("excel",        List.of(excelTools));
+        map.put("system",       List.of(systemTools, softwareTools, screenRecordTools));
+        map.put("software",    List.of(softwareTools));
+        map.put("network",     List.of(networkTools));
+        map.put("printing",    List.of(printerTools));
+        map.put("media",       List.of(imageTools, pdfTools, ttsTools));
         map.put("ai_model",     List.of(localModelTools, huggingFaceImageTool, summarizationTools, modelSwitchTools));
         map.put("communication", List.of(emailTools, weatherTools));
         map.put("scheduling",   List.of(scheduledTaskTools, timerTools, notificationTools, cronConfigTools));
@@ -341,13 +372,14 @@ public class ToolRouter {
         map.put("screen_memory", List.of(screenMemoryTools));
         map.put("audio_memory", List.of(audioMemoryTools, playlistTools));
         map.put("playlist",     List.of(playlistTools));
+        map.put("screen_watching", List.of(screenWatchingTools));
 
         return Collections.unmodifiableMap(map);
     }
 
     private List<Object> buildDefaultTools() {
         return List.of(
-                systemTools, fileTools,
+                systemTools, fileTools, chromeCdpTools,
                 screenMemoryTools, audioMemoryTools,
                 scheduledTaskTools, notificationTools,
                 weatherTools);
@@ -358,20 +390,26 @@ public class ToolRouter {
     private List<Object> buildAutonomousCoreTools() {
         return List.of(
                 directivesTools, directiveDataTools,
-                chatHistoryTool, taskStatusTool, clipboardTools);
+                chatHistoryTool, taskStatusTool, clipboardTools, todoListTools,
+                personalConfigTools);
     }
 
     private Map<String, List<Object>> buildAutonomousCategories() {
         Map<String, List<Object>> map = new LinkedHashMap<>();
 
-        map.put("browser",       List.of(playwrightTools));
-        map.put("files",         List.of(fileTools, fileSystemTools));
-        map.put("system",        List.of(systemTools));
-        map.put("media",         List.of(imageTools));
-        map.put("ai_model",      List.of(localModelTools, summarizationTools));
+        map.put("browser",       List.of(playwrightTools, chromeCdpTools));
+        map.put("cdp",           List.of(chromeCdpTools));
+        map.put("files",         List.of(fileTools, fileSystemTools, excelTools));
+        map.put("excel",         List.of(excelTools));
+        map.put("system",        List.of(systemTools, softwareTools));
+        map.put("software",     List.of(softwareTools));
+        map.put("network",      List.of(networkTools));
+        map.put("printing",     List.of(printerTools));
+        map.put("media",        List.of(imageTools));
+        map.put("ai_model",     List.of(localModelTools, summarizationTools));
         map.put("communication", List.of(emailTools));
-        map.put("scheduling",    List.of(scheduledTaskTools, cronConfigTools));
-        map.put("export",        List.of(exportTools));
+        map.put("scheduling",   List.of(scheduledTaskTools, cronConfigTools));
+        map.put("export",       List.of(exportTools));
 
         return Collections.unmodifiableMap(map);
     }
@@ -379,9 +417,9 @@ public class ToolRouter {
     private List<Object> buildAutonomousDefaultTools() {
         return List.of(
                 systemTools, fileTools, fileSystemTools,
-                playwrightTools, imageTools, emailTools,
+                playwrightTools, chromeCdpTools, imageTools, emailTools,
                 scheduledTaskTools, summarizationTools,
-                exportTools, localModelTools);
+                exportTools, localModelTools, softwareTools);
     }
 
     // ═══ Helpers ═══

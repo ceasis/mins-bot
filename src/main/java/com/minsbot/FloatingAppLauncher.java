@@ -108,15 +108,36 @@ public class FloatingAppLauncher extends Application {
         Scene scene = new Scene(webView, expandedWidth, expandedHeight);
         // Forward mouse clicks into the page via JS: on some JavaFX/WebKit builds mouse events
         // never reach the web content (keyboard/TAB works but clicks don't).
-        scene.addEventFilter(MouseEvent.MOUSE_PRESSED, e -> e.consume());
+        // We track press position to detect drags (text selection) vs clicks.
+        final double[] pressPos = new double[2];
+        final boolean[] isDrag = {false};
+
+        scene.addEventFilter(MouseEvent.MOUSE_PRESSED, e -> {
+            pressPos[0] = e.getX();
+            pressPos[1] = e.getY();
+            isDrag[0] = false;
+            // Don't consume — let the WebView handle it for text selection
+        });
+
+        scene.addEventFilter(MouseEvent.MOUSE_DRAGGED, e -> {
+            // If mouse moved more than 3px from press point, it's a drag (text selection)
+            if (Math.abs(e.getX() - pressPos[0]) > 3 || Math.abs(e.getY() - pressPos[1]) > 3) {
+                isDrag[0] = true;
+            }
+            // Don't consume — let WebView handle drag for text selection
+        });
+
         scene.addEventFilter(MouseEvent.MOUSE_RELEASED, e -> {
-            e.consume();
-            int x = (int) e.getX();
-            int y = (int) e.getY();
-            Platform.runLater(() -> {
-                forwardClickToPage(engine, x, y);
-                webView.requestFocus();
-            });
+            // Only forward synthetic click if this was NOT a drag (text selection)
+            if (!isDrag[0]) {
+                int x = (int) e.getX();
+                int y = (int) e.getY();
+                Platform.runLater(() -> {
+                    forwardClickToPage(engine, x, y);
+                    webView.requestFocus();
+                });
+            }
+            // Don't consume — let WebView handle it
         });
         primaryStage.setScene(scene);
         primaryStage.initStyle(StageStyle.DECORATED);
@@ -144,6 +165,11 @@ public class FloatingAppLauncher extends Application {
             if (springContext != null) {
                 SpringApplication.exit(springContext);
             }
+            // Force JVM exit so the app closes entirely when user clicks window close
+            new Thread(() -> {
+                try { Thread.sleep(400); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+                System.exit(0);
+            }, "minsbot-quit").start();
         };
         primaryStage.setOnCloseRequest(evt -> quitAction.run());
         try {
@@ -182,32 +208,52 @@ public class FloatingAppLauncher extends Application {
         }
     }
 
+    /** Saved position/size before hiding, so we can restore without iconify/deiconify. */
+    private static double savedX, savedY, savedWidth, savedHeight;
+    private static boolean wasAlwaysOnTop;
+
     /**
-     * Hide the Mins Bot window (iconify) so it doesn't appear in screenshots.
-     * Used by element-finding tools to prevent OCR from matching chat text.
-     * Blocks until the minimize is applied on the JavaFX thread.
+     * Hide the Mins Bot window so it doesn't appear in screenshots.
+     * Uses move-off-screen + opacity instead of iconify to avoid focus-stealing
+     * when restoring. Blocks until the hide is applied on the JavaFX thread.
      */
     public static void hideWindow() {
         if (primaryStageRef == null) return;
         CountDownLatch latch = new CountDownLatch(1);
         Platform.runLater(() -> {
             try {
-                primaryStageRef.setIconified(true);
+                // Save current position/size
+                savedX = primaryStageRef.getX();
+                savedY = primaryStageRef.getY();
+                savedWidth = primaryStageRef.getWidth();
+                savedHeight = primaryStageRef.getHeight();
+                wasAlwaysOnTop = primaryStageRef.isAlwaysOnTop();
+                // Make invisible and move off-screen (prevents OCR interference and mouse interaction)
+                primaryStageRef.setAlwaysOnTop(false);
+                primaryStageRef.setOpacity(0);
+                primaryStageRef.setX(-10000);
+                primaryStageRef.setY(-10000);
             } finally {
                 latch.countDown();
             }
         });
         try { latch.await(2, TimeUnit.SECONDS); } catch (InterruptedException ignored) {}
-        try { Thread.sleep(200); } catch (InterruptedException ignored) {} // wait for minimize animation
+        try { Thread.sleep(150); } catch (InterruptedException ignored) {} // brief settle
     }
 
     /**
      * Restore the Mins Bot window after hiding it.
+     * Does NOT steal focus from the currently active window (e.g. browser).
      */
     public static void showWindow() {
         if (primaryStageRef == null) return;
         Platform.runLater(() -> {
-            primaryStageRef.setIconified(false);
+            primaryStageRef.setX(savedX);
+            primaryStageRef.setY(savedY);
+            primaryStageRef.setWidth(savedWidth);
+            primaryStageRef.setHeight(savedHeight);
+            primaryStageRef.setOpacity(1);
+            primaryStageRef.setAlwaysOnTop(wasAlwaysOnTop);
         });
     }
 

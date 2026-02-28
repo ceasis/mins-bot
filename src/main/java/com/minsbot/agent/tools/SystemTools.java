@@ -7,6 +7,8 @@ import com.minsbot.agent.SystemControlService;
 import com.minsbot.agent.TextractService;
 import com.minsbot.agent.VisionService;
 import com.sun.management.OperatingSystemMXBean;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
@@ -32,6 +34,8 @@ import java.util.TreeSet;
 
 @Component
 public class SystemTools {
+
+    private static final Logger log = LoggerFactory.getLogger(SystemTools.class);
 
     private final SystemControlService systemControl;
     private final ToolExecutionNotifier notifier;
@@ -93,10 +97,133 @@ public class SystemTools {
         return systemControl.lockScreen();
     }
 
-    @Tool(description = "Take a screenshot of the entire screen right now and save it")
+    @Tool(description = "Take a screenshot of the entire screen right now, analyze it with AI vision, "
+            + "and return a detailed description of what is visible. Use this to SEE the current screen state, "
+            + "verify actions completed correctly, and decide what to do next. "
+            + "Returns: visual description of everything on screen (windows, text, shapes, colors, UI elements).")
     public String takeScreenshot() {
         notifier.notify("Taking screenshot...");
-        return systemControl.takeScreenshot();
+        log.info("[takeScreenshot] Capturing screen for verification...");
+        // Hide Mins Bot window to avoid capturing it
+        try { com.minsbot.FloatingAppLauncher.hideWindow(); } catch (Exception ignored) {}
+        try { Thread.sleep(150); } catch (InterruptedException ignored) {}
+
+        String result = systemControl.takeScreenshot();
+
+        // Restore window
+        try { com.minsbot.FloatingAppLauncher.showWindow(); } catch (Exception ignored) {}
+
+        if (result == null || !result.startsWith("Screenshot saved:")) {
+            log.warn("[takeScreenshot] Screenshot FAILED: {}", result);
+            return "Screenshot failed: " + result;
+        }
+
+        // Parse the screenshot path
+        String pathStr = result.replace("Screenshot saved: ", "").trim();
+        java.nio.file.Path screenshotPath = java.nio.file.Paths.get(pathStr);
+        log.info("[takeScreenshot] Screenshot saved: {}", screenshotPath.getFileName());
+
+        // Analyze with vision AI (Gemini first, then OpenAI Vision fallback)
+        log.info("[takeScreenshot] Starting AI vision analysis for verification...");
+        long startMs = System.currentTimeMillis();
+        String analysis = analyzeScreenshotForVerification(screenshotPath);
+        long elapsedMs = System.currentTimeMillis() - startMs;
+
+        if (analysis != null && !analysis.isBlank()) {
+            log.info("[takeScreenshot] Vision analysis complete in {}ms ({} chars)",
+                    elapsedMs, analysis.length());
+            log.debug("[takeScreenshot] Analysis result: {}",
+                    analysis.length() > 300 ? analysis.substring(0, 300) + "..." : analysis);
+            return "Screenshot saved: " + pathStr + "\n\nWHAT IS ON SCREEN:\n" + analysis;
+        }
+
+        // Fallback: return just the path if vision unavailable
+        log.warn("[takeScreenshot] Vision analysis unavailable after {}ms — returning path only", elapsedMs);
+        return result + "\n(Vision analysis unavailable — could not describe screen contents)";
+    }
+
+    /**
+     * Analyze a screenshot with Gemini or OpenAI Vision for detailed content description.
+     * This is a general-purpose analysis that describes EVERYTHING visible — shapes, text,
+     * colors, UI elements, windows, etc. Enables the AI to verify task completion.
+     */
+    private String analyzeScreenshotForVerification(java.nio.file.Path screenshotPath) {
+        String verificationPrompt = """
+                Analyze this screenshot in DETAIL. Describe EVERYTHING you see:
+                1. WINDOWS: What applications are open? Window titles?
+                2. CONTENT: What is the main content on screen? Describe shapes, drawings, text, images, \
+                colors, layouts — be SPECIFIC. If there is a drawing, describe the EXACT shape \
+                (circle, square, rectangle, triangle, line, etc.), its position, and color.
+                3. UI ELEMENTS: Buttons, menus, toolbars, selected tools, highlighted items.
+                4. TEXT: All readable text on screen (preserve exact wording).
+                5. FILES/FOLDERS: Any visible file or folder names on the desktop or in file explorers.
+
+                Be PRECISE and HONEST about what you see. If something looks like a rectangle, say rectangle \
+                — do NOT call it a circle. If text is blurry, say it's blurry. Accuracy is critical \
+                because this description is used to verify if tasks were completed correctly.""";
+
+        log.info("[Verification] Verification prompt ({} chars):\n{}", verificationPrompt.length(), verificationPrompt);
+
+        // Try Gemini first
+        if (geminiVisionService.isAvailable()) {
+            log.info("[Verification] Sending screenshot + prompt to Gemini for analysis...");
+            try {
+                long t0 = System.currentTimeMillis();
+                String geminiResult = geminiVisionService.analyze(screenshotPath, verificationPrompt);
+                long dt = System.currentTimeMillis() - t0;
+                if (geminiResult != null && !geminiResult.isBlank()) {
+                    log.info("[Verification] Gemini analysis SUCCESS in {}ms ({} chars)", dt, geminiResult.length());
+                    return geminiResult;
+                }
+                log.warn("[Verification] Gemini returned null/empty after {}ms — falling back", dt);
+            } catch (Exception e) {
+                log.warn("[Verification] Gemini FAILED: {} — falling back to OpenAI Vision", e.getMessage());
+            }
+        } else {
+            log.info("[Verification] Gemini not available — trying OpenAI Vision");
+        }
+
+        // Try OpenAI Vision
+        if (visionService.isAvailable()) {
+            log.info("[Verification] Sending screenshot to OpenAI Vision for analysis...");
+            try {
+                long t0 = System.currentTimeMillis();
+                String visionResult = visionService.analyzeScreenshot(screenshotPath);
+                long dt = System.currentTimeMillis() - t0;
+                if (visionResult != null && !visionResult.isBlank()) {
+                    log.info("[Verification] OpenAI Vision analysis SUCCESS in {}ms ({} chars)", dt, visionResult.length());
+                    return visionResult;
+                }
+                log.warn("[Verification] OpenAI Vision returned null/empty after {}ms — falling back to OCR", dt);
+            } catch (Exception e) {
+                log.warn("[Verification] OpenAI Vision FAILED: {} — falling back to OCR", e.getMessage());
+            }
+        } else {
+            log.info("[Verification] OpenAI Vision not available — trying OCR");
+        }
+
+        // Last resort: OCR text extraction
+        log.info("[Verification] Using OCR fallback for text extraction...");
+        try {
+            java.util.List<ScreenMemoryService.OcrWord> ocrWords =
+                    screenMemoryService.runOcrWithBounds(screenshotPath);
+            if (!ocrWords.isEmpty()) {
+                StringBuilder sb = new StringBuilder("Visible text (OCR): ");
+                java.util.Set<String> seen = new java.util.LinkedHashSet<>();
+                for (ScreenMemoryService.OcrWord w : ocrWords) {
+                    if (!w.text().isBlank() && w.text().length() > 1) seen.add(w.text().trim());
+                }
+                sb.append(String.join(", ", seen));
+                log.info("[Verification] OCR extracted {} text items", seen.size());
+                return sb.toString();
+            }
+            log.warn("[Verification] OCR returned no text items");
+        } catch (Exception e) {
+            log.warn("[Verification] OCR FAILED: {}", e.getMessage());
+        }
+
+        log.warn("[Verification] All vision methods failed — no analysis available");
+        return null;
     }
 
     @Tool(description = "List all currently running user applications and their process counts")
@@ -294,6 +421,15 @@ public class SystemTools {
         return systemControl.runCmd("shutdown /s /t " + seconds);
     }
 
+    @Tool(description = "Restart the computer. Optionally delay in minutes (0 = immediately).")
+    public String restartComputer(
+            @ToolParam(description = "Minutes to wait before restarting (0 for immediately)") double delayMinutesRaw) {
+        notifier.notify("Restarting...");
+        int delayMinutes = (int) Math.round(delayMinutesRaw);
+        int seconds = Math.max(0, delayMinutes) * 60;
+        return systemControl.runCmd("shutdown /r /t " + seconds);
+    }
+
     @Tool(description = "Ping a host to check if it is reachable. Returns round-trip time or error.")
     public String ping(
             @ToolParam(description = "Hostname or IP to ping (e.g. google.com, 8.8.8.8)") String host) {
@@ -370,11 +506,64 @@ public class SystemTools {
         return systemControl.runPowerShell(ps);
     }
 
-    @Tool(description = "Open a URL in the user's default PC browser (Chrome, Edge, Firefox, etc.). Use this when the user wants to open a website or URL normally. Do NOT use this if the user explicitly says 'in-browser' or 'chat browser' — those go to the built-in Mins Bot browser tab instead.")
+    @Tool(description = "Open a URL in the user's default PC browser (Chrome, Edge, Firefox, etc.). "
+            + "Automatically checks if the browser already has a tab with the same site open — "
+            + "if so, reuses it instead of opening a duplicate tab. "
+            + "Do NOT use this if the user explicitly says 'in-browser' or 'chat browser' — "
+            + "those go to the built-in Mins Bot browser tab instead.")
     public String openUrl(
             @ToolParam(description = "The URL to open, e.g. 'https://www.youtube.com' or 'https://google.com'") String url) {
         notifier.notify("Opening in PC browser: " + url);
+
+        // Normalize target URL
+        String normalizedUrl = url;
+        if (!normalizedUrl.startsWith("http://") && !normalizedUrl.startsWith("https://")) {
+            normalizedUrl = "https://" + normalizedUrl;
+        }
+        String targetDomain = extractDomain(normalizedUrl);
+
+        // Check if browser already has this site open in the current tab
+        if (targetDomain != null && !targetDomain.isEmpty()) {
+            // Try common browsers in order
+            for (String browser : new String[]{"chrome", "msedge", "firefox"}) {
+                if (systemControl.isBrowserRunning(browser)) {
+                    String currentUrl = systemControl.getCurrentBrowserUrl(browser);
+                    if (currentUrl != null) {
+                        String currentDomain = extractDomain(currentUrl);
+                        if (targetDomain.equalsIgnoreCase(currentDomain)) {
+                            // Same site already open — just focus and navigate if URL differs
+                            if (currentUrl.equalsIgnoreCase(normalizedUrl)
+                                    || currentUrl.equalsIgnoreCase(normalizedUrl + "/")) {
+                                System.out.println("[openUrl] " + targetDomain + " already open — reusing tab");
+                                return "Browser already has " + targetDomain + " open. Focused existing tab.";
+                            }
+                            // Same domain but different page — navigate within existing tab
+                            System.out.println("[openUrl] Same domain " + targetDomain + " — navigating existing tab");
+                            return systemControl.browserNavigate(browser, normalizedUrl);
+                        }
+                    }
+                    break; // found a running browser, but different site — open new tab
+                }
+            }
+        }
+
         return systemControl.openUrl(url);
+    }
+
+    /** Extract the domain from a URL (e.g. "https://www.youtube.com/watch?v=..." → "youtube.com"). */
+    private static String extractDomain(String url) {
+        try {
+            String s = url.trim();
+            if (!s.startsWith("http://") && !s.startsWith("https://")) s = "https://" + s;
+            java.net.URI uri = new java.net.URI(s);
+            String host = uri.getHost();
+            if (host == null) return null;
+            // Strip "www." prefix for comparison
+            if (host.startsWith("www.")) host = host.substring(4);
+            return host.toLowerCase();
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     @Tool(description = "Change the desktop wallpaper to an image file. Supports JPG, PNG, and BMP. "
@@ -703,6 +892,163 @@ public class SystemTools {
         } finally {
             showMinsBotWindow();
         }
+    }
+
+    // ═══ Composite: click input + type text (single tool call) ═══
+
+    @Tool(description = "PREFERRED tool for typing text into a browser input field (search box, form field, address bar, etc.). "
+            + "Combines click + type into ONE reliable action using clipboard paste. "
+            + "Finds the input element on screen via OCR/AI vision, clicks it, pastes the text via Ctrl+V, "
+            + "and optionally presses Enter. Use this INSTEAD of separate findAndClickElement + sendKeys calls. "
+            + "Example: typeInBrowserInput('the search box', 'voice tools', true) — clicks search box, types 'voice tools', presses Enter.")
+    public String typeInBrowserInput(
+            @ToolParam(description = "Description of the input element to click, e.g. 'the search box', "
+                    + "'the email input field', 'the search input', 'Search...' placeholder text") String inputElementDescription,
+            @ToolParam(description = "The text to type into the input field") String textToType,
+            @ToolParam(description = "Whether to press Enter after typing (true for search forms, false otherwise)") boolean pressEnter) {
+        notifier.notify("Typing '" + textToType + "' into: " + inputElementDescription);
+
+        hideMinsBotWindow();
+        try {
+            String text = textToType != null ? textToType : "";
+            int clickX, clickY;
+
+            // Step 1: Locate the input element on screen
+            ScreenshotContext ctx = captureScreen();
+            if (ctx == null) return "FAILED: Could not take screenshot.";
+
+            ElementLocation loc = null;
+            for (int attempt = 1; attempt <= 2; attempt++) {
+                if (attempt > 1) {
+                    System.out.println("[typeInput] Retry " + attempt + "/2 for '" + inputElementDescription + "'...");
+                    try { Thread.sleep(1000); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+                    ctx = captureScreen();
+                    if (ctx == null) continue;
+                }
+                loc = locateOnImage(ctx, inputElementDescription);
+                if (loc != null) break;
+            }
+
+            if (loc != null) {
+                clickX = loc.screenX();
+                clickY = loc.screenY();
+                System.out.println("[typeInput] Found '" + inputElementDescription + "' at (" + clickX + "," + clickY + ")");
+            } else {
+                if (ctx == null) return "FAILED: Could not locate '" + inputElementDescription + "'.";
+                clickX = ctx.logicalWidth() / 2;
+                clickY = ctx.logicalHeight() / 3;
+                System.out.println("[typeInput] Fallback click at center-screen (" + clickX + "," + clickY + ")");
+            }
+
+            // Step 2: Focus the browser window, then focus the input element
+            // Click #1 — brings the browser window to foreground (gets OS focus)
+            systemControl.mouseClick(clickX, clickY, "left");
+            try { Thread.sleep(300); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+            // Click #2 — focuses the actual input element within the page
+            systemControl.mouseClick(clickX, clickY, "left");
+            try { Thread.sleep(400); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+            System.out.println("[typeInput] Double-clicked input at (" + clickX + "," + clickY + ")");
+
+            // Step 3: Paste via clipboard (Ctrl+A to select existing text, Ctrl+V to paste new text)
+            boolean pasteVerified = false;
+            for (int pasteAttempt = 1; pasteAttempt <= 2; pasteAttempt++) {
+                try {
+                    java.awt.Robot robot = new java.awt.Robot();
+
+                    // Put text on clipboard
+                    java.awt.datatransfer.StringSelection sel = new java.awt.datatransfer.StringSelection(text);
+                    java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(sel, null);
+                    Thread.sleep(100);
+
+                    // Ctrl+A (select all in input) then Ctrl+V (paste)
+                    robot.keyPress(java.awt.event.KeyEvent.VK_CONTROL);
+                    robot.keyPress(java.awt.event.KeyEvent.VK_A);
+                    robot.keyRelease(java.awt.event.KeyEvent.VK_A);
+                    robot.keyRelease(java.awt.event.KeyEvent.VK_CONTROL);
+                    robot.delay(50);
+
+                    robot.keyPress(java.awt.event.KeyEvent.VK_CONTROL);
+                    robot.keyPress(java.awt.event.KeyEvent.VK_V);
+                    robot.keyRelease(java.awt.event.KeyEvent.VK_V);
+                    robot.keyRelease(java.awt.event.KeyEvent.VK_CONTROL);
+                    robot.delay(300);
+
+                    System.out.println("[typeInput] Paste attempt " + pasteAttempt + ": '" + text + "' via Ctrl+V");
+                } catch (Exception e) {
+                    System.out.println("[typeInput] Paste attempt " + pasteAttempt + " failed: " + e.getMessage());
+                    continue;
+                }
+
+                // Step 4: Verify the text appeared on screen via OCR
+                try { Thread.sleep(300); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+                ScreenshotContext verifyCtx = captureScreen();
+                if (verifyCtx != null) {
+                    // Use first significant word from the text (3+ chars) for OCR search
+                    String searchWord = extractVerifyWord(text);
+                    if (searchWord != null) {
+                        double[] found = screenMemoryService.findTextOnScreen(verifyCtx.imagePath(), searchWord);
+                        if (found != null) {
+                            System.out.println("[typeInput] VERIFIED: '" + searchWord + "' found on screen at ("
+                                    + found[0] + "," + found[1] + ")");
+                            pasteVerified = true;
+                            break;
+                        } else {
+                            System.out.println("[typeInput] Verify FAILED: '" + searchWord + "' NOT found on screen (attempt "
+                                    + pasteAttempt + ")");
+                        }
+                    } else {
+                        // Text too short to verify via OCR — assume success
+                        pasteVerified = true;
+                        break;
+                    }
+                }
+
+                if (pasteAttempt == 1) {
+                    // Retry: click the input again before second paste attempt
+                    System.out.println("[typeInput] Retrying — clicking input again and re-pasting...");
+                    systemControl.mouseClick(clickX, clickY, "left");
+                    try { Thread.sleep(400); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+                }
+            }
+
+            if (!pasteVerified) {
+                return "FAILED: Typed '" + text + "' but could NOT verify it appeared on screen. "
+                        + "The input element may not have received focus. Try clicking the input manually first.";
+            }
+
+            // Step 5: Press Enter if requested
+            if (pressEnter) {
+                try {
+                    java.awt.Robot robot = new java.awt.Robot();
+                    robot.delay(200);
+                    robot.keyPress(java.awt.event.KeyEvent.VK_ENTER);
+                    robot.keyRelease(java.awt.event.KeyEvent.VK_ENTER);
+                    System.out.println("[typeInput] Pressed Enter");
+                } catch (Exception e) {
+                    System.out.println("[typeInput] Enter key failed: " + e.getMessage());
+                }
+            }
+
+            String locMethod = (loc != null) ? "Found and clicked '" + inputElementDescription + "'" : "Used center-screen fallback";
+            String action = pressEnter ? " and pressed Enter" : "";
+            return locMethod + ". Successfully typed '" + text + "'" + action + " (verified on screen).";
+        } finally {
+            showMinsBotWindow();
+        }
+    }
+
+    /** Extract a word (3+ chars) from text that's suitable for OCR verification. */
+    private String extractVerifyWord(String text) {
+        if (text == null || text.isBlank()) return null;
+        String[] words = text.trim().split("\\s+");
+        // Prefer longer words — more reliable for OCR matching
+        String best = null;
+        for (String w : words) {
+            if (w.length() >= 3 && (best == null || w.length() > best.length())) {
+                best = w;
+            }
+        }
+        return best;
     }
 
     // ═══ Element locate (no click) — for drag-and-drop workflows ═══

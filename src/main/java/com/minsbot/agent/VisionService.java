@@ -85,6 +85,8 @@ public class VisionService {
         try {
             // 1. Read and base64-encode the image
             byte[] imageBytes = Files.readAllBytes(imagePath);
+            log.info("[Vision] analyzeScreenshot — image: {} ({} bytes), model: {}, prompt ({} chars):\n{}",
+                    imagePath.getFileName(), imageBytes.length, model, SYSTEM_PROMPT.length(), SYSTEM_PROMPT);
             String base64 = Base64.getEncoder().encodeToString(imageBytes);
 
             // 2. Build the JSON request body
@@ -107,22 +109,23 @@ public class VisionService {
                     HttpResponse.BodyHandlers.ofString());
 
             if (response.statusCode() != 200) {
-                log.debug("[Vision] API returned HTTP {}: {}", response.statusCode(),
+                log.warn("[Vision] API returned HTTP {}: {}", response.statusCode(),
                         truncate(response.body(), 200));
                 return null;
             }
 
             String content = extractContent(response.body());
             if (content == null || content.isBlank()) {
-                log.debug("[Vision] Empty response from API");
+                log.warn("[Vision] Empty response from API");
                 return null;
             }
 
-            log.debug("[Vision] Analysis complete ({} chars)", content.length());
+            log.info("[Vision] Analysis SUCCESS ({} chars): {}", content.length(),
+                    content.length() > 300 ? content.substring(0, 300) + "..." : content);
             return content;
 
         } catch (Exception e) {
-            log.debug("[Vision] Analysis failed: {}", e.getMessage());
+            log.warn("[Vision] Analysis failed: {}", e.getMessage());
             return null;
         }
     }

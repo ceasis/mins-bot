@@ -190,15 +190,17 @@ public class GeminiVisionService {
 
         try {
             byte[] imageBytes = Files.readAllBytes(imagePath);
-            log.info("[Gemini] analyze — image: {} ({} bytes), model: {}",
-                    imagePath.getFileName(), imageBytes.length, model);
+            log.info("[Gemini] analyze — image: {} ({} bytes), model: {}, prompt ({} chars):\n{}",
+                    imagePath.getFileName(), imageBytes.length, model, prompt.length(),
+                    prompt.length() > 500 ? prompt.substring(0, 500) + "..." : prompt);
             String base64 = Base64.getEncoder().encodeToString(imageBytes);
             String mediaType = imagePath.toString().toLowerCase().endsWith(".png") ? "image/png" : "image/jpeg";
             String result = callGemini(base64, prompt, mediaType, model);
             if (result == null || result.isBlank()) {
                 log.warn("[Gemini] analyze — callGemini returned null/empty");
             } else {
-                log.info("[Gemini] analyze — SUCCESS: {} chars", result.length());
+                log.info("[Gemini] analyze — SUCCESS ({} chars): {}", result.length(),
+                        result.length() > 300 ? result.substring(0, 300) + "..." : result);
             }
             return result;
         } catch (Exception e) {

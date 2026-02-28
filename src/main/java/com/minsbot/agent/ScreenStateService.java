@@ -74,6 +74,12 @@ public class ScreenStateService {
      * @return analysis text to inject into the AI system message, or null
      */
     public String captureAndAnalyze(String userMessage) {
+        // Skip screen capture for simple greetings and non-action messages
+        if (userMessage != null && !needsScreenCapture(userMessage)) {
+            log.info("[ScreenState] Skipping capture for non-action message: '{}'", userMessage);
+            return null;
+        }
+
         try {
             log.info("[ScreenState] captureAndAnalyze — message: '{}'",
                     userMessage != null && userMessage.length() > 80
@@ -198,5 +204,38 @@ public class ScreenStateService {
         String joined = String.join(", ", textItems);
         log.info("[ScreenState] OCR fallback: {} text items", textItems.size());
         return "Visible text on screen: " + joined;
+    }
+
+    /**
+     * Returns true if the message likely needs screen context (actions, browsing, clicking, etc.).
+     * Returns false for simple greetings, questions, and personal info that don't need a screenshot.
+     */
+    private boolean needsScreenCapture(String message) {
+        if (message == null || message.isBlank()) return false;
+        String lower = message.trim().toLowerCase();
+        int wordCount = lower.split("\\s+").length;
+
+        // Skip very short messages (1-3 words): greetings, confirmations, simple questions
+        if (wordCount <= 3) {
+            // But allow short action commands like "take screenshot", "open chrome"
+            if (lower.contains("open") || lower.contains("click") || lower.contains("drag")
+                    || lower.contains("search") || lower.contains("screenshot") || lower.contains("browse")
+                    || lower.contains("navigate") || lower.contains("type") || lower.contains("close")
+                    || lower.contains("move") || lower.contains("find")) {
+                return true;
+            }
+            return false;
+        }
+
+        // Skip personal info sharing (no screen needed)
+        if (lower.contains("my wife") || lower.contains("my husband") || lower.contains("my kid")
+                || lower.contains("my name is") || lower.contains("my email") || lower.contains("my birthday")
+                || lower.contains("my phone") || lower.contains("his name") || lower.contains("her name")
+                || lower.contains("his email") || lower.contains("her email")) {
+            return false;
+        }
+
+        // Everything else: capture screen
+        return true;
     }
 }

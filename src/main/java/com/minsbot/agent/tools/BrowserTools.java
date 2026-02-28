@@ -127,6 +127,40 @@ public class BrowserTools {
         }
     }
 
+    @Tool(description = "Open a URL in Chrome's incognito (private) mode. "
+            + "No browsing history, cookies, or cache will be saved. "
+            + "Example: openIncognito('https://google.com')")
+    public String openIncognito(
+            @ToolParam(description = "URL to open in incognito mode") String url) {
+        notifier.notify("Opening incognito: " + url);
+        try {
+            String chromePath = detectChromePath();
+            if (chromePath != null) {
+                new ProcessBuilder(chromePath, "--incognito", url).start();
+                return "Opened in Chrome incognito: " + url;
+            }
+            // Fallback: try Edge
+            new ProcessBuilder("cmd", "/c", "start msedge --inprivate " + url).start();
+            return "Opened in Edge InPrivate: " + url;
+        } catch (Exception e) {
+            return "FAILED: Could not open incognito window: " + e.getMessage();
+        }
+    }
+
+    private String detectChromePath() {
+        String[] candidates = {
+                System.getenv("LOCALAPPDATA") + "\\Google\\Chrome\\Application\\chrome.exe",
+                "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+                "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe"
+        };
+        for (String path : candidates) {
+            if (path != null && java.nio.file.Files.exists(java.nio.file.Paths.get(path))) {
+                return path;
+            }
+        }
+        return null;
+    }
+
     /** Extract a filename from a URL, falling back to "download" if nothing useful. */
     private String deriveFilename(String url) {
         try {

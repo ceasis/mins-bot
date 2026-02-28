@@ -41,20 +41,21 @@ public class ToolClassifierService {
 
     /** All valid category names (must match ToolRouter category names exactly). */
     private static final Set<String> VALID_CATEGORIES = Set.of(
-            "chat_browser", "browser", "sites", "files", "system", "media",
+            "chat_browser", "browser", "cdp", "sites", "files", "system", "media",
             "ai_model", "communication", "scheduling", "utility", "export",
             "plugins", "hotkeys", "tray", "screen_memory", "audio_memory",
-            "playlist"
+            "playlist", "software", "network", "printing", "excel", "screen_watching"
     );
 
     private static final String SYSTEM_PROMPT = """
             You are a tool router. Given a user message, return which tool categories are needed.
             Categories:
             - chat_browser: browsing in the built-in chat browser
-            - browser: web search, URLs, opening websites, tabs, browse internet, navigate website, research online, find information on website, YouTube, extract data from web, scrape page
+            - browser: web search, URLs, opening websites, tabs, browse internet, navigate website, research online, find information on website, YouTube, extract data from web, scrape page, type into search box, browser search
+            - cdp: type into browser search box, fill browser form field, click browser button via DOM, list chrome tabs, read page text from chrome tab, browser automation via CDP
             - sites: login credentials, saved sites, passwords
             - files: programmatic file/folder operations, disk, zip, read/write files, file paths
-            - system: apps, windows, processes, screenshots, mouse/keyboard control, volume, shutdown, click on element, find button, click button, drag files, move files on screen, move to folder, put files in folder, organize desktop, sort files into folders, visual file operations, navigate website by clicking, scroll web page, interact with browser page, click on links/buttons on website
+            - system: apps, windows, processes, screenshots, mouse/keyboard control, volume, shutdown, restart, click on element, find button, click button, drag files, move files on screen, move to folder, put files in folder, organize desktop, sort files into folders, visual file operations, navigate website by clicking, scroll web page, interact with browser page, click on links/buttons on website, screen recording
             - media: images, photos, PDF, text-to-speech, voice
             - ai_model: ollama, model switching, summarization, huggingface
             - communication: email, weather
@@ -67,6 +68,10 @@ public class ToolClassifierService {
             - screen_memory: what's on screen, what was I doing/watching, OCR, screen capture
             - audio_memory: what's playing, what do you hear, system audio, music, record audio, capture audio
             - playlist: detected songs, music playlist, what songs have I listened to, add/remove song from playlist
+            - software: install software, uninstall app, search for programs, winget, system updates, upgrade software
+            - network: wifi, connect to wifi, disconnect wifi, network info, IP address, DNS, VPN, internet connection
+            - printing: print file, print document, list printers, send to printer, default printer
+            - excel: Excel spreadsheet, write cells, format cells, add sheet, read spreadsheet, workbook, xlsx, create spreadsheet
 
             Return at most 3 of the most relevant category names, comma-separated. If none match, return: none""";
 

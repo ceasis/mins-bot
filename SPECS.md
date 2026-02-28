@@ -806,3 +806,180 @@ Ideas to make Mins Bot the most capable desktop bot. Ordered by impact vs effort
 2. Add `*Config.java` with `enabled=false`, `*Service.java`, `*Controller.java`
 3. Endpoints under `/api/skills/<name>/*`
 4. Add `app.skills.<name>.*` properties to `application.properties`
+
+## REMEMBER THESE BASIC RULES
+- Do not ask the human user to do the task for you (bot).
+- Do not ask for confirmation, just do it.
+- Be resourceful. 
+  - If you are missing an info, check your screen, webcam, audio, chat history.
+  - If you do not know anything, search the internet.
+- Never quit. Never give up. Keep on trying.
+
+## CHAT Conversation BOX
+- under chat tab
+- new messages appear here including responses from the bot
+- user can select the text both from user and bot
+- bot message is left side, user message is right side.
+- show hh:mm:ss (hours minutes seconds)
+
+## Ask Me Anything Chat Input Box
+- user can type a message
+- user can highlight the text in the box
+
+## MAIN LOOP LOGIC
+- Identify if task is SIMPLE or COMPLEX
+  - If Simple - process immediately
+  - If Simple - but lacks info to answer
+    - Gather input (screenshot, audio, chat history etc)
+    - Provide answer
+  - If Complex
+    - Gather input (screenshot, audio, chat history etc)
+    - Create plan execution (update @todolist.txt, identify skills)
+    - Tell in user chat about the plan.
+    - Loop thru the todolist and update as you complete the tasks.
+      - Do the task
+      - Take screenshot - AI analyze if task was completed
+      - If completed then update todolist.txt
+      - If not completed
+        - Identify what is the resolution
+        - Identify if only needs retry
+        - Identify if need to replan
+    - Verify if task is completed, take screenshot and AI will analyze completion.
+    - Once complete, tell user that task was complete (list the tasks completed.)
+
+### Directives ({window_user}/mins_bot_data/directives.txt)
+- This is like long term objectives
+- Always running until while bot is active
+- Starts when user is not using the computer
+
+### FOR EVERY CHAT
+- Identify if there is anything related to these needs to be updated:
+  - mins_bot_data/minsbot_config.txt
+  - mins_bot_data/personal_config.txt
+  - mins_bot_data/cron_config.txt
+  - mins_bot_data/playlist_config.txt
+  - mins_bot_data/todolist_config.txt
+
+
+
+## LONG TERM MEMORY - folder: {user}/mins_bot_data/
+- this is the only folder we use for long term memory
+- all configuration, tasks etc
+
+### Cron Config
+- for all chat input, check if chat has schedule info
+- update mins_bot_data/cron_config.txt for the info
+- update the user once config was updated.
+
+### Personal Config
+- for all chat input, check if chat has personal info
+- update mins_bot_data/personal_config.txt for the info
+- update the user once config was updated.
+
+### Complex tasks
+1. Identify if task is complex 
+2. Gather input (screenshot, audio, chat history etc)
+3. Create plan execution (update @todolist.txt)
+4. Tell in user chat about the plan.
+5. Loop thru the todolist and update as you complete the tasks.
+6. Verify if task is completed, take screenshot and AI will analyze completion.
+7. Once complete, tell user that task was complete (list the tasks completed.)
+
+### Browser tasks
+1. Use browser CDP (Chrome Dev Tools) first
+2. Use the screenshot + move mouse combination
+- Always verify with Screenshot+AI if step was done.
+
+## BROWSER AUTOMATION (hierarchy)
+Gemini said
+In 2026, the Java ecosystem for autonomous browsing has caught up significantly. You no longer have to switch to Python to get "agentic" capabilities.
+
+Here is your Top 1 to 5 choice list for Java, sorted by autonomy and modern features, including how to handle fallbacks.
+
+1. Stagehand (Java SDK) — The Absolute Best
+As of early 2026, Stagehand is the only major "agentic" framework with a first-class Java SDK. It allows you to use natural language commands directly in your Java code.
+
+The Power: It uses a "Vision + DOM" approach. You can call page.act("find the login button and sign in") and it handles the mouse and keyboard.
+
+How it uses Java: It wraps a high-performance binary, giving you a clean, typed API.
+
+Best for: High-level autonomous goals.
+
+2. Playwright for Java — The Reliable Engine
+If Stagehand is the "brain," Playwright is the "hands." It is the most robust way to control a browser in Java today.
+
+The Power: It is natively faster than Selenium and has built-in Auto-Wait, so your bot won't crash if a page loads slowly.
+
+Fallback Strategy: Most Java developers use Playwright as their primary tool and only drop down to other options if a site has heavy anti-bot protection.
+
+3. Selenium with WebDriver BiDi — The Compatibility King
+Selenium 5 (the standard in 2026) has fully embraced the Bi-Directional (BiDi) protocol.
+
+The Power: It finally matches Playwright's speed but retains the massive Java ecosystem.
+
+Use Case: Use this as a fallback if you need to support legacy browsers or if your enterprise environment is strictly locked into the Selenium grid.
+
+4. LangChain4j + Playwright — The Custom "Brain"
+If you want to build your own version of "Browser-use" in Java, you combine LangChain4j (the Java version of LangChain) with Playwright.
+
+The Power: You feed the HTML or screenshots from Playwright into LangChain4j, which asks an LLM (like Gemini or GPT-4) what to do next.
+
+Best for: Building a proprietary autonomous bot where you want full control over the AI's "thought process."
+
+5. SeleniumBase (via JNI or CLI) — The Stealth Fallback
+There isn't a native Java "SeleniumBase," but many Java teams use it as a last-resort fallback for "unscrappable" sites.
+
+The Power: It has the best "Undetected" mode to bypass Cloudflare.
+
+The Setup: You run a small Python sidecar or CLI command that uses SeleniumBase, and your Java app communicates with it via a simple API or JSON.
+
+## SCREENSHOT VERIFICATION
+- Send the screenshot to the vision model (use the latest, best).
+- Send the actual image, not image to text and then decide.
+
+### TRY AGAIN
+- only check the last 3 chat conversations for the task.
+- identify what is that task that needs to be tried again (use AI).
+
+### CONTINUE
+- check the mins_bot_data/todolist.txt for the latest pending tasks a continue.
+- check latest chat history for context. 
+
+### CRON SCHEDULES
+- you have a memory of scheduled items
+- check every 10 seconds if something needs to run.
+- if there is, execute it
+
+### DEALING WITH EXCEL FILE
+- if creating new, then need a blank workbook
+
+## SKILLS TAB in WEB APP
+- show list of skills
+- add upload skills feature
+- add publish skills feature
+  - Type in Author
+  - Java File to be uploaded
+
+## SKILLS MARKET TAB in WEB APP (tbd)
+- show list of skills in marketplace
+- you can download a skill from the market
+- show author, date, how many downloads
+
+## SCHEDULES TAB in WEB APP
+- list all the cron schedules
+
+## TODO LIST tab (loaded from todolist.txt)
+- all the tasks, latest on top
+
+## DIRECTIVES tab
+- permanent objectives like: 
+  tell me if there is a new model of toyota fortuner
+  find ways to reduce AWS costs
+  find the best apartment for sale in new york under 1M usd
+
+
+
+
+
+
+

@@ -109,7 +109,8 @@
     var d = new Date();
     var h = d.getHours();
     var m = d.getMinutes();
-    return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
+    var s = d.getSeconds();
+    return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
   }
 
   // Detect Windows file paths and make them clickable
@@ -646,6 +647,10 @@
       document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
       if (tab.dataset.tab === 'browser') startBrowserPolling();
       else stopBrowserPolling();
+      if (tab.dataset.tab === 'skills') { loadSkillsList(); loadPublishedList(); }
+      if (tab.dataset.tab === 'schedules') loadSchedules();
+      if (tab.dataset.tab === 'todos') loadTodos();
+      if (tab.dataset.tab === 'directives') loadDirectives();
     });
   });
 
@@ -721,6 +726,255 @@
     wrapper.appendChild(msg);
     wrapper.appendChild(timeEl);
     messagesEl.appendChild(wrapper);
+  }
+
+  // ═══ Skills tab ═══
+
+  var uploadArea = document.getElementById('upload-area');
+  var skillFileInput = document.getElementById('skill-file-input');
+  var skillsListEl = document.getElementById('skills-list');
+
+  function loadSkillsList() {
+    if (!skillsListEl) return;
+    fetch('/api/skills/plugins').then(function (r) { return r.json(); }).then(function (plugins) {
+      if (!plugins || plugins.length === 0) {
+        skillsListEl.innerHTML = '<div class="skills-empty">No plugins found. Upload a .jar file to get started.</div>';
+        return;
+      }
+      var html = '';
+      plugins.forEach(function (p) {
+        var badge = p.loaded
+          ? '<span class="skill-badge loaded">LOADED</span>'
+          : '<span class="skill-badge unloaded">NOT LOADED</span>';
+        var toggleBtn = p.loaded
+          ? '<button class="skill-btn unload" onclick="window._skillAction(\'unload\',\'' + p.name + '\')">Unload</button>'
+          : '<button class="skill-btn load" onclick="window._skillAction(\'load\',\'' + p.name + '\')">Load</button>';
+        html += '<div class="skill-item">'
+          + '<div class="skill-info">'
+          + '<div class="skill-name">' + escapeHtml(p.name) + '</div>'
+          + '<div class="skill-meta">' + p.sizeFormatted + (p.loaded ? ' &middot; ' + p.classCount + ' classes' : '') + '</div>'
+          + '</div>'
+          + badge
+          + '<div class="skill-actions">'
+          + toggleBtn
+          + '<button class="skill-btn delete" onclick="window._skillAction(\'delete\',\'' + p.name + '\')">Delete</button>'
+          + '</div></div>';
+      });
+      skillsListEl.innerHTML = html;
+    }).catch(function () {
+      skillsListEl.innerHTML = '<div class="skills-empty">Failed to load plugins.</div>';
+    });
+  }
+
+  function escapeHtml(s) {
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  window._skillAction = function (action, name) {
+    var url, method;
+    if (action === 'load') { url = '/api/skills/' + encodeURIComponent(name) + '/load'; method = 'POST'; }
+    else if (action === 'unload') { url = '/api/skills/' + encodeURIComponent(name) + '/unload'; method = 'POST'; }
+    else if (action === 'delete') { url = '/api/skills/' + encodeURIComponent(name); method = 'DELETE'; }
+    else return;
+    fetch(url, { method: method }).then(function () { loadSkillsList(); });
+  };
+
+  function uploadSkillFile(file) {
+    if (!file || !file.name.toLowerCase().endsWith('.jar')) return;
+    var formData = new FormData();
+    formData.append('file', file);
+    fetch('/api/skills/upload', { method: 'POST', body: formData })
+      .then(function () { loadSkillsList(); });
+  }
+
+  if (uploadArea) {
+    uploadArea.addEventListener('click', function () { skillFileInput.click(); });
+    uploadArea.addEventListener('dragover', function (e) {
+      e.preventDefault(); uploadArea.classList.add('drag-over');
+    });
+    uploadArea.addEventListener('dragleave', function () {
+      uploadArea.classList.remove('drag-over');
+    });
+    uploadArea.addEventListener('drop', function (e) {
+      e.preventDefault(); uploadArea.classList.remove('drag-over');
+      if (e.dataTransfer.files.length > 0) uploadSkillFile(e.dataTransfer.files[0]);
+    });
+  }
+  if (skillFileInput) {
+    skillFileInput.addEventListener('change', function () {
+      if (skillFileInput.files.length > 0) uploadSkillFile(skillFileInput.files[0]);
+      skillFileInput.value = '';
+    });
+  }
+
+  // ═══ Publish skills ═══
+
+  var publishBtn = document.getElementById('publish-btn');
+  var publishAuthor = document.getElementById('publish-author');
+  var publishDesc = document.getElementById('publish-desc');
+  var publishFile = document.getElementById('publish-file');
+  var publishedListEl = document.getElementById('published-list');
+
+  function loadPublishedList() {
+    if (!publishedListEl) return;
+    fetch('/api/skills/published').then(function (r) { return r.json(); }).then(function (items) {
+      if (!items || items.length === 0) {
+        publishedListEl.innerHTML = '';
+        return;
+      }
+      var html = '<div class="section-title" style="margin-top:4px">Published Skills</div>';
+      items.forEach(function (p) {
+        html += '<div class="skill-item">'
+          + '<div class="skill-info">'
+          + '<div class="skill-name">' + escapeHtml(p.name) + '</div>'
+          + '<div class="skill-meta">' + escapeHtml(p.author || '') + (p.date ? ' &middot; ' + p.date : '') + '</div>'
+          + (p.description ? '<div class="skill-meta">' + escapeHtml(p.description) + '</div>' : '')
+          + '</div>'
+          + '<div class="skill-actions">'
+          + '<button class="skill-btn delete" onclick="window._deletePublished(\'' + p.name + '\')">Delete</button>'
+          + '</div></div>';
+      });
+      publishedListEl.innerHTML = html;
+    }).catch(function () { publishedListEl.innerHTML = ''; });
+  }
+
+  window._deletePublished = function (name) {
+    fetch('/api/skills/published/' + encodeURIComponent(name), { method: 'DELETE' })
+      .then(function () { loadPublishedList(); });
+  };
+
+  if (publishBtn) {
+    publishBtn.addEventListener('click', function () {
+      if (!publishFile.files.length) return;
+      if (!publishAuthor.value.trim()) return;
+      var fd = new FormData();
+      fd.append('file', publishFile.files[0]);
+      fd.append('author', publishAuthor.value.trim());
+      fd.append('description', publishDesc.value.trim());
+      fetch('/api/skills/publish', { method: 'POST', body: fd })
+        .then(function () {
+          publishAuthor.value = '';
+          publishDesc.value = '';
+          publishFile.value = '';
+          loadPublishedList();
+        });
+    });
+  }
+
+  // ═══ Schedules tab ═══
+
+  var schedulesContainer = document.getElementById('schedules-container');
+
+  function loadSchedules() {
+    if (!schedulesContainer) return;
+    fetch('/api/tabs/schedules').then(function (r) { return r.json(); }).then(function (sections) {
+      if (!sections || sections.length === 0) {
+        schedulesContainer.innerHTML = '<div class="tab-empty">No schedules configured. Ask the bot to set up reminders.</div>';
+        return;
+      }
+      var html = '';
+      sections.forEach(function (s) {
+        html += '<div class="schedule-card">'
+          + '<div class="schedule-title">' + escapeHtml(s.section) + '</div>'
+          + '<ul class="schedule-entries">';
+        s.entries.forEach(function (e) {
+          html += '<li>' + escapeHtml(e) + '</li>';
+        });
+        html += '</ul></div>';
+      });
+      schedulesContainer.innerHTML = html;
+    }).catch(function () {
+      schedulesContainer.innerHTML = '<div class="tab-empty">Failed to load schedules.</div>';
+    });
+  }
+
+  // ═══ Todo tab ═══
+
+  var todosContainer = document.getElementById('todos-container');
+
+  function loadTodos() {
+    if (!todosContainer) return;
+    fetch('/api/tabs/todos').then(function (r) { return r.json(); }).then(function (tasks) {
+      if (!tasks || tasks.length === 0) {
+        todosContainer.innerHTML = '<div class="tab-empty">No tasks. Ask the bot to create a plan.</div>';
+        return;
+      }
+      var html = '';
+      tasks.forEach(function (t) {
+        html += '<div class="todo-card">'
+          + '<div class="todo-title">' + escapeHtml(t.title) + '</div>'
+          + '<div class="todo-time">' + escapeHtml(t.timestamp) + '</div>'
+          + '<div class="todo-steps">';
+        if (t.steps) {
+          t.steps.forEach(function (s) {
+            var isDone = s.status === 'DONE';
+            html += '<div class="todo-step ' + (isDone ? 'done' : 'pending') + '">'
+              + '<span class="step-icon">' + (isDone ? '\u2713' : '\u25CB') + '</span>'
+              + escapeHtml(s.num + '. ' + s.text)
+              + '</div>';
+          });
+        }
+        html += '</div></div>';
+      });
+      todosContainer.innerHTML = html;
+    }).catch(function () {
+      todosContainer.innerHTML = '<div class="tab-empty">Failed to load tasks.</div>';
+    });
+  }
+
+  // ═══ Directives tab ═══
+
+  var directivesListEl = document.getElementById('directives-list');
+  var directiveInput = document.getElementById('directive-input');
+  var directiveAddBtn = document.getElementById('directive-add-btn');
+
+  function loadDirectives() {
+    if (!directivesListEl) return;
+    fetch('/api/tabs/directives').then(function (r) { return r.json(); }).then(function (items) {
+      if (!items || items.length === 0) {
+        directivesListEl.innerHTML = '<div class="tab-empty">No directives. Add permanent objectives for the bot.</div>';
+        return;
+      }
+      var html = '';
+      items.forEach(function (text, i) {
+        html += '<div class="directive-item">'
+          + '<span class="directive-num">' + (i + 1) + '.</span>'
+          + '<span class="directive-text">' + escapeHtml(text) + '</span>'
+          + '<button class="directive-delete" onclick="window._removeDirective(' + (i + 1) + ')" title="Remove">\u2715</button>'
+          + '</div>';
+      });
+      directivesListEl.innerHTML = html;
+    }).catch(function () {
+      directivesListEl.innerHTML = '<div class="tab-empty">Failed to load directives.</div>';
+    });
+  }
+
+  window._removeDirective = function (pos) {
+    fetch('/api/tabs/directives/' + pos, { method: 'DELETE' })
+      .then(function () { loadDirectives(); });
+  };
+
+  function addDirective() {
+    if (!directiveInput || !directiveInput.value.trim()) return;
+    fetch('/api/tabs/directives', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ directive: directiveInput.value.trim() })
+    }).then(function () {
+      directiveInput.value = '';
+      loadDirectives();
+    });
+  }
+
+  if (directiveAddBtn) {
+    directiveAddBtn.addEventListener('click', addDirective);
+  }
+  if (directiveInput) {
+    directiveInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); addDirective(); }
+    });
   }
 
   // On startup: show clear chat with greeting (same as Clear button)

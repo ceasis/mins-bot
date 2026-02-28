@@ -41,14 +41,35 @@ public class ChatService {
     private static final String AUDIO_RESULT_PREFIX = "__AUDIO_RESULT__";
 
     private static final String PLANNING_PROMPT = """
-            You are a task status reporter. Analyze the user's request and output a SINGLE short sentence \
-            describing what you will do. This is shown to the user as a brief status while work happens.
+            You are a task planner for a PC assistant bot. Analyze the user's request and output a \
+            numbered checklist plan of the steps needed to complete the task. The LAST step must ALWAYS \
+            be a verification step.
 
             Rules:
-            - Output ONE sentence only, max 15 words. Example: "Opening Gmail and composing a new email."
-            - NEVER output numbered steps, bullet points, or lists. Just one brief sentence.
-            - NEVER include instructions or explanations. Just state the action.
-            - If it's a simple question, greeting, or needs no tools, respond with just: SKIP
+            - Output ONLY the numbered plan. No greetings, no explanations, no filler.
+            - Use this exact format (unicode box characters):
+              ⬜ 1. First action step
+              ⬜ 2. Second action step
+              ⬜ 3. Verify — [how to confirm it worked]
+            - Keep steps short and specific (max 10 words each).
+            - Always end with a verification step: "Verify — read file back", "Verify — take screenshot", etc.
+            - For simple questions, greetings, or tasks that need no tools, respond with just: SKIP
+            - Max 6 steps. Combine related actions into one step if needed.
+
+            Examples:
+            User: "open google and search for bose speakers"
+            ⬜ 1. Open google.com in Chrome
+            ⬜ 2. Type "bose speakers" in the search box and press Enter
+            ⬜ 3. Verify — take screenshot to confirm search results
+
+            User: "my wife is katherine, email is dai@gmail.com"
+            ⬜ 1. Read current personal_config.txt
+            ⬜ 2. Update Partner/spouse section with name and email
+            ⬜ 3. Save the updated file
+            ⬜ 4. Verify — read file back to confirm changes saved
+
+            User: "what time is it?"
+            SKIP
             """;
 
     /** Shown when user says "quit"; also used by ChatController to add quitCountdownSeconds to response. */
@@ -252,7 +273,8 @@ public class ChatService {
         // 1. Spring AI tool-calling path
         if (chatClient != null) {
             try {
-                // Planning pre-step: quick analysis of steps needed (no tools, fast)
+                // Planning pre-step: generate numbered plan (no tools, fast)
+                String generatedPlan = null;
                 if (planningEnabled && needsPlanning(trimmed)) {
                     try {
                         String plan = chatClient.prompt()
@@ -262,8 +284,26 @@ public class ChatService {
                                 .content();
                         if (plan != null && !plan.isBlank()
                                 && !plan.strip().equalsIgnoreCase("SKIP")) {
-                            asyncMessages.push(plan);
-                            transcriptService.save("BOT(plan)", plan);
+                            generatedPlan = plan.strip();
+                            asyncMessages.push(generatedPlan);
+                            transcriptService.save("BOT(plan)", generatedPlan);
+
+                            // Save plan to todolist.txt
+                            try {
+                                java.nio.file.Path todoPath = java.nio.file.Paths.get(
+                                        System.getProperty("user.home"), "mins_bot_data", "todolist.txt");
+                                String timestamp = java.time.LocalDateTime.now()
+                                        .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
+                                String todoEntry = "\n--- Task: \"" + trimmed.substring(0, Math.min(trimmed.length(), 80))
+                                        + "\" | " + timestamp + " ---\n"
+                                        + generatedPlan.replace("⬜", "[PENDING]") + "\n";
+                                java.nio.file.Files.writeString(todoPath, todoEntry,
+                                        java.nio.file.StandardOpenOption.CREATE,
+                                        java.nio.file.StandardOpenOption.APPEND);
+                                log.info("[ChatService] Plan saved to todolist.txt");
+                            } catch (Exception e) {
+                                log.debug("[ChatService] Could not save plan to todolist.txt: {}", e.getMessage());
+                            }
                         }
                     } catch (Exception e) {
                         log.debug("[ChatService] Planning call failed (non-critical): {}", e.getMessage());
@@ -275,13 +315,56 @@ public class ChatService {
 
                 // Auto-capture live screen state with Gemini reasoning
                 String systemMessage = systemCtx.buildSystemMessage();
+
+                // If no plan was generated, check if this is a "continue" message with pending tasks
+                if (generatedPlan == null && isResumeCommand(trimmed)) {
+                    try {
+                        java.nio.file.Path todoPath = java.nio.file.Paths.get(
+                                System.getProperty("user.home"), "mins_bot_data", "todolist.txt");
+                        if (java.nio.file.Files.exists(todoPath)) {
+                            String todoContent = java.nio.file.Files.readString(todoPath);
+                            if (todoContent.contains("[PENDING]")) {
+                                // Extract the last task block with pending items
+                                String[] blocks = todoContent.split("--- Task:");
+                                for (int b = blocks.length - 1; b >= 0; b--) {
+                                    if (blocks[b].contains("[PENDING]")) {
+                                        generatedPlan = "--- Task:" + blocks[b].trim();
+                                        log.info("[ChatService] Resuming pending task from todolist.txt");
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    } catch (Exception e) {
+                        log.debug("[ChatService] Could not read todolist.txt: {}", e.getMessage());
+                    }
+                }
+
+                // Inject the plan into the system message so the main model knows what to execute
+                if (generatedPlan != null) {
+                    systemMessage += "\n\n══ YOUR PLAN (execute ALL steps, do NOT stop mid-plan) ══\n"
+                            + generatedPlan + "\n"
+                            + "══ MANDATORY RESPONSE FORMAT:\n"
+                            + "Your FINAL response after completing all steps MUST look EXACTLY like this:\n"
+                            + "✅ 1. [what you did for step 1]\n"
+                            + "✅ 2. [what you did for step 2]\n"
+                            + "✅ 3. [what you did for step 3]\n"
+                            + "✅ 4. [verification result]\n\n"
+                            + "That's it. No extra text. No \"feel free to ask\". No \"let me know\". Just the checklist.\n"
+                            + "If a step is NOT done yet, show ⬜ and keep calling tools until it's done.\n"
+                            + "Call markStepDone(N) after each step completes.\n"
+                            + "Start executing step 1 NOW. ══\n";
+                }
                 try {
                     String screenAnalysis = screenStateService.captureAndAnalyze(trimmed);
                     if (screenAnalysis != null && !screenAnalysis.isBlank()) {
-                        systemMessage += "\n\nLIVE SCREEN ANALYSIS (auto-captured and analyzed just now — "
-                                + "this is the GROUND TRUTH of what is on screen RIGHT NOW):\n"
+                        systemMessage += "\n\nLIVE SCREEN ANALYSIS (captured BEFORE your actions — "
+                                + "this shows what was on screen when the user sent their message):\n"
                                 + screenAnalysis + "\n"
-                                + "\nCRITICAL: Use ONLY the names from this analysis. NEVER use names from chat history. "
+                                + "\nCRITICAL: Use ONLY the names from this analysis for initial actions. "
+                                + "AFTER any action that changes the screen (openUrl, click, navigate, drag), "
+                                + "this analysis is STALE — you MUST take a fresh takeScreenshot() to see "
+                                + "the updated screen before your next action. "
                                 + "If a plan is provided above, EXECUTE it by calling findAndDragElement for EACH step. "
                                 + "Do NOT skip any steps. Do NOT claim success without calling the tools.\n";
                         log.info("[ChatService] Injected Gemini screen analysis ({} chars)", screenAnalysis.length());
@@ -384,14 +467,24 @@ public class ChatService {
                 || lower.equals("close mins bot") || lower.equals("exit mins bot");
     }
 
-    /** Returns true if the message is complex enough to warrant a planning pre-step. */
+    /** Returns true if the message warrants a planning pre-step. Only skips very short greetings. */
     private boolean needsPlanning(String message) {
         if (message == null || message.isBlank()) return false;
-        // Skip short/simple messages (greetings, quick questions)
+        // Skip only very short messages (1-2 words: "hi", "thanks", "ok")
         int wordCount = message.trim().split("\\s+").length;
-        if (wordCount < 6) return false;
-        // Only plan when specific tool categories match (not just default fallback)
-        return toolRouter.hasSpecificMatch(message);
+        if (wordCount <= 2) return false;
+        // Let the planner decide — it returns SKIP for simple questions
+        return true;
+    }
+
+    /** Returns true if the message is a resume/continue command. */
+    private boolean isResumeCommand(String message) {
+        if (message == null || message.isBlank()) return false;
+        String lower = message.trim().toLowerCase();
+        return lower.equals("continue") || lower.equals("go on") || lower.equals("keep going")
+                || lower.equals("resume") || lower.equals("next") || lower.equals("proceed")
+                || lower.startsWith("continue ") || lower.startsWith("go on ")
+                || lower.startsWith("keep going") || lower.startsWith("resume ");
     }
 
     /** Native audio pipeline: WAV -> transcription -> text response. */
@@ -568,6 +661,7 @@ public class ChatService {
 
                 if (reply != null && !reply.isBlank()) {
                     String normalized = reply.trim().replaceAll("\\s+", " ");
+                    String lower = normalized.toLowerCase();
                     // Don't repeat the same message when there's been no new user input
                     if (normalized.equals(lastAutonomousMessageSent)) {
                         autonomousConcludedAllAddressed = true; // treat as concluded so we don't re-run next interval
@@ -575,13 +669,21 @@ public class ChatService {
                         break;
                     }
                     // Check for "done" signal from the AI
-                    if (reply.toLowerCase().contains("all directives addressed")) {
-                        transcriptService.save("BOT(autonomous)", reply);
-                        asyncMessages.push(reply);
-                        lastAutonomousMessageSent = normalized;
+                    if (lower.contains("all directives addressed")) {
                         autonomousConcludedAllAddressed = true;
+                        lastAutonomousMessageSent = normalized;
                         log.info("[Autonomous] AI signaled completion at step {}.", step);
-                        break;
+                        break; // Don't push "all directives addressed" to chat — it's noise
+                    }
+                    // Filter out "nothing actionable" responses — these are analysis, not useful output
+                    if (lower.contains("no specific actionable") || lower.contains("no actionable")
+                            || lower.contains("nothing actionable") || lower.contains("primarily focused on identity")
+                            || lower.contains("primarily focused on personal")
+                            || lower.contains("no tasks requiring research")) {
+                        autonomousConcludedAllAddressed = true;
+                        lastAutonomousMessageSent = normalized;
+                        log.info("[Autonomous] Non-actionable directives detected — stopping silently.");
+                        break; // Don't push analysis messages to chat
                     }
                     transcriptService.save("BOT(autonomous)", reply);
                     asyncMessages.push(reply);
@@ -650,7 +752,7 @@ public class ChatService {
                     Do NOT open the system browser. These tools work silently in the background.
 
                     SAVING DATA:
-                    - Do NOT write to directives.md. That file is ONLY for directive definitions.
+                    - Do NOT write to directives.txt. That file is ONLY for directive definitions.
                     - Use saveDirectiveFinding(directiveName, content) to save text findings into a \
                     per-directive folder: ~/mins_bot_data/directive_{name}/
                     - Use saveDirectiveScreenshot(directiveName) to capture the current screen as an image.
@@ -661,7 +763,11 @@ public class ChatService {
                     - Each directive gets its own folder. All gathered data (text, images) goes there.
 
                     Report what you did and what you plan to do next. Be concise.
-                    If all directives are personality/tone settings with nothing actionable, return an empty response.
+                    CRITICAL: If the directives are ONLY personality/tone/identity settings (like names, \
+                    preferences, family info) with NO research tasks, NO data gathering, and NO actionable \
+                    work to do — respond with EXACTLY "All directives addressed" and nothing else. \
+                    Do NOT analyze or describe the directives. Do NOT say "no specific actionable tasks". \
+                    Just say "All directives addressed" so the system stops cleanly.
 
                     DIRECTIVES:
                     """ + directives;
@@ -686,7 +792,7 @@ public class ChatService {
                 - Text: saveDirectiveFinding(directiveName, content)
                 - Images: searchAndDownloadImages or downloadFileToFolder with directiveName
                 - Screenshots: saveDirectiveScreenshot(directiveName)
-                - Do NOT write to directives.md — that file is only for directive definitions.
+                - Do NOT write to directives.txt — that file is only for directive definitions.
 
                 Report briefly what you did this step. Be concise.
                 If you've completed all actionable directives or there's nothing more to do, \
