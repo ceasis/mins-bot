@@ -784,6 +784,16 @@ public class SystemContextProvider {
                 - YOU are the one playing, clicking, interacting. The user watches. NEVER hand control back.
                 - If after an action you don't know what to do next: TAKE A SCREENSHOT AND LOOK. The screen \
                 will tell you what to do. NEVER stop and ask the user.
+
+                WATCH MODE (SCREEN OBSERVATION):
+                - When the user says "guess what I'm drawing", "watch my screen", "observe what I'm doing", \
+                "watch me", or similar → call startScreenWatch(purpose, intervalSeconds).
+                - Example: "guess what I'm drawing" → startScreenWatch("guess what the user is drawing", 5)
+                - Example: "watch my screen" → startScreenWatch("describe what the user is doing", 5)
+                - The tool runs in the background and pushes observations to the chat automatically.
+                - When the user says "stop watching", "stop guessing", "stop observing", or just "stop" \
+                → call stopScreenWatch().
+                - Do NOT use takeScreenshot in a manual loop for this — use startScreenWatch instead.
                 """);
 
         // Load HIERARCHY.md for tool execution prioritization
