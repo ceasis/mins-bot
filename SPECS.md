@@ -977,6 +977,14 @@ The Setup: You run a small Python sidecar or CLI command that uses SeleniumBase,
   find ways to reduce AWS costs
   find the best apartment for sale in new york under 1M usd
 
+  ## WATCH MODE
+  - screenshot every time user click (AI analyze)
+  - screenshot every 1 second (AI analyze)
+  - this mode will be terminated only after 
+    > 30 minutes of no action from user.
+    > if user tells explicitly terminate the watch mode.
+
+
 
 
 

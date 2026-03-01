@@ -1,6 +1,5 @@
 package com.minsbot.agent.tools;
 
-import com.minsbot.agent.AsyncMessageService;
 import com.minsbot.agent.GeminiVisionService;
 import com.minsbot.agent.ScreenMemoryService;
 import com.minsbot.agent.SystemControlService;
@@ -11,54 +10,88 @@ import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
-import java.nio.file.Files;
+import java.awt.MouseInfo;
+import java.awt.Point;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Screen watch mode — continuous background screen observation with AI vision analysis.
- * Enables interactive features like "guess what I'm drawing" by periodically capturing
- * the screen, analyzing it, and pushing observations to the chat.
+ * Supports two modes:
+ * <ul>
+ *   <li><b>click mode</b> (default): captures after each mouse action (click/draw stroke ends)</li>
+ *   <li><b>interval mode</b>: captures at fixed time intervals</li>
+ * </ul>
+ * Enables interactive features like "guess what I'm drawing" by capturing the screen,
+ * analyzing it with Gemini/Vision AI, and pushing observations to the chat.
  */
 @Component
 public class ScreenWatchingTools {
 
     private static final Logger log = LoggerFactory.getLogger(ScreenWatchingTools.class);
 
-    private static final int MIN_INTERVAL = 3;
-    private static final int MAX_INTERVAL = 30;
-    private static final int DEFAULT_INTERVAL = 5;
-    private static final int MAX_ROUNDS = 60;
+    private static final int MAX_ROUNDS = 1800;              // 30 minutes at 1s interval
+
+    // Click-mode timing constants
+    private static final int POLL_INTERVAL_MS = 100;        // Check mouse position every 100ms
+    private static final int SETTLE_TIME_MS = 500;           // Mouse must be still 500ms after moving = action done
+    private static final int MIN_CAPTURE_GAP_MS = 1000;      // Minimum 1s between captures (per SPECS)
+    private static final int MAX_IDLE_CAPTURE_MS = 1000;     // Also capture every 1s when idle (per SPECS)
+    private static final long IDLE_TIMEOUT_MS = 30 * 60 * 1000L; // 30 minutes no action = auto-stop
 
     private final ToolExecutionNotifier notifier;
     private final SystemControlService systemControl;
     private final GeminiVisionService geminiVisionService;
     private final VisionService visionService;
-    private final AsyncMessageService asyncMessages;
     private final ScreenMemoryService screenMemoryService;
 
     private volatile boolean watching = false;
     private volatile Thread watchThread;
+    private final ExecutorService analysisExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "watch-analysis");
+        t.setDaemon(true);
+        return t;
+    });
+    /** True while an analysis is in-flight — prevents queueing multiple concurrent analyses. */
+    private final AtomicBoolean analysisInFlight = new AtomicBoolean(false);
+
+    /** Separate queue for watch observations — rendered in the sticky live panel, NOT as chat messages. */
+    private final java.util.concurrent.ConcurrentLinkedQueue<String> watchFeed = new java.util.concurrent.ConcurrentLinkedQueue<>();
+
+    /** Exposed for the status API endpoint. */
+    public boolean isWatching() { return watching; }
+
+    /** Drain all pending watch observations (called by the frontend poll endpoint). */
+    public java.util.List<String> drainObservations() {
+        java.util.List<String> result = new java.util.ArrayList<>();
+        String msg;
+        while ((msg = watchFeed.poll()) != null) {
+            result.add(msg);
+        }
+        return result;
+    }
 
     public ScreenWatchingTools(ToolExecutionNotifier notifier,
                                SystemControlService systemControl,
                                GeminiVisionService geminiVisionService,
                                VisionService visionService,
-                               AsyncMessageService asyncMessages,
                                ScreenMemoryService screenMemoryService) {
         this.notifier = notifier;
         this.systemControl = systemControl;
         this.geminiVisionService = geminiVisionService;
         this.visionService = visionService;
-        this.asyncMessages = asyncMessages;
         this.screenMemoryService = screenMemoryService;
     }
 
     @Tool(description = "Start continuously watching the screen in the background. "
-            + "Takes periodic screenshots, analyzes them with AI vision, and pushes observations to the chat. "
+            + "Captures a screenshot every time the user clicks or finishes drawing a stroke, "
+            + "analyzes it with AI vision, and pushes observations to the chat. "
             + "Use for guessing games ('guess what I'm drawing'), screen monitoring, or live commentary. "
             + "The watch runs in the background — you can respond to the user immediately. "
             + "Call stopScreenWatch() to stop.")
@@ -66,7 +99,8 @@ public class ScreenWatchingTools {
             @ToolParam(description = "Purpose of watching — guides the AI analysis. "
                     + "Examples: 'guess what the user is drawing', 'describe what the user is doing', "
                     + "'monitor for changes on screen'") String purpose,
-            @ToolParam(description = "Seconds between each observation (min 3, max 30, default 5)") double intervalSeconds) {
+            @ToolParam(description = "Mode: 'click' (default) captures after each mouse action, "
+                    + "'interval' captures every N seconds. For drawing games always use 'click'.") String mode) {
         notifier.notify("Starting screen watch mode...");
 
         if (watching) {
@@ -74,23 +108,29 @@ public class ScreenWatchingTools {
             return "Watch mode is already active. Call stopScreenWatch() first to restart.";
         }
 
-        int interval = (int) Math.round(intervalSeconds);
-        if (interval < MIN_INTERVAL) interval = MIN_INTERVAL;
-        if (interval > MAX_INTERVAL) interval = MAX_INTERVAL;
-
         String safePurpose = (purpose == null || purpose.isBlank()) ? "observe the screen" : purpose.trim();
+        boolean clickMode = !"interval".equalsIgnoreCase(mode != null ? mode.trim() : "click");
 
-        log.info("[WatchMode] Starting — purpose: '{}', interval: {}s, max rounds: {}",
-                safePurpose, interval, MAX_ROUNDS);
+        log.info("[WatchMode] Starting — purpose: '{}', mode: {}, max rounds: {}",
+                safePurpose, clickMode ? "CLICK" : "INTERVAL", MAX_ROUNDS);
 
         watching = true;
-        final int finalInterval = interval;
 
-        watchThread = new Thread(() -> runWatchLoop(safePurpose, finalInterval), "screen-watch");
+        watchThread = new Thread(() -> {
+            if (clickMode) {
+                runClickWatchLoop(safePurpose);
+            } else {
+                runIntervalWatchLoop(safePurpose, 5);
+            }
+        }, "screen-watch");
         watchThread.setDaemon(true);
         watchThread.start();
 
-        return "Watch mode started. Observing every " + interval + " seconds. Purpose: " + safePurpose
+        String modeDesc = clickMode
+                ? "Capturing after each mouse click/draw action."
+                : "Capturing every 5 seconds.";
+        return "Watch mode started (" + (clickMode ? "click" : "interval") + " mode). "
+                + modeDesc + " Purpose: " + safePurpose
                 + ". Observations will appear in chat. Say 'stop watching' to end.";
     }
 
@@ -109,68 +149,177 @@ public class ScreenWatchingTools {
         return "Watch mode stopped.";
     }
 
-    // ═══ Background observe loop ═══
+    // ═══ Click-triggered watch loop ═══
 
-    private void runWatchLoop(String purpose, int intervalSeconds) {
+    /**
+     * Monitors mouse position at high frequency. When the mouse moves and then
+     * settles (stops for SETTLE_TIME_MS), it means the user finished a click or
+     * draw stroke — trigger a capture and analysis.
+     */
+    private void runClickWatchLoop(String purpose) {
         int round = 0;
+        long lastCaptureTime = 0;
+        Point lastPos = getMousePosition();
+        long lastMoveTime = System.currentTimeMillis();
+        long lastActionTime = System.currentTimeMillis(); // tracks last user action for idle timeout
+        boolean wasMoving = false;
+
         try {
+            log.info("[WatchMode-Click] Loop started. Polling every {}ms, settle: {}ms, min gap: {}ms, idle timeout: {}min",
+                    POLL_INTERVAL_MS, SETTLE_TIME_MS, MIN_CAPTURE_GAP_MS, IDLE_TIMEOUT_MS / 60000);
+
             while (watching && round < MAX_ROUNDS) {
-                round++;
-                log.info("[WatchMode] Round {}/{} — capturing screen...", round, MAX_ROUNDS);
-                long roundStart = System.currentTimeMillis();
+                Thread.sleep(POLL_INTERVAL_MS);
 
-                // Hide bot window for clean capture
-                try { com.minsbot.FloatingAppLauncher.hideWindow(); } catch (Exception ignored) {}
-                try { Thread.sleep(150); } catch (InterruptedException e) { break; }
+                Point currentPos = getMousePosition();
+                long now = System.currentTimeMillis();
 
-                String result = systemControl.takeScreenshot();
+                // 30-minute idle timeout — auto-stop if no mouse action
+                if (now - lastActionTime >= IDLE_TIMEOUT_MS) {
+                    log.info("[WatchMode-Click] Idle timeout ({}min no action) — stopping",
+                            IDLE_TIMEOUT_MS / 60000);
+                    watchFeed.add("Watch mode ended (no activity for 30 minutes).");
+                    break;
+                }
 
-                // Restore window
-                try { com.minsbot.FloatingAppLauncher.showWindow(); } catch (Exception ignored) {}
+                boolean moved = !currentPos.equals(lastPos);
 
-                if (result == null || !result.startsWith("Screenshot saved:")) {
-                    log.warn("[WatchMode] Round {} — screenshot failed: {}", round, result);
-                    sleepOrBreak(intervalSeconds);
+                if (moved) {
+                    // Mouse is moving — user is actively doing something
+                    lastMoveTime = now;
+                    lastActionTime = now;
+                    wasMoving = true;
+                    lastPos = currentPos;
                     continue;
                 }
 
-                String pathStr = result.replace("Screenshot saved: ", "").trim();
-                Path screenshotPath = Paths.get(pathStr);
-                log.info("[WatchMode] Round {} — screenshot: {}", round, screenshotPath.getFileName());
+                // Mouse is still — check if it just settled after movement
+                long stillDuration = now - lastMoveTime;
+                long sinceLastCapture = now - lastCaptureTime;
 
-                // Analyze with vision AI
-                String observation = analyzeForWatchMode(screenshotPath, purpose, round);
+                boolean settledAfterAction = wasMoving && stillDuration >= SETTLE_TIME_MS
+                        && sinceLastCapture >= MIN_CAPTURE_GAP_MS;
+                boolean idleCapture = sinceLastCapture >= MAX_IDLE_CAPTURE_MS && lastCaptureTime > 0;
 
-                long roundMs = System.currentTimeMillis() - roundStart;
+                if (settledAfterAction || idleCapture) {
+                    round++;
+                    wasMoving = false;
 
-                if (observation != null && !observation.isBlank()) {
-                    log.info("[WatchMode] Round {} — observation in {}ms ({} chars): {}",
-                            round, roundMs, observation.length(),
-                            observation.length() > 200 ? observation.substring(0, 200) + "..." : observation);
-                    asyncMessages.push(observation);
-                } else {
-                    log.warn("[WatchMode] Round {} — no observation (vision failed) in {}ms", round, roundMs);
+                    if (settledAfterAction) {
+                        log.info("[WatchMode-Click] Mouse settled after action — triggering capture (round {})", round);
+                    } else {
+                        log.info("[WatchMode-Click] Periodic 1s capture (round {})", round);
+                    }
+
+                    lastCaptureTime = now;
+                    captureAndPush(purpose, round);
                 }
 
-                sleepOrBreak(intervalSeconds);
+                // First capture: trigger on first settle even if we haven't moved yet
+                if (round == 0 && lastCaptureTime == 0) {
+                    round++;
+                    lastCaptureTime = now;
+                    log.info("[WatchMode-Click] Initial capture (round {})", round);
+                    captureAndPush(purpose, round);
+                }
+
+                lastPos = currentPos;
             }
+        } catch (InterruptedException e) {
+            log.info("[WatchMode-Click] Interrupted");
         } catch (Exception e) {
-            log.warn("[WatchMode] Loop ended with exception: {}", e.getMessage());
+            log.warn("[WatchMode-Click] Loop ended with exception: {}", e.getMessage());
         } finally {
             watching = false;
             watchThread = null;
-            log.info("[WatchMode] Ended after {} rounds", round);
+            log.info("[WatchMode-Click] Ended after {} rounds", round);
             if (round >= MAX_ROUNDS) {
-                asyncMessages.push("Watch mode ended (reached maximum observation limit).");
+                watchFeed.add("Watch mode ended (reached maximum observation limit).");
             }
         }
     }
 
-    private void sleepOrBreak(int intervalSeconds) {
+    // ═══ Interval-based watch loop (fallback) ═══
+
+    private void runIntervalWatchLoop(String purpose, int intervalSeconds) {
+        int round = 0;
         try {
-            Thread.sleep(intervalSeconds * 1000L);
+            while (watching && round < MAX_ROUNDS) {
+                round++;
+                log.info("[WatchMode-Interval] Round {}/{}", round, MAX_ROUNDS);
+                captureAndPush(purpose, round);
+                Thread.sleep(intervalSeconds * 1000L);
+            }
         } catch (InterruptedException e) {
+            log.info("[WatchMode-Interval] Interrupted");
+        } catch (Exception e) {
+            log.warn("[WatchMode-Interval] Loop ended with exception: {}", e.getMessage());
+        } finally {
             watching = false;
+            watchThread = null;
+            log.info("[WatchMode-Interval] Ended after {} rounds", round);
+            if (round >= MAX_ROUNDS) {
+                watchFeed.add("Watch mode ended (reached maximum observation limit).");
+            }
+        }
+    }
+
+    // ═══ Capture + analyze + push ═══
+
+    /**
+     * Takes a screenshot synchronously (fast ~100ms), then submits the vision
+     * analysis to a background thread so the mouse-tracking loop isn't blocked.
+     * Skips if a previous analysis is still in-flight.
+     */
+    private void captureAndPush(String purpose, int round) {
+        if (analysisInFlight.get()) {
+            log.debug("[WatchMode] Round {} — skipping, previous analysis still in-flight", round);
+            return;
+        }
+
+        // Screenshot is fast (~100ms) — do it on the watch thread
+        String result = systemControl.takeScreenshot();
+
+        if (result == null || !result.startsWith("Screenshot saved:")) {
+            log.warn("[WatchMode] Round {} — screenshot failed: {}", round, result);
+            return;
+        }
+
+        String pathStr = result.replace("Screenshot saved: ", "").trim();
+        Path screenshotPath = Paths.get(pathStr);
+        log.info("[WatchMode] Round {} — screenshot: {}", round, screenshotPath.getFileName());
+
+        // Vision analysis is slow (2-5s) — run on separate thread
+        analysisInFlight.set(true);
+        analysisExecutor.submit(() -> {
+            try {
+                long t0 = System.currentTimeMillis();
+                String observation = analyzeForWatchMode(screenshotPath, purpose, round);
+                long dt = System.currentTimeMillis() - t0;
+
+                if (observation != null && !observation.isBlank()) {
+                    log.info("[WatchMode] Round {} — observation in {}ms ({} chars): {}",
+                            round, dt, observation.length(),
+                            observation.length() > 200 ? observation.substring(0, 200) + "..." : observation);
+                    watchFeed.add(observation);
+                } else {
+                    log.warn("[WatchMode] Round {} — no observation (vision failed) in {}ms", round, dt);
+                }
+            } catch (Exception e) {
+                log.warn("[WatchMode] Round {} — analysis exception: {}", round, e.getMessage());
+            } finally {
+                analysisInFlight.set(false);
+            }
+        });
+    }
+
+    // ═══ Mouse position helper ═══
+
+    private static Point getMousePosition() {
+        try {
+            return MouseInfo.getPointerInfo().getLocation();
+        } catch (Exception e) {
+            return new Point(0, 0);
         }
     }
 
@@ -178,18 +327,18 @@ public class ScreenWatchingTools {
 
     private String analyzeForWatchMode(Path screenshotPath, String purpose, int round) {
         String prompt = buildWatchPrompt(purpose, round);
-        log.info("[WatchMode] Analysis prompt ({} chars):\n{}", prompt.length(), prompt);
+        log.info("[WatchMode] Analysis prompt ({} chars): {}", prompt.length(), prompt.replace('\n', ' '));
 
-        // Try Gemini first
+        // Try Gemini first (fast 10s timeout for watch mode)
         if (geminiVisionService.isAvailable()) {
-            log.info("[WatchMode] Sending to Gemini for analysis...");
+            log.info("[WatchMode] Sending to Gemini (quick, 10s timeout)...");
             try {
                 long t0 = System.currentTimeMillis();
-                String geminiResult = geminiVisionService.analyze(screenshotPath, prompt);
+                String geminiResult = geminiVisionService.analyzeQuick(screenshotPath, prompt);
                 long dt = System.currentTimeMillis() - t0;
                 if (geminiResult != null && !geminiResult.isBlank()) {
                     log.info("[WatchMode] Gemini SUCCESS in {}ms", dt);
-                    return geminiResult;
+                    return geminiResult.length() > 200 ? geminiResult.substring(0, 200) : geminiResult;
                 }
                 log.warn("[WatchMode] Gemini returned empty after {}ms", dt);
             } catch (Exception e) {
@@ -197,7 +346,7 @@ public class ScreenWatchingTools {
             }
         }
 
-        // Fallback: OpenAI Vision
+        // Fallback: OpenAI Vision (15s timeout)
         if (visionService.isAvailable()) {
             log.info("[WatchMode] Falling back to OpenAI Vision...");
             try {
@@ -206,7 +355,7 @@ public class ScreenWatchingTools {
                 long dt = System.currentTimeMillis() - t0;
                 if (visionResult != null && !visionResult.isBlank()) {
                     log.info("[WatchMode] OpenAI Vision SUCCESS in {}ms", dt);
-                    return visionResult;
+                    return visionResult.length() > 200 ? visionResult.substring(0, 200) : visionResult;
                 }
                 log.warn("[WatchMode] OpenAI Vision returned empty after {}ms", dt);
             } catch (Exception e) {
@@ -214,7 +363,7 @@ public class ScreenWatchingTools {
             }
         }
 
-        // Last resort: OCR
+        // Last resort: OCR (local, instant)
         try {
             List<ScreenMemoryService.OcrWord> ocrWords =
                     screenMemoryService.runOcrWithBounds(screenshotPath);
@@ -237,19 +386,14 @@ public class ScreenWatchingTools {
 
     private static String buildWatchPrompt(String purpose, int round) {
         return """
-                You are observing the user's screen in real-time (observation #%d). Your purpose: %s
+                Observation #%d. Purpose: %s
 
-                Look at this screenshot and provide a SHORT observation (1-2 sentences max).
-                - If the purpose mentions "guess" or "drawing": describe what shape or object you see \
-                being drawn and make your best guess. Be specific about shapes (circle, square, house, \
-                tree, face, etc.), colors, and progress. If the drawing is incomplete, say what it \
-                looks like so far.
-                - If the purpose mentions "watch" or "monitor": briefly describe what changed or \
-                what the user is currently doing.
-                - Be conversational and fun. React naturally to what you see.
-                - If nothing has changed since the last observation, say so briefly.
+                Reply with ONE sentence only (max 15 words). No lists, no numbering, no formatting.
+                - Drawing/guessing: name the shape or object you see ("Looks like a circle" or "That's a house").
+                - Monitoring/game: say what the user just did ("Clicked the top-left card" or "Opened Paint").
+                - Be casual and direct. No filler words.
 
-                IMPORTANT: Keep responses SHORT (1-2 sentences). This is a live feed, not a report."""
+                STRICT: One sentence. Under 15 words. Nothing else."""
                 .formatted(round, purpose);
     }
 }

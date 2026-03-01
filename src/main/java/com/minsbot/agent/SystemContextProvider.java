@@ -787,10 +787,20 @@ public class SystemContextProvider {
 
                 WATCH MODE (SCREEN OBSERVATION):
                 - When the user says "guess what I'm drawing", "watch my screen", "observe what I'm doing", \
-                "watch me", or similar → call startScreenWatch(purpose, intervalSeconds).
-                - Example: "guess what I'm drawing" → startScreenWatch("guess what the user is drawing", 5)
-                - Example: "watch my screen" → startScreenWatch("describe what the user is doing", 5)
-                - The tool runs in the background and pushes observations to the chat automatically.
+                "watch me", "help me play", "assist me with [game]", or similar → call startScreenWatch(purpose, mode).
+                - ALSO activate watch mode when the user needs continuous screen monitoring: playing games, \
+                drawing, painting, or any activity where you need to see what's happening on screen over time.
+                - Modes: "click" (default) = captures after each mouse click/draw action. \
+                "interval" = captures every 5 seconds.
+                - For drawing/guessing games, ALWAYS use "click" mode.
+                - For games and interactive activities, use "click" mode so you see each user action.
+                - Example: "guess what I'm drawing" → startScreenWatch("guess what the user is drawing", "click")
+                - Example: "watch my screen" → startScreenWatch("describe what the user is doing", "click")
+                - Example: "help me play memory game" → startScreenWatch("observe and help the user play the memory game", "click")
+                - The tool runs in the background and pushes observations to the live feed panel automatically. \
+                It detects when the user's mouse stops moving (after a click or draw stroke) and captures \
+                the screen 500ms later, so it sees the result of the action.
+                - Observations appear in a sticky panel at the bottom of the chat — NOT as regular chat messages.
                 - When the user says "stop watching", "stop guessing", "stop observing", or just "stop" \
                 → call stopScreenWatch().
                 - Do NOT use takeScreenshot in a manual loop for this — use startScreenWatch instead.

@@ -141,6 +141,29 @@ html, body {
   100% { stroke-dashoffset: -60; opacity: 0.6; }
 }
 
+/* Header watch-mode indicator (red eye) – right of ECG when watching */
+.header-watch {
+  display: none;
+  align-items: center;
+  margin-left: 6px;
+}
+.header-watch[hidden] {
+  display: none !important;
+}
+.header-watch:not([hidden]) {
+  display: inline-flex;
+}
+.watch-eye-svg {
+  width: 20px;
+  height: 14px;
+  filter: drop-shadow(0 0 3px rgba(239, 68, 68, 0.7));
+  animation: watch-eye-pulse 2s ease-in-out infinite;
+}
+@keyframes watch-eye-pulse {
+  0%, 100% { opacity: 0.7; filter: drop-shadow(0 0 3px rgba(239, 68, 68, 0.5)); }
+  50%      { opacity: 1;   filter: drop-shadow(0 0 6px rgba(239, 68, 68, 1)); }
+}
+
 .btn-icon {
   display: inline-flex;
   align-items: center;
@@ -634,6 +657,15 @@ html, body {
   border-top: 1px solid rgba(255,255,255,0.06);
 }
 
+/* Chat area — wraps messages + sticky watch feed */
+.chat-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  position: relative;
+}
+
 /* Messages */
 .messages {
   flex: 1;
@@ -643,6 +675,22 @@ html, body {
   flex-direction: column;
   gap: 4px;
   min-height: 0;
+}
+
+/* ─── Watch feed (sticky live panel — shows only latest observation) ─── */
+.watch-feed {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  background: rgba(239, 68, 68, 0.06);
+  border-top: 1px solid rgba(239, 68, 68, 0.2);
+}
+.watch-feed[hidden] {
+  display: none !important;
+}
+.watch-feed-inner {
+  font-size: 11px;
+  color: rgba(252, 165, 165, 0.9);
+  line-height: 1.4;
 }
 
 .message-wrapper {

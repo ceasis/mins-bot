@@ -18,6 +18,13 @@
               <path class="header-ecg-line" d="M0 6 L8 6 L10 2 L12 6 L14 6 L16 10 L18 6 L32 6" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
           </div>
+          <div id="header-watch" class="header-watch" hidden aria-hidden="true" title="Watch mode active">
+            <svg class="watch-eye-svg" viewBox="0 0 24 16" aria-hidden="true">
+              <path d="M1 8 C5 2, 10 0, 12 0 C14 0, 19 2, 23 8 C19 14, 14 16, 12 16 C10 16, 5 14, 1 8Z" fill="none" stroke="#ef4444" stroke-width="1.5"/>
+              <circle cx="12" cy="8" r="3.5" fill="#ef4444"/>
+              <circle cx="12" cy="8" r="1.2" fill="#1a1a2e"/>
+            </svg>
+          </div>
         </div>
         <div class="panel-actions">
           <button type="button" id="clear-btn" class="btn-icon btn-clear" title="Clear chat" aria-label="Clear chat">
@@ -37,7 +44,12 @@
         <button class="tab" data-tab="directives">Directives</button>
       </div>
       <div id="tab-chat" class="tab-content active">
-        <div id="messages" class="messages" role="log" aria-live="polite"></div>
+        <div class="chat-area">
+          <div id="messages" class="messages" role="log" aria-live="polite"></div>
+          <div id="watch-feed" class="watch-feed" hidden>
+            <div class="watch-feed-inner" id="watch-feed-inner"></div>
+          </div>
+        </div>
         <div id="quit-countdown" class="quit-countdown" aria-live="polite" hidden>
           <span id="quit-countdown-label" class="quit-countdown-label">Quitting in 30s</span>
           <div class="quit-countdown-track"><div id="quit-countdown-fill" class="quit-countdown-fill"></div></div>

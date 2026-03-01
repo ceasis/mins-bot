@@ -209,9 +209,30 @@ public class GeminiVisionService {
         }
     }
 
+    /**
+     * Fast analysis with a short timeout — for watch mode where speed matters more than reliability.
+     * Uses a 10-second timeout instead of the default 60s.
+     */
+    public String analyzeQuick(Path imagePath, String prompt) {
+        if (!isAvailable() || imagePath == null || !Files.exists(imagePath)) return null;
+        try {
+            byte[] imageBytes = Files.readAllBytes(imagePath);
+            String base64 = Base64.getEncoder().encodeToString(imageBytes);
+            String mediaType = imagePath.toString().toLowerCase().endsWith(".png") ? "image/png" : "image/jpeg";
+            return callGemini(base64, prompt, mediaType, model, 10);
+        } catch (Exception e) {
+            log.warn("[Gemini] analyzeQuick — FAILED: {}", e.getMessage());
+            return null;
+        }
+    }
+
     // ═══ Core API call ═══
 
     private String callGemini(String base64Image, String prompt, String mimeType, String modelName) {
+        return callGemini(base64Image, prompt, mimeType, modelName, 60);
+    }
+
+    private String callGemini(String base64Image, String prompt, String mimeType, String modelName, int timeoutSeconds) {
         try {
             String url = BASE_URL + modelName + ":generateContent?key=" + apiKey;
 
@@ -220,7 +241,7 @@ public class GeminiVisionService {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(url))
                     .header("Content-Type", "application/json")
-                    .timeout(Duration.ofSeconds(60))
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
                     .POST(HttpRequest.BodyPublishers.ofString(requestBody))
                     .build();
 

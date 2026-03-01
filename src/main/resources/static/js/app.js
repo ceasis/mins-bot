@@ -7,6 +7,7 @@
   const voiceStatus = document.getElementById('voice-status');
   const clearBtn = document.getElementById('clear-btn');
   const headerThinkingEl = document.getElementById('header-thinking');
+  const headerWatchEl = document.getElementById('header-watch');
   const quitCountdownEl = document.getElementById('quit-countdown');
   const quitCountdownLabel = document.getElementById('quit-countdown-label');
   const quitCountdownFill = document.getElementById('quit-countdown-fill');
@@ -89,6 +90,11 @@
     clearBtn.addEventListener('click', function () {
       messagesEl.innerHTML = '';
       appendMessage('Chat cleared. How can I help?', false);
+      // Clear watch feed panel
+      var wfInner = document.getElementById('watch-feed-inner');
+      var wfEl = document.getElementById('watch-feed');
+      if (wfInner) wfInner.innerHTML = '';
+      if (wfEl) wfEl.hidden = true;
       fetch('/api/chat/clear', { method: 'POST' }).catch(function () {});
     });
   }
@@ -623,6 +629,46 @@
       }
     } catch (e) { /* ignore */ }
   }, 2000);
+
+  // ═══ Watch mode indicator + live feed polling ═══
+
+  const watchFeedEl = document.getElementById('watch-feed');
+  const watchFeedInner = document.getElementById('watch-feed-inner');
+
+  setInterval(async function () {
+    try {
+      var res = await fetch('/api/status/watch-mode');
+      var data = await res.json();
+      if (headerWatchEl) {
+        if (data.watching) {
+          headerWatchEl.hidden = false;
+          headerWatchEl.removeAttribute('aria-hidden');
+        } else {
+          headerWatchEl.hidden = true;
+          headerWatchEl.setAttribute('aria-hidden', 'true');
+          // Hide feed panel when watch mode stops
+          if (watchFeedEl) {
+            watchFeedEl.hidden = true;
+            if (watchFeedInner) watchFeedInner.textContent = '';
+          }
+        }
+      }
+    } catch (e) { /* ignore */ }
+  }, 1000);
+
+  // Poll watch feed observations every 800ms — only show the LATEST one
+  setInterval(async function () {
+    try {
+      var res = await fetch('/api/status/watch-feed');
+      var data = await res.json();
+      if (data.observations && data.observations.length > 0) {
+        if (watchFeedEl) watchFeedEl.hidden = false;
+        // Only show the most recent observation, replacing the previous
+        var latest = data.observations[data.observations.length - 1];
+        watchFeedInner.textContent = latest;
+      }
+    } catch (e) { /* ignore */ }
+  }, 800);
 
   // ═══ Browser tab ═══
 

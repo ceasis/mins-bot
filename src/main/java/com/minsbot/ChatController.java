@@ -9,6 +9,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
+import com.minsbot.agent.tools.ScreenWatchingTools;
+
 import java.util.List;
 import java.util.Map;
 
@@ -18,10 +20,13 @@ public class ChatController {
 
     private final ChatService chatService;
     private final TranscriptService transcriptService;
+    private final ScreenWatchingTools screenWatchingTools;
 
-    public ChatController(ChatService chatService, TranscriptService transcriptService) {
+    public ChatController(ChatService chatService, TranscriptService transcriptService,
+                          ScreenWatchingTools screenWatchingTools) {
         this.chatService = chatService;
         this.transcriptService = transcriptService;
+        this.screenWatchingTools = screenWatchingTools;
     }
 
     /** Returns recent chat history for the frontend to display on load. */
@@ -63,6 +68,19 @@ public class ChatController {
     public Map<String, Object> pollToolStatus() {
         List<String> messages = chatService.drainToolStatus();
         return Map.of("messages", messages);
+    }
+
+    /** Check if screen watch mode is active (used by frontend red eye indicator). */
+    @GetMapping(value = "/status/watch-mode", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> watchModeStatus() {
+        return Map.of("watching", screenWatchingTools.isWatching());
+    }
+
+    /** Drain pending watch-mode observations for the sticky live panel. */
+    @GetMapping(value = "/status/watch-feed", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> watchFeed() {
+        List<String> observations = screenWatchingTools.drainObservations();
+        return Map.of("observations", observations);
     }
 
     /** Open a file or folder in the system file explorer. */

@@ -245,6 +245,7 @@ public class ChatService {
         if (message == null) {
             message = "";
         }
+        
         String trimmed = message.trim();
         lastActivityTime = System.currentTimeMillis();
         lastAutonomousMessageSent = null;
