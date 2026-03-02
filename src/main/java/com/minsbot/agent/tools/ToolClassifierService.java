@@ -44,7 +44,8 @@ public class ToolClassifierService {
             "chat_browser", "browser", "cdp", "sites", "files", "system", "media",
             "ai_model", "communication", "scheduling", "utility", "export",
             "plugins", "hotkeys", "tray", "screen_memory", "audio_memory",
-            "playlist", "software", "network", "printing", "excel", "screen_watching"
+            "playlist", "software", "network", "printing", "excel", "screen_watching",
+            "travel"
     );
 
     private static final String SYSTEM_PROMPT = """
@@ -73,6 +74,7 @@ public class ToolClassifierService {
             - printing: print file, print document, list printers, send to printer, default printer
             - excel: Excel spreadsheet, write cells, format cells, add sheet, read spreadsheet, workbook, xlsx, create spreadsheet
             - screen_watching: watch screen, observe, guess drawing, guess what I'm drawing, monitor screen, continuous observation, watch me, drawing game, watch my screen, help me play, assist me with game, play game with me
+            - travel: flights, hotels, travel, trip, vacation, book flight, find hotel, airfare, accommodation, search flights, search hotels, travel research, plan trip
 
             Return at most 3 of the most relevant category names, comma-separated. If none match, return: none""";
 

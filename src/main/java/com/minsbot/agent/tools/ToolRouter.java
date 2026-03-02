@@ -84,6 +84,7 @@ public class ToolRouter {
     private final PrinterTools printerTools;
     private final ScreenRecordTools screenRecordTools;
     private final ScreenWatchingTools screenWatchingTools;
+    private final TravelSearchTools travelSearchTools;
     private final GlobalHotkeyService globalHotkeyService;
     private final PluginLoaderService pluginLoaderService;
     private final SystemTrayService systemTrayService;
@@ -149,6 +150,7 @@ public class ToolRouter {
             PrinterTools printerTools,
             ScreenRecordTools screenRecordTools,
             ScreenWatchingTools screenWatchingTools,
+            TravelSearchTools travelSearchTools,
             GlobalHotkeyService globalHotkeyService,
             PluginLoaderService pluginLoaderService,
             SystemTrayService systemTrayService) {
@@ -197,6 +199,7 @@ public class ToolRouter {
         this.printerTools = printerTools;
         this.screenRecordTools = screenRecordTools;
         this.screenWatchingTools = screenWatchingTools;
+        this.travelSearchTools = travelSearchTools;
         this.globalHotkeyService = globalHotkeyService;
         this.pluginLoaderService = pluginLoaderService;
         this.systemTrayService = systemTrayService;
@@ -299,7 +302,7 @@ public class ToolRouter {
                 exportTools, sitesConfigTools, cronConfigTools,
                 screenMemoryTools, audioMemoryTools, playlistTools,
                 softwareTools, networkTools, printerTools, screenRecordTools, screenWatchingTools,
-                globalHotkeyService, pluginLoaderService, systemTrayService
+                travelSearchTools, globalHotkeyService, pluginLoaderService, systemTrayService
         };
         for (Object bean : allBeans) {
             if (bean != null && !toolCounts.containsKey(bean)) {
@@ -347,14 +350,14 @@ public class ToolRouter {
         return List.of(
                 directivesTools, directiveDataTools,
                 chatHistoryTool, taskStatusTool, clipboardTools, todoListTools,
-                personalConfigTools);
+                personalConfigTools, webSearchTools);
     }
 
     private Map<String, List<Object>> buildCategories() {
         Map<String, List<Object>> map = new LinkedHashMap<>();
 
         map.put("chat_browser", List.of(playwrightTools, downloadTools, sitesConfigTools, webSearchTools));
-        map.put("browser",      List.of(playwrightTools, downloadTools, sitesConfigTools, systemTools, chromeCdpTools, webSearchTools));
+        map.put("browser",      List.of(playwrightTools, downloadTools, sitesConfigTools, systemTools, chromeCdpTools, webSearchTools, travelSearchTools));
         map.put("cdp",          List.of(chromeCdpTools));
         map.put("sites",        List.of(sitesConfigTools));
         map.put("files",        List.of(fileTools, fileSystemTools, excelTools, systemTools));
@@ -376,6 +379,7 @@ public class ToolRouter {
         map.put("audio_memory", List.of(audioMemoryTools, playlistTools));
         map.put("playlist",     List.of(playlistTools));
         map.put("screen_watching", List.of(screenWatchingTools));
+        map.put("travel",        List.of(travelSearchTools, webSearchTools));
 
         return Collections.unmodifiableMap(map);
     }
@@ -394,13 +398,13 @@ public class ToolRouter {
         return List.of(
                 directivesTools, directiveDataTools,
                 chatHistoryTool, taskStatusTool, clipboardTools, todoListTools,
-                personalConfigTools);
+                personalConfigTools, webSearchTools);
     }
 
     private Map<String, List<Object>> buildAutonomousCategories() {
         Map<String, List<Object>> map = new LinkedHashMap<>();
 
-        map.put("browser",       List.of(playwrightTools, chromeCdpTools, webSearchTools));
+        map.put("browser",       List.of(playwrightTools, chromeCdpTools, webSearchTools, travelSearchTools));
         map.put("cdp",           List.of(chromeCdpTools));
         map.put("files",         List.of(fileTools, fileSystemTools, excelTools));
         map.put("excel",         List.of(excelTools));
@@ -413,6 +417,7 @@ public class ToolRouter {
         map.put("communication", List.of(emailTools));
         map.put("scheduling",   List.of(scheduledTaskTools, cronConfigTools));
         map.put("export",       List.of(exportTools));
+        map.put("travel",       List.of(travelSearchTools, webSearchTools));
 
         return Collections.unmodifiableMap(map);
     }

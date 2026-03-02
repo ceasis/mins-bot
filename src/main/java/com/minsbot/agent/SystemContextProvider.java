@@ -411,15 +411,18 @@ public class SystemContextProvider {
                 1. **Chrome CDP** (browserSearch, browserFillField, browserClickButton, browserGetPageText, browserNavigateCdp) \
                 — USE FIRST for interacting with the user's real browser. Works via DOM, no coordinates needed. Most reliable \
                 for typing into search boxes, filling forms, clicking buttons. Always verify with screenshot after.
-                2. **Text Web Search** (searchWeb, readWebPage) — USE FIRST for research tasks: looking up facts, \
-                prices, flights, hotels, products, news, reviews, comparisons. Returns text results, NOT images.
-                3. **Headless Playwright** (browsePage, browseAndGetImages, browseAndGetLinks, screenshotPage) \
+                2. **Travel Search** (searchFlights, searchHotels) — USE for flight and hotel searches. \
+                These use Google Flights/Hotels URL parameters to get direct results with prices. \
+                Example: "search flights from Manila to Taiwan" → searchFlights("Manila", "Taipei", "2026-04-15", "2026-04-22")
+                3. **Text Web Search** (searchWeb, readWebPage) — USE for general research: facts, \
+                prices, products, news, reviews, comparisons. Returns text results, NOT images.
+                4. **Headless Playwright** (browsePage, browseAndGetImages, browseAndGetLinks, screenshotPage) \
                 — USE for background data gathering on specific URLs, image download. The user doesn't see this browser. \
                 Has stealth/anti-detection built in. Good for scraping sites that block simple HTTP requests.
-                4. **Screenshot + mouse/keyboard** (takeScreenshot → mouseClick → sendKeys) \
+                5. **Screenshot + mouse/keyboard** (takeScreenshot → mouseClick → sendKeys) \
                 — FALLBACK when CDP and Playwright can't handle the task. Use for visual interactions where you need \
                 to see the screen and click at specific coordinates. Always verify with another screenshot.
-                FLOW: For research → searchWeb first. For interaction → CDP first → Playwright → screenshot+mouse.
+                FLOW: For flights/hotels → searchFlights/searchHotels. For research → searchWeb. For interaction → CDP → Playwright → screenshot+mouse.
 
                 BROWSER RULES:
                 - TAB REUSE: The openUrl tool AUTOMATICALLY checks if the browser already has the same site open \
