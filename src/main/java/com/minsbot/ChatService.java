@@ -744,27 +744,34 @@ public class ChatService {
 
                     For each actionable directive, gather relevant information using the tools available.
 
-                    WEB RESEARCH — you have TWO levels of headless browsing (no visible window):
+                    WEB RESEARCH — use the right tool for the job:
 
-                    LEVEL 1 — Playwright (real browser, renders JavaScript, preferred for dynamic sites):
+                    TEXT SEARCH (for research, facts, prices, flights, hotels, reviews, etc.):
+                    - searchWeb(query) — search the web and return text results (titles, snippets, links). \
+                    USE THIS for any research task: flights, hotels, prices, facts, news, comparisons.
+                    - readWebPage(url) — fetch a specific page and return readable text content.
+
+                    IMAGE DOWNLOAD (ONLY when user wants to collect image files):
+                    - browseSearchAndDownloadImages(query, directiveName, maxImages) — download image files \
+                    using a real browser.
+                    - searchAndDownloadImages(query, directiveName, maxImages) — download image files via HTTP.
+
+                    HEADLESS BROWSING (for JS-heavy sites, forms, clicking):
                     - browsePage(url) — navigate with a real Chromium browser and get rendered text.
                     - browseAndGetImages(url) — extract all image URLs after JS renders.
                     - browseAndGetLinks(url) — extract all links after JS renders.
-                    - browseSearchAndDownloadImages(query, directiveName, maxImages) — search Google/Bing \
-                    Images with a real browser, find full-size image URLs, download them to the directive folder.
                     - screenshotPage(url, directiveName) — take a full-page screenshot and save it.
                     - browseAndClick(url, selector) — click an element on a page.
                     - browseAndFill(url, selector, value, submit) — fill a form and optionally submit.
 
-                    LEVEL 2 — HTTP fetch (lighter, faster, for simple/static pages):
+                    HTTP FETCH (lighter, faster, for simple/static pages):
                     - fetchPageText(url) — simple HTTP fetch and strip HTML.
                     - extractImageUrls(url), extractLinks(url) — regex-based extraction.
-                    - searchAndDownloadImages(query, directiveName, maxImages) — HTTP-based image search.
                     - downloadFileToFolder(url, filename, directiveName) — download any file from a URL.
                     - fetchPageWithImages(url) — get both text and image URLs.
 
-                    PREFER Playwright tools (browseSearchAndDownloadImages, browsePage) for image search \
-                    and JS-heavy sites. Use HTTP fetch tools as a faster fallback for simple pages.
+                    IMPORTANT: When the user asks to "research", "look up", "find information about", \
+                    "search for flights/hotels/prices" — use searchWeb(), NOT image download tools.
                     Do NOT open the system browser. These tools work silently in the background.
 
                     SAVING DATA:
@@ -799,10 +806,10 @@ public class ChatService {
                 Then act on it.
 
                 REMINDER — web research tools (headless, no visible browser):
-                Playwright (preferred): browsePage, browseAndGetImages, browseAndGetLinks, \
-                browseSearchAndDownloadImages, screenshotPage, browseAndClick, browseAndFill.
-                HTTP fetch (lighter): fetchPageText, extractImageUrls, extractLinks, fetchPageWithImages.
-                Downloads: browseSearchAndDownloadImages, searchAndDownloadImages, downloadFile, downloadFileToFolder.
+                Text search: searchWeb(query), readWebPage(url) — USE THESE for research tasks.
+                Headless browser: browsePage, browseAndGetLinks, browseAndClick, browseAndFill.
+                Image downloads ONLY: browseSearchAndDownloadImages, searchAndDownloadImages.
+                IMPORTANT: For research (flights, hotels, prices, facts) use searchWeb, NOT image tools.
 
                 SAVING DATA:
                 - Text: saveDirectiveFinding(directiveName, content)

@@ -109,10 +109,10 @@ public class PlaywrightTools {
         }
     }
 
-    @Tool(description = "Search for images on the web using a real browser, download them, and save " +
-            "to a directive's folder. Uses Google/Bing image search with a real rendered browser " +
-            "so it can find images that simple HTTP scraping misses. Downloads the EXACT count " +
-            "requested — checks existing files in the folder and continues until the target is met.")
+    @Tool(description = "IMAGE DOWNLOAD ONLY — search for images using a real browser, download image files, " +
+            "and save to a directive's folder. Use ONLY when the user wants to collect/download image files. " +
+            "For text-based research (facts, prices, flights, hotels, reviews, etc.) use searchWeb instead. " +
+            "Downloads the EXACT count requested.")
     public String browseSearchAndDownloadImages(
             @ToolParam(description = "Search query for images, e.g. 'condos for sale new york'") String query,
             @ToolParam(description = "Directive name to save images into") String directiveName,

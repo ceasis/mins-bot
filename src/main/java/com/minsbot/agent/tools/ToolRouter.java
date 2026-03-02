@@ -42,6 +42,7 @@ public class ToolRouter {
     private final PlaywrightTools playwrightTools;
     private final DownloadTools downloadTools;
     private final WebScraperTools webScraperTools;
+    private final WebSearchTools webSearchTools;
     private final BrowserTools browserTools;
 
     private final FileTools fileTools;
@@ -114,6 +115,7 @@ public class ToolRouter {
             PlaywrightTools playwrightTools,
             DownloadTools downloadTools,
             WebScraperTools webScraperTools,
+            WebSearchTools webSearchTools,
             BrowserTools browserTools,
             ChromeCdpTools chromeCdpTools,
             FileTools fileTools,
@@ -161,6 +163,7 @@ public class ToolRouter {
         this.playwrightTools = playwrightTools;
         this.downloadTools = downloadTools;
         this.webScraperTools = webScraperTools;
+        this.webSearchTools = webSearchTools;
         this.browserTools = browserTools;
         this.chromeCdpTools = chromeCdpTools;
         this.fileTools = fileTools;
@@ -286,7 +289,7 @@ public class ToolRouter {
         Object[] allBeans = {
                 directivesTools, directiveDataTools,
                 chatHistoryTool, taskStatusTool, clipboardTools, todoListTools, personalConfigTools,
-                playwrightTools, downloadTools, webScraperTools, browserTools, chromeCdpTools,
+                playwrightTools, downloadTools, webScraperTools, webSearchTools, browserTools, chromeCdpTools,
                 fileTools, fileSystemTools, excelTools, systemTools,
                 imageTools, pdfTools, ttsTools,
                 localModelTools, huggingFaceImageTool, summarizationTools, modelSwitchTools,
@@ -350,8 +353,8 @@ public class ToolRouter {
     private Map<String, List<Object>> buildCategories() {
         Map<String, List<Object>> map = new LinkedHashMap<>();
 
-        map.put("chat_browser", List.of(playwrightTools, downloadTools, sitesConfigTools));
-        map.put("browser",      List.of(playwrightTools, downloadTools, sitesConfigTools, systemTools, chromeCdpTools));
+        map.put("chat_browser", List.of(playwrightTools, downloadTools, sitesConfigTools, webSearchTools));
+        map.put("browser",      List.of(playwrightTools, downloadTools, sitesConfigTools, systemTools, chromeCdpTools, webSearchTools));
         map.put("cdp",          List.of(chromeCdpTools));
         map.put("sites",        List.of(sitesConfigTools));
         map.put("files",        List.of(fileTools, fileSystemTools, excelTools, systemTools));
@@ -397,7 +400,7 @@ public class ToolRouter {
     private Map<String, List<Object>> buildAutonomousCategories() {
         Map<String, List<Object>> map = new LinkedHashMap<>();
 
-        map.put("browser",       List.of(playwrightTools, chromeCdpTools));
+        map.put("browser",       List.of(playwrightTools, chromeCdpTools, webSearchTools));
         map.put("cdp",           List.of(chromeCdpTools));
         map.put("files",         List.of(fileTools, fileSystemTools, excelTools));
         map.put("excel",         List.of(excelTools));

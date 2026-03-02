@@ -20,6 +20,8 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Screen watch mode — continuous background screen observation with AI vision analysis.
@@ -346,66 +348,130 @@ public class ScreenWatchingTools {
 
     // ═══ Route observation to watch feed or chat ═══
 
+    /** Matches [REACT x,y] with coordinates, or [REACT] without. */
+    private static final Pattern REACT_WITH_COORDS = Pattern.compile(
+            "\\[REACT\\s+(\\d+)\\s*,\\s*(\\d+)\\]\\s*(.+)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern REACT_NO_COORDS = Pattern.compile(
+            "\\[REACT\\]\\s*(.+)", Pattern.CASE_INSENSITIVE);
+
     private void routeObservation(String observation) {
         String text = observation.trim();
-        String clean;
 
-        if (text.startsWith("[REACT]")) {
-            clean = text.substring(7).trim();
-            if (!clean.isBlank()) {
-                // Semantic dedup: skip if similar to any recent REACT
-                if (isSimilarToRecent(clean)) {
-                    log.debug("[WatchMode] REACT semantically similar to recent — skipping");
-                } else {
-                    if (controlEnabled) {
-                        log.info("[WatchMode] REACT → Alt+Tab to previous window then typing: {}", clean);
-                        try {
-                            // Record mouse position before switching — if user moves mouse, abort
-                            Point mouseBeforeSwitch = getMousePosition();
+        // Split into lines — multi-line REACT means multiple fields to fill
+        String[] lines = text.split("\\r?\\n");
 
-                            // Alt+Tab switches to the user's last active app (away from MinsBot)
-                            systemControl.switchToPreviousWindow();
+        // Collect all REACT entries and the display text for the watch feed
+        java.util.List<ReactEntry> reactEntries = new java.util.ArrayList<>();
+        StringBuilder feedText = new StringBuilder();
 
-                            // Safety: check if user moved the mouse during the switch (taking control)
-                            Point mouseAfterSwitch = getMousePosition();
-                            if (mouseBeforeSwitch.distance(mouseAfterSwitch) > 10) {
-                                log.info("[WatchMode] REACT aborted — user moved mouse during switch ({}px)",
-                                        String.format("%.0f", mouseBeforeSwitch.distance(mouseAfterSwitch)));
-                            } else {
-                                // Safety: verify we actually left MinsBot's window
-                                String fg = systemControl.getForegroundWindowTitle();
-                                if (fg != null && fg.toLowerCase().contains("mins bot")) {
-                                    log.warn("[WatchMode] REACT aborted — still on MinsBot window after Alt+Tab ('{}')", fg);
-                                } else {
-                                    log.info("[WatchMode] REACT → typing into '{}': {}", fg, clean);
-                                    systemControl.typeViaRobotWithAbort(clean);
-                                }
-                            }
-                        } catch (Exception e) {
-                            log.warn("[WatchMode] switchToPreviousWindow+type failed: {}", e.getMessage());
-                        }
-                    } else {
-                        log.info("[WatchMode] REACT (control disabled, not typing): {}", clean);
-                    }
-                    addToRecent(clean);
+        for (String line : lines) {
+            String trimmed = line.trim();
+            if (trimmed.isEmpty()) continue;
+
+            Matcher coordMatcher = REACT_WITH_COORDS.matcher(trimmed);
+            Matcher noCoordMatcher = REACT_NO_COORDS.matcher(trimmed);
+
+            if (coordMatcher.matches()) {
+                int x = Integer.parseInt(coordMatcher.group(1));
+                int y = Integer.parseInt(coordMatcher.group(2));
+                String answer = coordMatcher.group(3).trim();
+                if (!answer.isBlank()) {
+                    reactEntries.add(new ReactEntry(x, y, answer));
+                    if (feedText.length() > 0) feedText.append(" | ");
+                    feedText.append(answer);
                 }
-                watchFeed.add(clean);
+            } else if (noCoordMatcher.matches()) {
+                String answer = noCoordMatcher.group(1).trim();
+                if (!answer.isBlank()) {
+                    reactEntries.add(new ReactEntry(-1, -1, answer)); // no coords
+                    if (feedText.length() > 0) feedText.append(" | ");
+                    feedText.append(answer);
+                }
+            } else if (trimmed.toUpperCase().startsWith("[OBSERVE]")) {
+                String obs = trimmed.substring(9).trim();
+                if (!obs.isBlank()) {
+                    watchFeed.add(obs);
+                    latestObservation = obs;
+                }
+                return; // OBSERVE = nothing to type
+            } else {
+                // Fallback: treat as plain observation
+                watchFeed.add(trimmed);
+                latestObservation = trimmed;
+                return;
             }
-        } else if (text.startsWith("[OBSERVE]")) {
-            clean = text.substring(9).trim();
-            if (!clean.isBlank()) {
-                watchFeed.add(clean);
-            }
-        } else {
-            clean = text;
-            watchFeed.add(text);
         }
 
-        // Always store the latest observation for main AI context
-        if (clean != null && !clean.isBlank()) {
-            latestObservation = clean;
+        if (reactEntries.isEmpty()) return;
+
+        String allText = feedText.toString();
+        watchFeed.add(allText);
+        latestObservation = allText;
+
+        // Semantic dedup: skip if similar to any recent REACT
+        if (isSimilarToRecent(allText)) {
+            log.debug("[WatchMode] REACT semantically similar to recent — skipping typing");
+            return;
+        }
+        addToRecent(allText);
+
+        if (!controlEnabled) {
+            log.info("[WatchMode] REACT (control disabled, not typing): {}", allText);
+            return;
+        }
+
+        // Execute: switch to user's app, then click+type each entry
+        log.info("[WatchMode] REACT → {} entries to type: {}", reactEntries.size(), allText);
+        try {
+            // Record mouse position before switching — if user moves mouse, abort
+            Point mouseBeforeSwitch = getMousePosition();
+
+            // Alt+Tab switches to the user's last active app (away from MinsBot)
+            systemControl.switchToPreviousWindow();
+
+            // Safety: check if user moved the mouse during the switch (taking control)
+            Point mouseAfterSwitch = getMousePosition();
+            if (mouseBeforeSwitch.distance(mouseAfterSwitch) > 10) {
+                log.info("[WatchMode] REACT aborted — user moved mouse during switch ({}px)",
+                        String.format("%.0f", mouseBeforeSwitch.distance(mouseAfterSwitch)));
+                return;
+            }
+
+            // Safety: verify we actually left MinsBot's window
+            String fg = systemControl.getForegroundWindowTitle();
+            if (fg != null && fg.toLowerCase().contains("mins bot")) {
+                log.warn("[WatchMode] REACT aborted — still on MinsBot window after Alt+Tab ('{}')", fg);
+                return;
+            }
+
+            log.info("[WatchMode] REACT → typing into '{}'", fg);
+
+            // Type each entry: click at coordinates (if provided), then type
+            for (ReactEntry entry : reactEntries) {
+                // Check user override before each entry
+                Point currentMouse = getMousePosition();
+                if (mouseBeforeSwitch.distance(currentMouse) > 10) {
+                    log.info("[WatchMode] REACT aborted mid-sequence — user moved mouse");
+                    return;
+                }
+
+                if (entry.x >= 0 && entry.y >= 0) {
+                    // Click at the target position to place cursor there
+                    log.info("[WatchMode] Clicking at ({}, {}) then typing: {}", entry.x, entry.y, entry.text);
+                    systemControl.mouseClick(entry.x, entry.y, "left");
+                    Thread.sleep(200); // let click register and cursor settle
+                }
+
+                systemControl.typeViaRobotWithAbort(entry.text);
+                Thread.sleep(150); // small gap between entries
+            }
+        } catch (Exception e) {
+            log.warn("[WatchMode] REACT typing failed: {}", e.getMessage());
         }
     }
+
+    /** A single REACT entry with optional screen coordinates and the text to type. */
+    private record ReactEntry(int x, int y, String text) {}
 
     // ═══ Semantic deduplication ═══
 
@@ -527,9 +593,12 @@ public class ScreenWatchingTools {
         return null;
     }
 
-    private static String buildWatchPrompt(String purpose, int round) {
+    private String buildWatchPrompt(String purpose, int round) {
+        java.awt.Dimension screen = java.awt.Toolkit.getDefaultToolkit().getScreenSize();
         return """
                 Observation #%d. Purpose: %s
+                Screen resolution: %dx%d
+
                 You are a helpful assistant actively watching the user's screen. Look at this screenshot.
 
                 You MUST participate and help — not just observe. Use [REACT] to respond, [OBSERVE] only \
@@ -549,17 +618,32 @@ public class ScreenWatchingTools {
                 - The screen shows content that doesn't ask for or need your contribution
                 - Drawing/creating something where describing what you see is the purpose
 
-                Examples:
-                - "Top 3 Sci Fi Movies? 1. 2. 3." → [REACT] 1. Blade Runner 2049  2. Interstellar  3. Dune
-                - "Best programming languages: 1.__ 2.__ 3.__" → [REACT] 1. Python  2. Java  3. Rust
-                - "what is 2+2?" → [REACT] 2 + 2 = 4
-                - "translate hello to spanish" → [REACT] "Hello" in Spanish is "Hola"
-                - "Name 5 fruits:" → [REACT] Apple, Banana, Mango, Strawberry, Orange
+                REACT FORMAT — you MUST include pixel coordinates of WHERE to type:
+                  [REACT x,y] your answer text
+                - x,y = pixel coordinates of the exact spot the answer should be typed
+                - Look at blank spaces, underscores, empty lines, text cursors, or input fields on screen
+                - Click-to-type: the bot will click at (x,y) then type your text there
+                - For MULTIPLE fields, use MULTIPLE lines — one per field:
+                  [REACT x1,y1] first answer
+                  [REACT x2,y2] second answer
+                - Place coordinates RIGHT AFTER where the label/number ends (e.g. after "1." or after the colon)
+                - If you cannot determine coordinates, use [REACT] without them (types at cursor)
+
+                Examples with a %dx%d screen:
+                - "Top 3 Sci Fi Movies?" with blanks at y=200,250,300 near x=400:
+                  [REACT 400,200] Blade Runner 2049
+                  [REACT 400,250] Interstellar
+                  [REACT 400,300] Dune
+                - "what is 2+2?" with answer area at (500,350):
+                  [REACT 500,350] 4
+                - "translate hello to spanish" with blank at (600,400):
+                  [REACT 600,400] Hola
                 - User is browsing YouTube → [OBSERVE] User is watching a YouTube video.
                 - User is drawing in Paint → [OBSERVE] User is drawing a red circle in Paint.
 
-                STRICT: Always start with [REACT] or [OBSERVE]. Keep it short (1-3 sentences max). \
+                STRICT: Always start lines with [REACT x,y] or [OBSERVE]. Keep answers SHORT. \
                 When in doubt, REACT — be helpful and participate!"""
-                .formatted(round, purpose);
+                .formatted(round, purpose, screen.width, screen.height,
+                        screen.width, screen.height);
     }
 }

@@ -51,7 +51,7 @@ public class ToolClassifierService {
             You are a tool router. Given a user message, return which tool categories are needed.
             Categories:
             - chat_browser: browsing in the built-in chat browser
-            - browser: web search, URLs, opening websites, tabs, browse internet, navigate website, research online, find information on website, YouTube, extract data from web, scrape page, type into search box, browser search
+            - browser: web search, URLs, opening websites, tabs, browse internet, navigate website, research online, find information on website, YouTube, extract data from web, scrape page, type into search box, browser search, search for flights, search for hotels, look up prices, find products, research topic, compare options, find reviews, search the web
             - cdp: type into browser search box, fill browser form field, click browser button via DOM, list chrome tabs, read page text from chrome tab, browser automation via CDP
             - sites: login credentials, saved sites, passwords
             - files: programmatic file/folder operations, disk, zip, read/write files, file paths

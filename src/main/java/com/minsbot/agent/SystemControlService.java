@@ -565,6 +565,65 @@ public class SystemControlService {
         }
     }
 
+    /**
+     * Type text via Robot but abort immediately if the user moves the mouse.
+     * Checks mouse position every 5 characters — if it moved more than 10px
+     * from where it was at the start, the user is taking control and we stop.
+     */
+    public String typeViaRobotWithAbort(String text) {
+        if (text == null || text.isEmpty()) return "Nothing to type.";
+        try {
+            Robot robot = new Robot();
+            robot.setAutoDelay(30);
+
+            java.awt.Point startPos = java.awt.MouseInfo.getPointerInfo().getLocation();
+            int charsTyped = 0;
+
+            int i = 0;
+            while (i < text.length()) {
+                // Every 5 characters, check if user moved the mouse
+                if (charsTyped > 0 && charsTyped % 5 == 0) {
+                    java.awt.Point now = java.awt.MouseInfo.getPointerInfo().getLocation();
+                    if (startPos.distance(now) > 10) {
+                        log.info("[typeViaRobotWithAbort] User moved mouse — aborting after {} of {} chars",
+                                charsTyped, text.length());
+                        return "Aborted typing — user took control of mouse.";
+                    }
+                }
+
+                // Check for special key tokens like {ENTER}, {TAB}, etc.
+                if (text.charAt(i) == '{') {
+                    int close = text.indexOf('}', i);
+                    if (close > i) {
+                        String token = text.substring(i + 1, close).toUpperCase();
+                        switch (token) {
+                            case "ENTER" -> { robot.keyPress(java.awt.event.KeyEvent.VK_ENTER); robot.keyRelease(java.awt.event.KeyEvent.VK_ENTER); }
+                            case "TAB" -> { robot.keyPress(java.awt.event.KeyEvent.VK_TAB); robot.keyRelease(java.awt.event.KeyEvent.VK_TAB); }
+                            case "ESC", "ESCAPE" -> { robot.keyPress(java.awt.event.KeyEvent.VK_ESCAPE); robot.keyRelease(java.awt.event.KeyEvent.VK_ESCAPE); }
+                            case "BACKSPACE", "BS" -> { robot.keyPress(java.awt.event.KeyEvent.VK_BACK_SPACE); robot.keyRelease(java.awt.event.KeyEvent.VK_BACK_SPACE); }
+                            case "DELETE", "DEL" -> { robot.keyPress(java.awt.event.KeyEvent.VK_DELETE); robot.keyRelease(java.awt.event.KeyEvent.VK_DELETE); }
+                            default -> log.debug("[typeViaRobotWithAbort] Unknown token: {}", token);
+                        }
+                        robot.delay(50);
+                        i = close + 1;
+                        charsTyped++;
+                        continue;
+                    }
+                }
+
+                typeChar(robot, text.charAt(i));
+                i++;
+                charsTyped++;
+            }
+
+            log.info("[typeViaRobotWithAbort] Typed all {} characters", charsTyped);
+            return "Typed '" + text + "' via Robot.";
+        } catch (Exception e) {
+            log.error("[typeViaRobotWithAbort] Failed: {}", e.getMessage());
+            return "Robot typing failed: " + e.getMessage();
+        }
+    }
+
     /** Type a single character using Robot, handling uppercase and symbols. */
     private void typeChar(Robot robot, char c) {
         try {

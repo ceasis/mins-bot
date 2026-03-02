@@ -157,9 +157,9 @@ public class WebScraperTools {
         }
     }
 
-    @Tool(description = "Search the web for images matching a query, download them, and save to a directive's " +
-            "data folder. This is the main tool for finding and collecting images from the internet. " +
-            "Downloads up to maxImages images.")
+    @Tool(description = "IMAGE DOWNLOAD ONLY — search the web for images matching a query, download image files, " +
+            "and save to a directive's data folder. Use ONLY when the user wants to collect/download image files. " +
+            "For text-based research (facts, prices, flights, hotels, reviews, etc.) use searchWeb instead.")
     public String searchAndDownloadImages(
             @ToolParam(description = "Search query for images, e.g. 'condos for sale new york'") String query,
             @ToolParam(description = "Directive name to save images into (e.g. 'search-condo-new-york')") String directiveName,

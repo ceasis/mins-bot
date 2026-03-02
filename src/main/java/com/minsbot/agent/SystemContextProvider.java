@@ -411,13 +411,15 @@ public class SystemContextProvider {
                 1. **Chrome CDP** (browserSearch, browserFillField, browserClickButton, browserGetPageText, browserNavigateCdp) \
                 — USE FIRST for interacting with the user's real browser. Works via DOM, no coordinates needed. Most reliable \
                 for typing into search boxes, filling forms, clicking buttons. Always verify with screenshot after.
-                2. **Headless Playwright** (browsePage, browseAndGetImages, browseAndGetLinks, screenshotPage) \
-                — USE for background data gathering, research, image search/download. The user doesn't see this browser. \
+                2. **Text Web Search** (searchWeb, readWebPage) — USE FIRST for research tasks: looking up facts, \
+                prices, flights, hotels, products, news, reviews, comparisons. Returns text results, NOT images.
+                3. **Headless Playwright** (browsePage, browseAndGetImages, browseAndGetLinks, screenshotPage) \
+                — USE for background data gathering on specific URLs, image download. The user doesn't see this browser. \
                 Has stealth/anti-detection built in. Good for scraping sites that block simple HTTP requests.
-                3. **Screenshot + mouse/keyboard** (takeScreenshot → mouseClick → sendKeys) \
+                4. **Screenshot + mouse/keyboard** (takeScreenshot → mouseClick → sendKeys) \
                 — FALLBACK when CDP and Playwright can't handle the task. Use for visual interactions where you need \
                 to see the screen and click at specific coordinates. Always verify with another screenshot.
-                FLOW: Try CDP first → if CDP fails, try Playwright headless → if both fail, use screenshot+mouse.
+                FLOW: For research → searchWeb first. For interaction → CDP first → Playwright → screenshot+mouse.
 
                 BROWSER RULES:
                 - TAB REUSE: The openUrl tool AUTOMATICALLY checks if the browser already has the same site open \
@@ -437,7 +439,7 @@ public class SystemContextProvider {
                 - ONLY use the built-in chat browser tools (openInBrowserTab, searchInBrowser, searchImagesInBrowser, \
                 collectImagesFromBrowser, readBrowserPage, downloadImagesFromBrowser) when the user explicitly says \
                 "in-browser", "chat browser", "in the chat browser", or similar phrases indicating the Mins Bot built-in browser.
-                - For research/information gathering that doesn't need the user to see it, use the headless browsePage tool.
+                - For research/information gathering, use searchWeb(query) first. Use browsePage only for specific URLs.
 
                 ACTION VERBS MEAN PHYSICAL INTERACTION (MANDATORY):
                 - When the user uses ANY of these verbs, they mean PHYSICALLY interact using tools:
