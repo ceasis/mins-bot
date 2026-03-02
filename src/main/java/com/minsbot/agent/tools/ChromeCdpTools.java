@@ -177,7 +177,8 @@ public class ChromeCdpTools {
     }
 
     @Tool(description = "Navigate an existing Chrome tab to a new URL via CDP. "
-            + "Finds the tab by URL pattern, then navigates it. More reliable than keyboard-based navigation.")
+            + "Finds the tab by URL pattern, then navigates it. If the tab has content loaded "
+            + "(not a blank/new tab), opens a NEW tab instead to avoid losing the user's page.")
     public String browserNavigateCdp(
             @ToolParam(description = "Part of the current URL to find the tab, e.g. 'google.com'")
             String siteUrlContains,
@@ -189,6 +190,14 @@ public class ChromeCdpTools {
             Page page = cdpService.findPageByUrl(siteUrlContains);
             if (page == null) return "FAILED: No tab found containing '" + siteUrlContains + "' in URL.";
 
+            // Check if tab has real content — if so, open new tab instead
+            String currentUrl = page.url();
+            if (hasContent(currentUrl)) {
+                page = cdpService.openPage(newUrl);
+                cdpService.activatePage(page);
+                return "Opened NEW tab (existing tab had content): " + page.url() + " | Title: " + page.title();
+            }
+
             cdpService.activatePage(page);
             page.navigate(newUrl);
             page.waitForLoadState(LoadState.DOMCONTENTLOADED);
@@ -197,5 +206,33 @@ public class ChromeCdpTools {
         } catch (Exception e) {
             return "FAILED: browserNavigateCdp: " + e.getMessage();
         }
+    }
+
+    @Tool(description = "Open a URL in a NEW Chrome tab via CDP. Never overwrites existing tabs. "
+            + "Use this to open booking links, search results, or any URL the user wants to see.")
+    public String browserOpenNewTab(
+            @ToolParam(description = "The URL to open in a new tab") String url) {
+        notifier.notify("Opening new tab: " + url);
+        try {
+            cdpService.ensureConnected();
+            Page page = cdpService.openPage(url);
+            cdpService.activatePage(page);
+            return "Opened new tab: " + page.url() + " | Title: " + page.title();
+        } catch (Exception e) {
+            return "FAILED: browserOpenNewTab: " + e.getMessage();
+        }
+    }
+
+    /** Check if a URL represents a page with real content (not blank/new tab). */
+    private boolean hasContent(String url) {
+        if (url == null || url.isBlank()) return false;
+        String lower = url.toLowerCase();
+        // These are "empty" tab URLs
+        return !lower.equals("about:blank")
+                && !lower.equals("chrome://newtab/")
+                && !lower.equals("chrome://new-tab-page/")
+                && !lower.startsWith("chrome://newtab")
+                && !lower.equals("edge://newtab/")
+                && !lower.equals("");
     }
 }

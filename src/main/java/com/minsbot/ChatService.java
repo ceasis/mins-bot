@@ -467,9 +467,31 @@ public class ChatService {
         return fallback;
     }
 
-    /** Auto-speak the reply if TTS auto_speak is enabled. Non-blocking (runs on background thread). */
+    /** Auto-speak the reply if TTS auto_speak is enabled. Non-blocking (runs on background thread).
+     *  Long replies (>50 chars) are summarized first so TTS doesn't read a wall of text. */
     private void autoSpeak(String reply) {
-        if (ttsTools.isAutoSpeak()) {
+        if (!ttsTools.isAutoSpeak() || reply == null || reply.isBlank()) return;
+
+        if (reply.length() > 50 && chatClient != null) {
+            // Summarize long replies before speaking — runs in background to avoid blocking
+            Thread t = new Thread(() -> {
+                try {
+                    String summary = chatClient.prompt()
+                            .user("Summarize this chatbot response in 1-2 short sentences for text-to-speech. "
+                                    + "Be concise and conversational. Only output the summary, nothing else:\n\n" + reply)
+                            .call()
+                            .content();
+                    if (summary != null && !summary.isBlank()) {
+                        ttsTools.speakAsync(summary);
+                    }
+                } catch (Exception e) {
+                    log.debug("[TTS] Summarization failed, speaking truncated: {}", e.getMessage());
+                    ttsTools.speakAsync(reply.substring(0, Math.min(reply.length(), 100)));
+                }
+            }, "tts-summarize");
+            t.setDaemon(true);
+            t.start();
+        } else {
             ttsTools.speakAsync(reply);
         }
     }

@@ -85,6 +85,7 @@ public class ToolRouter {
     private final ScreenRecordTools screenRecordTools;
     private final ScreenWatchingTools screenWatchingTools;
     private final TravelSearchTools travelSearchTools;
+    private final WordDocTools wordDocTools;
     private final GlobalHotkeyService globalHotkeyService;
     private final PluginLoaderService pluginLoaderService;
     private final SystemTrayService systemTrayService;
@@ -151,6 +152,7 @@ public class ToolRouter {
             ScreenRecordTools screenRecordTools,
             ScreenWatchingTools screenWatchingTools,
             TravelSearchTools travelSearchTools,
+            WordDocTools wordDocTools,
             GlobalHotkeyService globalHotkeyService,
             PluginLoaderService pluginLoaderService,
             SystemTrayService systemTrayService) {
@@ -200,6 +202,7 @@ public class ToolRouter {
         this.screenRecordTools = screenRecordTools;
         this.screenWatchingTools = screenWatchingTools;
         this.travelSearchTools = travelSearchTools;
+        this.wordDocTools = wordDocTools;
         this.globalHotkeyService = globalHotkeyService;
         this.pluginLoaderService = pluginLoaderService;
         this.systemTrayService = systemTrayService;
@@ -302,7 +305,7 @@ public class ToolRouter {
                 exportTools, sitesConfigTools, cronConfigTools,
                 screenMemoryTools, audioMemoryTools, playlistTools,
                 softwareTools, networkTools, printerTools, screenRecordTools, screenWatchingTools,
-                travelSearchTools, globalHotkeyService, pluginLoaderService, systemTrayService
+                travelSearchTools, wordDocTools, globalHotkeyService, pluginLoaderService, systemTrayService
         };
         for (Object bean : allBeans) {
             if (bean != null && !toolCounts.containsKey(bean)) {
@@ -360,7 +363,7 @@ public class ToolRouter {
         map.put("browser",      List.of(playwrightTools, downloadTools, sitesConfigTools, systemTools, chromeCdpTools, webSearchTools, travelSearchTools));
         map.put("cdp",          List.of(chromeCdpTools));
         map.put("sites",        List.of(sitesConfigTools));
-        map.put("files",        List.of(fileTools, fileSystemTools, excelTools, systemTools));
+        map.put("files",        List.of(fileTools, fileSystemTools, excelTools, systemTools, wordDocTools, pdfTools));
         map.put("excel",        List.of(excelTools));
         map.put("system",       List.of(systemTools, softwareTools, screenRecordTools));
         map.put("software",    List.of(softwareTools));
@@ -379,7 +382,7 @@ public class ToolRouter {
         map.put("audio_memory", List.of(audioMemoryTools, playlistTools));
         map.put("playlist",     List.of(playlistTools));
         map.put("screen_watching", List.of(screenWatchingTools));
-        map.put("travel",        List.of(travelSearchTools, webSearchTools));
+        map.put("travel",        List.of(travelSearchTools, webSearchTools, wordDocTools, pdfTools));
 
         return Collections.unmodifiableMap(map);
     }
@@ -406,18 +409,18 @@ public class ToolRouter {
 
         map.put("browser",       List.of(playwrightTools, chromeCdpTools, webSearchTools, travelSearchTools));
         map.put("cdp",           List.of(chromeCdpTools));
-        map.put("files",         List.of(fileTools, fileSystemTools, excelTools));
+        map.put("files",         List.of(fileTools, fileSystemTools, excelTools, wordDocTools, pdfTools));
         map.put("excel",         List.of(excelTools));
         map.put("system",        List.of(systemTools, softwareTools));
         map.put("software",     List.of(softwareTools));
         map.put("network",      List.of(networkTools));
         map.put("printing",     List.of(printerTools));
-        map.put("media",        List.of(imageTools));
+        map.put("media",        List.of(imageTools, pdfTools));
         map.put("ai_model",     List.of(localModelTools, summarizationTools));
         map.put("communication", List.of(emailTools));
         map.put("scheduling",   List.of(scheduledTaskTools, cronConfigTools));
         map.put("export",       List.of(exportTools));
-        map.put("travel",       List.of(travelSearchTools, webSearchTools));
+        map.put("travel",       List.of(travelSearchTools, webSearchTools, wordDocTools, pdfTools));
 
         return Collections.unmodifiableMap(map);
     }
