@@ -83,6 +83,18 @@ public class ChatController {
         return Map.of("observations", observations);
     }
 
+    /** Toggle watch mode on/off from the UI eye button. */
+    @PostMapping(value = "/watch-mode/toggle", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> toggleWatchMode() {
+        if (screenWatchingTools.isWatching()) {
+            screenWatchingTools.stopScreenWatch();
+            return Map.of("watching", false, "message", "Watch mode stopped.");
+        } else {
+            String result = screenWatchingTools.startScreenWatch("observe the screen and help the user", "click");
+            return Map.of("watching", true, "message", result);
+        }
+    }
+
     /** Open a file or folder in the system file explorer. */
     @PostMapping(value = "/open-path", produces = MediaType.APPLICATION_JSON_VALUE)
     public Map<String, String> openPath(@RequestBody Map<String, String> body) {

@@ -141,21 +141,38 @@ html, body {
   100% { stroke-dashoffset: -60; opacity: 0.6; }
 }
 
-/* Header watch-mode indicator (red eye) – right of ECG when watching */
-.header-watch {
-  display: none;
-  align-items: center;
-  margin-left: 6px;
-}
-.header-watch[hidden] {
-  display: none !important;
-}
-.header-watch:not([hidden]) {
+/* Header watch-mode toggle button (eye icon) – right of ECG */
+.header-watch-btn {
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 6px;
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+.header-watch-btn:hover {
+  background: rgba(255,255,255,0.08);
 }
 .watch-eye-svg {
   width: 20px;
   height: 14px;
+}
+/* Off state: dimmed grey */
+.header-watch-btn .watch-eye-outline { stroke: #52525b; }
+.header-watch-btn .watch-eye-iris { fill: #52525b; }
+.header-watch-btn .watch-eye-pupil { fill: #1a1a2e; }
+.header-watch-btn:hover .watch-eye-outline { stroke: #71717a; }
+.header-watch-btn:hover .watch-eye-iris { fill: #71717a; }
+
+/* Active state: red + pulsing glow */
+.header-watch-btn.active .watch-eye-outline { stroke: #ef4444; }
+.header-watch-btn.active .watch-eye-iris { fill: #ef4444; }
+.header-watch-btn.active .watch-eye-pupil { fill: #1a1a2e; }
+.header-watch-btn.active .watch-eye-svg {
   filter: drop-shadow(0 0 3px rgba(239, 68, 68, 0.7));
   animation: watch-eye-pulse 2s ease-in-out infinite;
 }

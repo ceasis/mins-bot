@@ -140,6 +140,40 @@ public class VisionService {
             Be concise but thorough. Do NOT add commentary — just describe what you see.""";
 
     /**
+     * Analyze a screenshot with a custom prompt (for watch mode, etc.).
+     * Uses gpt-4o-mini with a 10s timeout for speed.
+     */
+    public String analyzeWithPrompt(Path imagePath, String prompt) {
+        if (!isAvailable()) return null;
+        if (imagePath == null || !Files.exists(imagePath)) return null;
+        try {
+            byte[] imageBytes = Files.readAllBytes(imagePath);
+            String base64 = Base64.getEncoder().encodeToString(imageBytes);
+            String mediaType = imagePath.toString().toLowerCase().endsWith(".png") ? "image/png" : "image/jpeg";
+            String requestBody = buildVisionRequestWithModel(base64, prompt, mediaType, model);
+            String url = baseUrl.endsWith("/")
+                    ? baseUrl + "v1/chat/completions"
+                    : baseUrl + "/v1/chat/completions";
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", "Bearer " + apiKey)
+                    .timeout(Duration.ofSeconds(10))
+                    .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+                    .build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) {
+                log.warn("[Vision] analyzeWithPrompt — HTTP {}", response.statusCode());
+                return null;
+            }
+            return extractContent(response.body());
+        } catch (Exception e) {
+            log.warn("[Vision] analyzeWithPrompt — FAILED: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
      * Analyze a webcam photo using the OpenAI Vision API with a webcam-specific prompt.
      *
      * @param imagePath path to a JPEG webcam photo

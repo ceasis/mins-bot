@@ -86,6 +86,7 @@ public class ChatService {
     private final ToolRouter toolRouter;
     private final TtsTools ttsTools;
     private final ScreenStateService screenStateService;
+    private final com.minsbot.agent.tools.ScreenWatchingTools screenWatchingTools;
 
     /** Spring AI ChatClient — null when no API key is configured. Swappable at runtime. */
     @Autowired(required = false)
@@ -116,7 +117,8 @@ public class ChatService {
                        ToolRouter toolRouter,
                        AsyncMessageService asyncMessages,
                        TtsTools ttsTools,
-                       ScreenStateService screenStateService) {
+                       ScreenStateService screenStateService,
+                       com.minsbot.agent.tools.ScreenWatchingTools screenWatchingTools) {
         this.transcriptService = transcriptService;
         this.pcAgent = pcAgent;
         this.systemCtx = systemCtx;
@@ -128,6 +130,7 @@ public class ChatService {
         this.asyncMessages = asyncMessages;
         this.ttsTools = ttsTools;
         this.screenStateService = screenStateService;
+        this.screenWatchingTools = screenWatchingTools;
     }
 
     @PostConstruct
@@ -372,6 +375,18 @@ public class ChatService {
                     }
                 } catch (Exception e) {
                     log.warn("[ChatService] Screen analysis failed: {}", e.getMessage());
+                }
+
+                // Inject latest watch mode observation so the AI has accurate screen context
+                if (screenWatchingTools.isWatching()) {
+                    String watchObs = screenWatchingTools.getLatestObservation();
+                    if (watchObs != null && !watchObs.isBlank()) {
+                        systemMessage += "\n\nWATCH MODE IS ACTIVE — Latest screen observation:\n"
+                                + watchObs + "\n"
+                                + "Use this observation to answer the user's question. "
+                                + "Do NOT take a new screenshot — trust this observation.\n";
+                        log.info("[ChatService] Injected watch observation into context: {}", watchObs);
+                    }
                 }
 
                 final int MAX_RETRIES = 3;

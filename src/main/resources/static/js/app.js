@@ -630,27 +630,35 @@
     } catch (e) { /* ignore */ }
   }, 2000);
 
-  // ═══ Watch mode indicator + live feed polling ═══
+  // ═══ Watch mode toggle button + live feed polling ═══
 
   const watchFeedEl = document.getElementById('watch-feed');
   const watchFeedInner = document.getElementById('watch-feed-inner');
 
+  // Eye button click → toggle watch mode via API
+  if (headerWatchEl) {
+    headerWatchEl.addEventListener('click', async function () {
+      try {
+        var res = await fetch('/api/watch-mode/toggle', { method: 'POST' });
+        var data = await res.json();
+        headerWatchEl.classList.toggle('active', !!data.watching);
+      } catch (e) { /* ignore */ }
+    });
+  }
+
+  // Poll watch mode state to keep eye button in sync
   setInterval(async function () {
     try {
       var res = await fetch('/api/status/watch-mode');
       var data = await res.json();
       if (headerWatchEl) {
-        if (data.watching) {
-          headerWatchEl.hidden = false;
-          headerWatchEl.removeAttribute('aria-hidden');
-        } else {
-          headerWatchEl.hidden = true;
-          headerWatchEl.setAttribute('aria-hidden', 'true');
-          // Hide feed panel when watch mode stops
-          if (watchFeedEl) {
-            watchFeedEl.hidden = true;
-            if (watchFeedInner) watchFeedInner.textContent = '';
-          }
+        headerWatchEl.classList.toggle('active', !!data.watching);
+      }
+      if (!data.watching) {
+        // Hide feed panel when watch mode stops
+        if (watchFeedEl) {
+          watchFeedEl.hidden = true;
+          if (watchFeedInner) watchFeedInner.textContent = '';
         }
       }
     } catch (e) { /* ignore */ }
