@@ -88,6 +88,45 @@ public class EmailTools {
         return openGmailCompose(to, subject, body);
     }
 
+    @Tool(description = "Send an email with a file attachment (PDF, DOCX, image, etc.). "
+            + "Tries SMTP first; if not configured, opens Gmail compose in the browser "
+            + "and attaches the file via the file dialog. Fully autonomous.")
+    public String sendEmailWithAttachment(
+            @ToolParam(description = "Recipient email address") String to,
+            @ToolParam(description = "Email subject line") String subject,
+            @ToolParam(description = "Email body text") String body,
+            @ToolParam(description = "Absolute file path to attach, e.g. C:\\Users\\user\\Documents\\report.pdf") String filePath) {
+        notifier.notify("Sending email with attachment to: " + to);
+
+        Path attachment = Paths.get(filePath.trim()).toAbsolutePath();
+        if (!Files.exists(attachment)) {
+            return "FAILED: Attachment file not found: " + attachment;
+        }
+        String fileName = attachment.getFileName().toString();
+
+        // Try SMTP first
+        if (fromAddress != null && !fromAddress.isBlank()) {
+            try {
+                MimeMessage mimeMsg = mailSender.createMimeMessage();
+                MimeMessageHelper helper = new MimeMessageHelper(mimeMsg, true, "UTF-8");
+                helper.setFrom(fromAddress);
+                helper.setTo(to);
+                helper.setSubject(subject);
+                helper.setText(body != null ? body : "");
+                helper.addAttachment(fileName, attachment.toFile());
+                mailSender.send(mimeMsg);
+                log.info("[Email] Sent email with attachment '{}' to {}", fileName, to);
+                return "Email with attachment '" + fileName + "' sent successfully to " + to;
+            } catch (Exception e) {
+                log.error("[Email] SMTP attachment send failed: {}", e.getMessage());
+                // Fall through to browser fallback
+            }
+        }
+
+        // Browser fallback: open Gmail compose, attach via file dialog, then send
+        return openGmailComposeWithAttachment(to, subject, body, attachment);
+    }
+
     @Tool(description = "Send an HTML email to a recipient. Tries SMTP first; if not configured, "
             + "opens Gmail compose in the browser and auto-sends. Fully autonomous.")
     public String sendHtmlEmail(
@@ -212,6 +251,159 @@ public class EmailTools {
         } catch (Exception e) {
             log.error("[Email] Gmail compose fallback failed: {}", e.getMessage());
             return "Failed to open Gmail compose: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Open Gmail compose with pre-filled fields, attach a file via the file dialog, then send.
+     * Uses: paperclip icon click → native file dialog → type path → Enter → wait upload → Ctrl+Enter.
+     */
+    private String openGmailComposeWithAttachment(String to, String subject, String body, Path attachment) {
+        try {
+            String encodedTo = URLEncoder.encode(to != null ? to : "", StandardCharsets.UTF_8);
+            String encodedSubject = URLEncoder.encode(subject != null ? subject : "", StandardCharsets.UTF_8);
+            String encodedBody = URLEncoder.encode(body != null ? body : "", StandardCharsets.UTF_8);
+
+            String gmailUrl = "https://mail.google.com/mail/?view=cm&to=" + encodedTo
+                    + "&su=" + encodedSubject + "&body=" + encodedBody;
+
+            log.info("[Email] Opening Gmail compose with attachment: {}", attachment.getFileName());
+            notifier.notify("Opening Gmail compose...");
+            systemControl.openUrl(gmailUrl);
+
+            // Wait for Gmail compose to fully load
+            Thread.sleep(6000);
+            systemControl.focusWindow("chrome");
+            Thread.sleep(500);
+
+            // Click the attachment (paperclip) icon — bottom of compose window
+            // Use OCR to find it, or use known approach: Tab to it
+            notifier.notify("Attaching file: " + attachment.getFileName());
+            Dimension screenSize = Toolkit.getDefaultToolkit().getScreenSize();
+
+            // Try to find the "Attach files" tooltip area via OCR on the compose toolbar
+            boolean attached = false;
+            String screenshotResult = systemControl.takeScreenshot();
+            String screenshotPath = screenshotResult.replace("Screenshot saved: ", "").trim();
+            Path screenshotFile = Paths.get(screenshotPath);
+
+            if (Files.exists(screenshotFile)) {
+                // Look for the attach icon area — try "Attach files" text near bottom of compose
+                double[] attachCoords = screenMemoryService.findTextOnScreen(screenshotFile, "Attach files");
+                if (attachCoords == null) {
+                    // Fallback: try finding the paperclip-shaped icon area or "Insert files using Drive"
+                    attachCoords = screenMemoryService.findTextOnScreen(screenshotFile, "Attach");
+                }
+                if (attachCoords != null) {
+                    BufferedImage img = javax.imageio.ImageIO.read(screenshotFile.toFile());
+                    double scaleX = (img != null && img.getWidth() != screenSize.width)
+                            ? (double) screenSize.width / img.getWidth() : 1.0;
+                    double scaleY = (img != null && img.getHeight() != screenSize.height)
+                            ? (double) screenSize.height / img.getHeight() : 1.0;
+                    int clickX = (int) Math.round(attachCoords[0] * scaleX);
+                    int clickY = (int) Math.round(attachCoords[1] * scaleY);
+                    log.info("[Email] Clicking Attach at ({}, {})", clickX, clickY);
+                    systemControl.mouseClick(clickX, clickY, "left");
+                    attached = true;
+                }
+            }
+
+            if (!attached) {
+                // Last resort: use Ctrl+Shift+A (Gmail doesn't have this — use mouse approach)
+                // Try clicking near the bottom-left of the compose area where paperclip usually is
+                log.warn("[Email] Could not find attach button via OCR — trying screen position heuristic");
+                // Find the Send button first, then look left of it for the paperclip
+                if (Files.exists(screenshotFile)) {
+                    double[] sendCoords = screenMemoryService.findTextOnScreen(screenshotFile, "Send");
+                    if (sendCoords != null) {
+                        BufferedImage img = javax.imageio.ImageIO.read(screenshotFile.toFile());
+                        double scaleX = (img != null && img.getWidth() != screenSize.width)
+                                ? (double) screenSize.width / img.getWidth() : 1.0;
+                        double scaleY = (img != null && img.getHeight() != screenSize.height)
+                                ? (double) screenSize.height / img.getHeight() : 1.0;
+                        // Paperclip is typically ~120px to the right of Send button
+                        int clickX = (int) Math.round(sendCoords[0] * scaleX) + 120;
+                        int clickY = (int) Math.round(sendCoords[1] * scaleY);
+                        log.info("[Email] Clicking estimated attach position at ({}, {})", clickX, clickY);
+                        systemControl.mouseClick(clickX, clickY, "left");
+                        attached = true;
+                    }
+                }
+            }
+
+            if (!attached) {
+                return "FAILED: Could not find the attach button in Gmail compose. "
+                        + "Configure SMTP (app.email.from, spring.mail.*) for reliable email with attachments.";
+            }
+
+            // Wait for file dialog to open
+            Thread.sleep(2000);
+
+            // Type the file path into the file dialog and press Enter
+            String absolutePath = attachment.toAbsolutePath().toString();
+            log.info("[Email] Typing file path into dialog: {}", absolutePath);
+            notifier.notify("Selecting file in dialog...");
+
+            // Focus file dialog's filename field and type path
+            systemControl.sendKeys(absolutePath);
+            Thread.sleep(500);
+            systemControl.sendKeys("{ENTER}");
+
+            // Wait for file to upload (varies by file size)
+            long fileSize = Files.size(attachment);
+            int uploadWaitMs = Math.max(4000, (int) Math.min(fileSize / 50_000, 15000)); // ~50KB/s estimate, max 15s
+            log.info("[Email] Waiting {}ms for upload of {} bytes...", uploadWaitMs, fileSize);
+            notifier.notify("Uploading attachment...");
+            Thread.sleep(uploadWaitMs);
+
+            // Send the email with Ctrl+Enter
+            notifier.notify("Sending email...");
+            log.info("[Email] Sending via Ctrl+Enter...");
+            systemControl.focusWindow("chrome");
+            Thread.sleep(500);
+
+            // Click on the compose body first to make sure Gmail has focus
+            // (file dialog might have shifted focus)
+            systemControl.sendKeys("^{ENTER}");
+            Thread.sleep(3000);
+
+            // Verify send
+            for (int attempt = 1; attempt <= 2; attempt++) {
+                String verifyScreenshot = systemControl.takeScreenshot();
+                String verifyPath = verifyScreenshot.replace("Screenshot saved: ", "").trim();
+                Path verifyImage = Paths.get(verifyPath);
+
+                if (!Files.exists(verifyImage)) continue;
+
+                double[] messageSent = screenMemoryService.findTextOnScreen(verifyImage, "Message sent");
+                if (messageSent != null) {
+                    log.info("[Email] Verified: 'Message sent' confirmation on attempt {}", attempt);
+                    return "Email with attachment '" + attachment.getFileName()
+                            + "' sent via Gmail to " + to + " with subject: " + subject
+                            + ". Verified: Gmail showed 'Message sent' confirmation.";
+                }
+
+                double[] sendStillVisible = screenMemoryService.findTextOnScreen(verifyImage, "Send");
+                if (sendStillVisible == null) {
+                    log.info("[Email] Compose window gone on attempt {} — email likely sent", attempt);
+                    return "Email with attachment '" + attachment.getFileName()
+                            + "' sent via Gmail to " + to + " with subject: " + subject;
+                }
+
+                // Retry send
+                log.warn("[Email] Attempt {}: Send still visible — retrying Ctrl+Enter", attempt);
+                systemControl.focusWindow("chrome");
+                Thread.sleep(300);
+                systemControl.sendKeys("^{ENTER}");
+                Thread.sleep(3000);
+            }
+
+            return "Email compose with attachment opened in Gmail for " + to
+                    + ". Attachment: " + attachment.getFileName()
+                    + ". Send was attempted — check your Sent folder.";
+        } catch (Exception e) {
+            log.error("[Email] Gmail compose with attachment failed: {}", e.getMessage());
+            return "Failed to send email with attachment via Gmail: " + e.getMessage();
         }
     }
 

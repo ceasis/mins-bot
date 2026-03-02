@@ -219,6 +219,47 @@ html, body {
   50%      { opacity: 1;   filter: drop-shadow(0 0 6px rgba(34, 197, 94, 1)); }
 }
 
+/* ═══ Ear button (audio listen mode) ═══ */
+.header-listen-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 2px;
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+.header-listen-btn:hover {
+  background: rgba(255,255,255,0.08);
+}
+.listen-ear-svg {
+  width: 16px;
+  height: 18px;
+}
+/* Off state: dimmed grey */
+.header-listen-btn .listen-ear-outline { stroke: #52525b; }
+.header-listen-btn .listen-ear-inner { stroke: #52525b; }
+.header-listen-btn .listen-ear-dot { fill: #52525b; }
+.header-listen-btn:hover .listen-ear-outline { stroke: #71717a; }
+.header-listen-btn:hover .listen-ear-inner { stroke: #71717a; }
+.header-listen-btn:hover .listen-ear-dot { fill: #71717a; }
+
+/* Active state: purple + pulsing glow */
+.header-listen-btn.active .listen-ear-outline { stroke: #a855f7; }
+.header-listen-btn.active .listen-ear-inner { stroke: #a855f7; }
+.header-listen-btn.active .listen-ear-dot { fill: #a855f7; }
+.header-listen-btn.active .listen-ear-svg {
+  filter: drop-shadow(0 0 3px rgba(168, 85, 247, 0.7));
+  animation: listen-ear-pulse 2s ease-in-out infinite;
+}
+@keyframes listen-ear-pulse {
+  0%, 100% { opacity: 0.7; filter: drop-shadow(0 0 3px rgba(168, 85, 247, 0.5)); }
+  50%      { opacity: 1;   filter: drop-shadow(0 0 6px rgba(168, 85, 247, 1)); }
+}
+
 .btn-icon {
   display: inline-flex;
   align-items: center;
@@ -747,6 +788,28 @@ html, body {
   color: rgba(252, 165, 165, 0.9);
   line-height: 1.4;
   max-height: 2.8em;       /* 2 lines × 1.4 line-height = 2.8em */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+/* ═══ Listen feed (audio transcription panel) ═══ */
+.listen-feed {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  background: rgba(168, 85, 247, 0.06);
+  border-top: 1px solid rgba(168, 85, 247, 0.2);
+}
+.listen-feed[hidden] {
+  display: none !important;
+}
+.listen-feed-inner {
+  font-size: 11px;
+  color: rgba(216, 180, 254, 0.9);
+  line-height: 1.4;
+  max-height: 2.8em;
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;

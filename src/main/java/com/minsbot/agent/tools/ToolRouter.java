@@ -84,6 +84,7 @@ public class ToolRouter {
     private final PrinterTools printerTools;
     private final ScreenRecordTools screenRecordTools;
     private final ScreenWatchingTools screenWatchingTools;
+    private final AudioListeningTools audioListeningTools;
     private final TravelSearchTools travelSearchTools;
     private final WordDocTools wordDocTools;
     private final GlobalHotkeyService globalHotkeyService;
@@ -151,6 +152,7 @@ public class ToolRouter {
             PrinterTools printerTools,
             ScreenRecordTools screenRecordTools,
             ScreenWatchingTools screenWatchingTools,
+            AudioListeningTools audioListeningTools,
             TravelSearchTools travelSearchTools,
             WordDocTools wordDocTools,
             GlobalHotkeyService globalHotkeyService,
@@ -201,6 +203,7 @@ public class ToolRouter {
         this.printerTools = printerTools;
         this.screenRecordTools = screenRecordTools;
         this.screenWatchingTools = screenWatchingTools;
+        this.audioListeningTools = audioListeningTools;
         this.travelSearchTools = travelSearchTools;
         this.wordDocTools = wordDocTools;
         this.globalHotkeyService = globalHotkeyService;
@@ -304,7 +307,7 @@ public class ToolRouter {
                 calculatorTools, qrTools, hashTools, unitConversionTools,
                 exportTools, sitesConfigTools, cronConfigTools,
                 screenMemoryTools, audioMemoryTools, playlistTools,
-                softwareTools, networkTools, printerTools, screenRecordTools, screenWatchingTools,
+                softwareTools, networkTools, printerTools, screenRecordTools, screenWatchingTools, audioListeningTools,
                 travelSearchTools, wordDocTools, globalHotkeyService, pluginLoaderService, systemTrayService
         };
         for (Object bean : allBeans) {
@@ -381,7 +384,7 @@ public class ToolRouter {
         map.put("screen_memory", List.of(screenMemoryTools));
         map.put("audio_memory", List.of(audioMemoryTools, playlistTools));
         map.put("playlist",     List.of(playlistTools));
-        map.put("screen_watching", List.of(screenWatchingTools));
+        map.put("screen_watching", List.of(screenWatchingTools, audioListeningTools));
         map.put("travel",        List.of(travelSearchTools, webSearchTools, wordDocTools, pdfTools));
 
         return Collections.unmodifiableMap(map);

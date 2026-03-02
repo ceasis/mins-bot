@@ -9,6 +9,7 @@
   const headerThinkingEl = document.getElementById('header-thinking');
   const headerWatchEl = document.getElementById('header-watch');
   const headerControlEl = document.getElementById('header-control');
+  const headerListenEl = document.getElementById('header-listen');
   const quitCountdownEl = document.getElementById('quit-countdown');
   const quitCountdownLabel = document.getElementById('quit-countdown-label');
   const quitCountdownFill = document.getElementById('quit-countdown-fill');
@@ -701,6 +702,52 @@
       }
     } catch (e) { /* ignore */ }
   }, 1000);
+
+  // ═══ Audio listen mode toggle button + live feed polling ═══
+
+  const listenFeedEl = document.getElementById('listen-feed');
+  const listenFeedInner = document.getElementById('listen-feed-inner');
+
+  // Ear button click → toggle listen mode via API
+  if (headerListenEl) {
+    headerListenEl.addEventListener('click', async function () {
+      try {
+        var res = await fetch('/api/listen-mode/toggle', { method: 'POST' });
+        var data = await res.json();
+        headerListenEl.classList.toggle('active', !!data.listening);
+      } catch (e) { /* ignore */ }
+    });
+  }
+
+  // Poll listen mode state to keep ear button in sync
+  setInterval(async function () {
+    try {
+      var res = await fetch('/api/status/listen-mode');
+      var data = await res.json();
+      if (headerListenEl) {
+        headerListenEl.classList.toggle('active', !!data.listening);
+      }
+      if (!data.listening) {
+        if (listenFeedEl) {
+          listenFeedEl.hidden = true;
+          if (listenFeedInner) listenFeedInner.textContent = '';
+        }
+      }
+    } catch (e) { /* ignore */ }
+  }, 1000);
+
+  // Poll listen feed transcriptions every 800ms — only show the LATEST one
+  setInterval(async function () {
+    try {
+      var res = await fetch('/api/status/listen-feed');
+      var data = await res.json();
+      if (data.transcriptions && data.transcriptions.length > 0) {
+        if (listenFeedEl) listenFeedEl.hidden = false;
+        var latest = data.transcriptions[data.transcriptions.length - 1];
+        listenFeedInner.textContent = latest;
+      }
+    } catch (e) { /* ignore */ }
+  }, 800);
 
   // ═══ Browser tab ═══
 

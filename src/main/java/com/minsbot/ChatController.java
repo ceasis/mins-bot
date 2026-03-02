@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
+import com.minsbot.agent.tools.AudioListeningTools;
 import com.minsbot.agent.tools.ScreenWatchingTools;
 
 import java.util.List;
@@ -21,12 +22,15 @@ public class ChatController {
     private final ChatService chatService;
     private final TranscriptService transcriptService;
     private final ScreenWatchingTools screenWatchingTools;
+    private final AudioListeningTools audioListeningTools;
 
     public ChatController(ChatService chatService, TranscriptService transcriptService,
-                          ScreenWatchingTools screenWatchingTools) {
+                          ScreenWatchingTools screenWatchingTools,
+                          AudioListeningTools audioListeningTools) {
         this.chatService = chatService;
         this.transcriptService = transcriptService;
         this.screenWatchingTools = screenWatchingTools;
+        this.audioListeningTools = audioListeningTools;
     }
 
     /** Returns recent chat history for the frontend to display on load. */
@@ -107,6 +111,31 @@ public class ChatController {
     @GetMapping(value = "/status/control-mode", produces = MediaType.APPLICATION_JSON_VALUE)
     public Map<String, Object> controlModeStatus() {
         return Map.of("controlEnabled", screenWatchingTools.isControlEnabled());
+    }
+
+    /** Toggle listen mode on/off from the UI ear button. */
+    @PostMapping(value = "/listen-mode/toggle", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> toggleListenMode() {
+        if (audioListeningTools.isListening()) {
+            audioListeningTools.stopListening();
+            return Map.of("listening", false, "message", "Listen mode stopped.");
+        } else {
+            String result = audioListeningTools.startListening();
+            return Map.of("listening", true, "message", result);
+        }
+    }
+
+    /** Check if listen mode is active (used by frontend ear indicator). */
+    @GetMapping(value = "/status/listen-mode", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> listenModeStatus() {
+        return Map.of("listening", audioListeningTools.isListening());
+    }
+
+    /** Drain pending listen-mode transcriptions for the UI feed. */
+    @GetMapping(value = "/status/listen-feed", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> listenFeed() {
+        List<String> transcriptions = audioListeningTools.drainTranscriptions();
+        return Map.of("transcriptions", transcriptions);
     }
 
     /** Open a file or folder in the system file explorer. */

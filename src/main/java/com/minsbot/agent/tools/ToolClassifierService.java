@@ -73,7 +73,7 @@ public class ToolClassifierService {
             - network: wifi, connect to wifi, disconnect wifi, network info, IP address, DNS, VPN, internet connection
             - printing: print file, print document, list printers, send to printer, default printer
             - excel: Excel spreadsheet, write cells, format cells, add sheet, read spreadsheet, workbook, xlsx, create spreadsheet
-            - screen_watching: watch screen, observe, guess drawing, guess what I'm drawing, monitor screen, continuous observation, watch me, drawing game, watch my screen, help me play, assist me with game, play game with me
+            - screen_watching: watch screen, observe, guess drawing, guess what I'm drawing, monitor screen, continuous observation, watch me, drawing game, watch my screen, help me play, assist me with game, play game with me, listen to audio, hear what I'm listening, listen to my meeting, turn on ears, what song is this, listen mode, listen to what I'm hearing, listen to my speakers
             - travel: flights, hotels, travel, trip, vacation, book flight, find hotel, airfare, accommodation, search flights, search hotels, travel research, plan trip
 
             Return at most 3 of the most relevant category names, comma-separated. If none match, return: none""";
