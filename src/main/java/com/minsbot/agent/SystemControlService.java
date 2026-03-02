@@ -427,6 +427,29 @@ public class SystemControlService {
     }
 
     /**
+     * Get the title of the currently foreground window.
+     * Uses user32.dll GetForegroundWindow + GetWindowText via PowerShell.
+     * Returns the window title string, or empty string on failure.
+     */
+    public String getForegroundWindowTitle() {
+        String ps = "Add-Type -TypeDefinition @\"\n" +
+                "using System; using System.Runtime.InteropServices; using System.Text;\n" +
+                "public class WinFG {\n" +
+                "  [DllImport(\\\"user32.dll\\\")] public static extern IntPtr GetForegroundWindow();\n" +
+                "  [DllImport(\\\"user32.dll\\\", CharSet=CharSet.Auto)]\n" +
+                "  public static extern int GetWindowText(IntPtr h, StringBuilder s, int c);\n" +
+                "  public static string Title() {\n" +
+                "    var s = new StringBuilder(512);\n" +
+                "    GetWindowText(GetForegroundWindow(), s, 512);\n" +
+                "    return s.ToString();\n" +
+                "  }\n" +
+                "}\n" +
+                "\"@ -ErrorAction SilentlyContinue; [WinFG]::Title()";
+        String result = runPowerShell(ps);
+        return (result != null) ? result.trim() : "";
+    }
+
+    /**
      * Send keystrokes to the currently focused window. Use for shortcuts or typing.
      * Special keys: + (Shift), ^ (Ctrl), % (Alt), {ENTER}, {TAB}, {ESC}, {DOWN}, {UP}, etc.
      * Example: sendKeys("^v") = Ctrl+V (paste), sendKeys("Hello{ENTER}") = type Hello and Enter.
@@ -459,6 +482,26 @@ public class SystemControlService {
         String result = runPowerShell(ps);
         log.info("[focusAndType] window='{}' text='{}' result='{}'", windowSearch, text, result);
         return result;
+    }
+
+    /**
+     * Switch to the previous window using Alt+Tab via Robot.
+     * This is the most reliable way to get back to the user's app from MinsBot,
+     * since Alt+Tab always targets the most recently used window.
+     */
+    public void switchToPreviousWindow() {
+        try {
+            Robot robot = new Robot();
+            robot.keyPress(java.awt.event.KeyEvent.VK_ALT);
+            robot.keyPress(java.awt.event.KeyEvent.VK_TAB);
+            robot.delay(100);
+            robot.keyRelease(java.awt.event.KeyEvent.VK_TAB);
+            robot.keyRelease(java.awt.event.KeyEvent.VK_ALT);
+            robot.delay(400); // let the window switch complete
+            log.info("[switchToPreviousWindow] Alt+Tab sent — switched to previous window");
+        } catch (Exception e) {
+            log.warn("[switchToPreviousWindow] Failed: {}", e.getMessage());
+        }
     }
 
     /**

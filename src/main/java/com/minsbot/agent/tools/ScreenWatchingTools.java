@@ -1,6 +1,5 @@
 package com.minsbot.agent.tools;
 
-import com.minsbot.agent.AsyncMessageService;
 import com.minsbot.agent.GeminiVisionService;
 import com.minsbot.agent.ScreenMemoryService;
 import com.minsbot.agent.SystemControlService;
@@ -51,7 +50,6 @@ public class ScreenWatchingTools {
     private final GeminiVisionService geminiVisionService;
     private final VisionService visionService;
     private final ScreenMemoryService screenMemoryService;
-    private final AsyncMessageService asyncMessages;
 
     private volatile boolean watching = false;
     private volatile Thread watchThread;
@@ -74,8 +72,16 @@ public class ScreenWatchingTools {
     private static final int MAX_RECENT_MESSAGES = 10;
     private static final double SIMILARITY_THRESHOLD = 0.55;
 
+    /** True when the user has granted keyboard/mouse control to the bot. */
+    private volatile boolean controlEnabled = false;
+
     /** Exposed for the status API endpoint. */
     public boolean isWatching() { return watching; }
+
+    /** Whether the bot is allowed to use keyboard/mouse. */
+    public boolean isControlEnabled() { return controlEnabled; }
+
+    public void setControlEnabled(boolean enabled) { this.controlEnabled = enabled; }
 
     /** Get the latest observation (for injecting into main AI context). */
     public String getLatestObservation() { return latestObservation; }
@@ -94,14 +100,12 @@ public class ScreenWatchingTools {
                                SystemControlService systemControl,
                                GeminiVisionService geminiVisionService,
                                VisionService visionService,
-                               ScreenMemoryService screenMemoryService,
-                               AsyncMessageService asyncMessages) {
+                               ScreenMemoryService screenMemoryService) {
         this.notifier = notifier;
         this.systemControl = systemControl;
         this.geminiVisionService = geminiVisionService;
         this.visionService = visionService;
         this.screenMemoryService = screenMemoryService;
-        this.asyncMessages = asyncMessages;
     }
 
     @Tool(description = "Start continuously watching the screen in the background. "
@@ -349,12 +353,40 @@ public class ScreenWatchingTools {
         if (text.startsWith("[REACT]")) {
             clean = text.substring(7).trim();
             if (!clean.isBlank()) {
-                // Semantic dedup: skip if similar to any recent REACT message
+                // Semantic dedup: skip if similar to any recent REACT
                 if (isSimilarToRecent(clean)) {
-                    log.debug("[WatchMode] REACT semantically similar to recent — skipping chat push");
+                    log.debug("[WatchMode] REACT semantically similar to recent — skipping");
                 } else {
-                    log.info("[WatchMode] REACT → chat: {}", clean);
-                    asyncMessages.push(clean);
+                    if (controlEnabled) {
+                        log.info("[WatchMode] REACT → Alt+Tab to previous window then typing: {}", clean);
+                        try {
+                            // Record mouse position before switching — if user moves mouse, abort
+                            Point mouseBeforeSwitch = getMousePosition();
+
+                            // Alt+Tab switches to the user's last active app (away from MinsBot)
+                            systemControl.switchToPreviousWindow();
+
+                            // Safety: check if user moved the mouse during the switch (taking control)
+                            Point mouseAfterSwitch = getMousePosition();
+                            if (mouseBeforeSwitch.distance(mouseAfterSwitch) > 10) {
+                                log.info("[WatchMode] REACT aborted — user moved mouse during switch ({}px)",
+                                        String.format("%.0f", mouseBeforeSwitch.distance(mouseAfterSwitch)));
+                            } else {
+                                // Safety: verify we actually left MinsBot's window
+                                String fg = systemControl.getForegroundWindowTitle();
+                                if (fg != null && fg.toLowerCase().contains("mins bot")) {
+                                    log.warn("[WatchMode] REACT aborted — still on MinsBot window after Alt+Tab ('{}')", fg);
+                                } else {
+                                    log.info("[WatchMode] REACT → typing into '{}': {}", fg, clean);
+                                    systemControl.typeViaRobotWithAbort(clean);
+                                }
+                            }
+                        } catch (Exception e) {
+                            log.warn("[WatchMode] switchToPreviousWindow+type failed: {}", e.getMessage());
+                        }
+                    } else {
+                        log.info("[WatchMode] REACT (control disabled, not typing): {}", clean);
+                    }
                     addToRecent(clean);
                 }
                 watchFeed.add(clean);

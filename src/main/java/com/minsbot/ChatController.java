@@ -95,6 +95,20 @@ public class ChatController {
         }
     }
 
+    /** Toggle keyboard/mouse control permission from the UI keyboard button. */
+    @PostMapping(value = "/control-mode/toggle", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> toggleControlMode() {
+        boolean newState = !screenWatchingTools.isControlEnabled();
+        screenWatchingTools.setControlEnabled(newState);
+        return Map.of("controlEnabled", newState);
+    }
+
+    /** Check if keyboard/mouse control is enabled. */
+    @GetMapping(value = "/status/control-mode", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> controlModeStatus() {
+        return Map.of("controlEnabled", screenWatchingTools.isControlEnabled());
+    }
+
     /** Open a file or folder in the system file explorer. */
     @PostMapping(value = "/open-path", produces = MediaType.APPLICATION_JSON_VALUE)
     public Map<String, String> openPath(@RequestBody Map<String, String> body) {

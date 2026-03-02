@@ -181,6 +181,44 @@ html, body {
   50%      { opacity: 1;   filter: drop-shadow(0 0 6px rgba(239, 68, 68, 1)); }
 }
 
+/* Header keyboard/mouse control toggle button – right of eye */
+.header-control-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 2px;
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+.header-control-btn:hover {
+  background: rgba(255,255,255,0.08);
+}
+.control-kbd-svg {
+  width: 18px;
+  height: 13px;
+}
+/* Off state: dimmed grey */
+.header-control-btn .control-kbd-body { stroke: #52525b; }
+.header-control-btn .control-kbd-key { stroke: #52525b; }
+.header-control-btn:hover .control-kbd-body { stroke: #71717a; }
+.header-control-btn:hover .control-kbd-key { stroke: #71717a; }
+
+/* Active state: green + pulsing glow */
+.header-control-btn.active .control-kbd-body { stroke: #22c55e; }
+.header-control-btn.active .control-kbd-key { stroke: #22c55e; }
+.header-control-btn.active .control-kbd-svg {
+  filter: drop-shadow(0 0 3px rgba(34, 197, 94, 0.7));
+  animation: control-kbd-pulse 2s ease-in-out infinite;
+}
+@keyframes control-kbd-pulse {
+  0%, 100% { opacity: 0.7; filter: drop-shadow(0 0 3px rgba(34, 197, 94, 0.5)); }
+  50%      { opacity: 1;   filter: drop-shadow(0 0 6px rgba(34, 197, 94, 1)); }
+}
+
 .btn-icon {
   display: inline-flex;
   align-items: center;
@@ -708,6 +746,12 @@ html, body {
   font-size: 11px;
   color: rgba(252, 165, 165, 0.9);
   line-height: 1.4;
+  max-height: 2.8em;       /* 2 lines × 1.4 line-height = 2.8em */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .message-wrapper {

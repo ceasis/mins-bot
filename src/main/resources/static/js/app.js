@@ -8,6 +8,7 @@
   const clearBtn = document.getElementById('clear-btn');
   const headerThinkingEl = document.getElementById('header-thinking');
   const headerWatchEl = document.getElementById('header-watch');
+  const headerControlEl = document.getElementById('header-control');
   const quitCountdownEl = document.getElementById('quit-countdown');
   const quitCountdownLabel = document.getElementById('quit-countdown-label');
   const quitCountdownFill = document.getElementById('quit-countdown-fill');
@@ -677,6 +678,29 @@
       }
     } catch (e) { /* ignore */ }
   }, 800);
+
+  // ═══ Keyboard/mouse control toggle ═══
+
+  if (headerControlEl) {
+    headerControlEl.addEventListener('click', async function () {
+      try {
+        var res = await fetch('/api/control-mode/toggle', { method: 'POST' });
+        var data = await res.json();
+        headerControlEl.classList.toggle('active', !!data.controlEnabled);
+      } catch (e) { /* ignore */ }
+    });
+  }
+
+  // Poll control mode state to keep button in sync
+  setInterval(async function () {
+    try {
+      var res = await fetch('/api/status/control-mode');
+      var data = await res.json();
+      if (headerControlEl) {
+        headerControlEl.classList.toggle('active', !!data.controlEnabled);
+      }
+    } catch (e) { /* ignore */ }
+  }, 1000);
 
   // ═══ Browser tab ═══
 
