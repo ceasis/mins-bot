@@ -22,6 +22,10 @@ public class ElevenLabsConfig {
         private String modelId = "eleven_multilingual_v2";
         /** Output format: wav_44100 for Java playback, or mp3_44100_128. */
         private String outputFormat = "wav_44100";
+        /** Female voice ID for gender-matched TTS (default: Rachel). */
+        private String femaleVoiceId = "EXAVITQu4vr4xnSDxMaL";
+        /** Male voice ID for gender-matched TTS (default: Adam). */
+        private String maleVoiceId = "pNInz6obpgDQGcFmaJgB";
 
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -33,5 +37,9 @@ public class ElevenLabsConfig {
         public void setModelId(String modelId) { this.modelId = modelId; }
         public String getOutputFormat() { return outputFormat; }
         public void setOutputFormat(String outputFormat) { this.outputFormat = outputFormat; }
+        public String getFemaleVoiceId() { return femaleVoiceId; }
+        public void setFemaleVoiceId(String femaleVoiceId) { this.femaleVoiceId = femaleVoiceId; }
+        public String getMaleVoiceId() { return maleVoiceId; }
+        public void setMaleVoiceId(String maleVoiceId) { this.maleVoiceId = maleVoiceId; }
     }
 }

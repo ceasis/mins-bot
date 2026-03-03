@@ -138,6 +138,20 @@ public class ChatController {
         return Map.of("transcriptions", transcriptions);
     }
 
+    /** Toggle mouth/vocal mode on/off from the UI mouth button. */
+    @PostMapping(value = "/mouth-mode/toggle", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> toggleMouthMode() {
+        boolean newState = !audioListeningTools.isVocalMode();
+        audioListeningTools.setVocalMode(newState);
+        return Map.of("active", newState);
+    }
+
+    /** Check if mouth/vocal mode is active. */
+    @GetMapping(value = "/status/mouth-mode", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> mouthModeStatus() {
+        return Map.of("active", audioListeningTools.isVocalMode());
+    }
+
     /** Open a file or folder in the system file explorer. */
     @PostMapping(value = "/open-path", produces = MediaType.APPLICATION_JSON_VALUE)
     public Map<String, String> openPath(@RequestBody Map<String, String> body) {

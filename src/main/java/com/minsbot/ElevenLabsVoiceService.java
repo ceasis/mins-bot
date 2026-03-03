@@ -90,9 +90,19 @@ public class ElevenLabsVoiceService {
      * via SourceDataLine. Returns null on error. Caller must close the stream.
      */
     public InputStream textToSpeechStream(String text) {
+        return textToSpeechStream(text, null);
+    }
+
+    /**
+     * Streaming TTS with a specific voice ID override.
+     * If voiceIdOverride is null or blank, uses the default configured voice.
+     */
+    public InputStream textToSpeechStream(String text, String voiceIdOverride) {
         if (!isEnabled() || text == null || text.isBlank()) return null;
 
-        String voiceId = properties.getVoiceId().trim();
+        String voiceId = (voiceIdOverride != null && !voiceIdOverride.isBlank())
+                ? voiceIdOverride.trim()
+                : properties.getVoiceId().trim();
         String modelId = properties.getModelId() != null ? properties.getModelId() : "eleven_multilingual_v2";
         String url = BASE + "/" + voiceId + "/stream?output_format=pcm_24000";
 

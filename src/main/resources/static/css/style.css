@@ -158,8 +158,8 @@ html, body {
   background: rgba(255,255,255,0.08);
 }
 .watch-eye-svg {
-  width: 20px;
-  height: 14px;
+  width: 22px;
+  height: 15px;
 }
 /* Off state: dimmed grey */
 .header-watch-btn .watch-eye-outline { stroke: #52525b; }
@@ -198,8 +198,8 @@ html, body {
   background: rgba(255,255,255,0.08);
 }
 .control-kbd-svg {
-  width: 18px;
-  height: 13px;
+  width: 20px;
+  height: 14px;
 }
 /* Off state: dimmed grey */
 .header-control-btn .control-kbd-body { stroke: #52525b; }
@@ -219,7 +219,7 @@ html, body {
   50%      { opacity: 1;   filter: drop-shadow(0 0 6px rgba(34, 197, 94, 1)); }
 }
 
-/* ═══ Ear button (audio listen mode) ═══ */
+/* ═══ Ear button (audio listen mode) — Font Awesome ═══ */
 .header-listen-btn {
   display: inline-flex;
   align-items: center;
@@ -227,37 +227,64 @@ html, body {
   margin-left: 2px;
   background: none;
   border: none;
-  padding: 2px;
+  padding: 4px;
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: 6px;
   transition: background 0.15s;
 }
 .header-listen-btn:hover {
   background: rgba(255,255,255,0.08);
 }
-.listen-ear-svg {
-  width: 16px;
-  height: 18px;
+.listen-icon {
+  font-size: 15px;
+  color: #52525b;
+  transition: color 0.2s;
 }
-/* Off state: dimmed grey */
-.header-listen-btn .listen-ear-outline { stroke: #52525b; }
-.header-listen-btn .listen-ear-inner { stroke: #52525b; }
-.header-listen-btn .listen-ear-dot { fill: #52525b; }
-.header-listen-btn:hover .listen-ear-outline { stroke: #71717a; }
-.header-listen-btn:hover .listen-ear-inner { stroke: #71717a; }
-.header-listen-btn:hover .listen-ear-dot { fill: #71717a; }
+.header-listen-btn:hover .listen-icon { color: #71717a; }
 
 /* Active state: purple + pulsing glow */
-.header-listen-btn.active .listen-ear-outline { stroke: #a855f7; }
-.header-listen-btn.active .listen-ear-inner { stroke: #a855f7; }
-.header-listen-btn.active .listen-ear-dot { fill: #a855f7; }
-.header-listen-btn.active .listen-ear-svg {
+.header-listen-btn.active .listen-icon {
+  color: #a855f7;
   filter: drop-shadow(0 0 3px rgba(168, 85, 247, 0.7));
   animation: listen-ear-pulse 2s ease-in-out infinite;
 }
 @keyframes listen-ear-pulse {
   0%, 100% { opacity: 0.7; filter: drop-shadow(0 0 3px rgba(168, 85, 247, 0.5)); }
   50%      { opacity: 1;   filter: drop-shadow(0 0 6px rgba(168, 85, 247, 1)); }
+}
+
+/* ═══ Mouth button (vocal mode) — Font Awesome ═══ */
+.header-mouth-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  margin-left: 2px;
+  transition: background 0.15s;
+}
+.header-mouth-btn:hover {
+  background: rgba(255,255,255,0.08);
+}
+.mouth-icon {
+  font-size: 15px;
+  color: #52525b;
+  transition: color 0.2s;
+}
+.header-mouth-btn:hover .mouth-icon { color: #71717a; }
+
+/* Active state: orange + pulsing glow */
+.header-mouth-btn.active .mouth-icon {
+  color: #f97316;
+  filter: drop-shadow(0 0 3px rgba(249, 115, 22, 0.7));
+  animation: mouth-pulse 2s ease-in-out infinite;
+}
+@keyframes mouth-pulse {
+  0%, 100% { opacity: 0.7; filter: drop-shadow(0 0 3px rgba(249, 115, 22, 0.5)); }
+  50%      { opacity: 1;   filter: drop-shadow(0 0 6px rgba(249, 115, 22, 1)); }
 }
 
 .btn-icon {
@@ -806,7 +833,7 @@ html, body {
   display: none !important;
 }
 .listen-feed-inner {
-  font-size: 11px;
+  font-size: 12px;
   color: rgba(216, 180, 254, 0.9);
   line-height: 1.4;
   max-height: 2.8em;

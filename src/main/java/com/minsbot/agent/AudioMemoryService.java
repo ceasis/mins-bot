@@ -148,26 +148,40 @@ public class AudioMemoryService {
     // ═══ Public methods for AudioMemoryTools ═══
 
     public synchronized String captureNow() {
-        byte[] wav = captureSystemAudio();
-        if (wav == null) return null;
+        return captureNow(0);
+    }
 
-        saveClipIfEnabled(wav);
+    /**
+     * Capture system audio and transcribe. If durationOverride > 0, temporarily uses
+     * that clip duration instead of the configured clipSeconds.
+     */
+    public synchronized String captureNow(int durationOverride) {
+        int origClip = clipSeconds;
+        if (durationOverride > 0) clipSeconds = durationOverride;
+        try {
+            byte[] wav = captureSystemAudio();
+            if (wav == null) return null;
 
-        String text = transcribe(wav);
-        if (text == null || text.isBlank()) return null;
+            saveClipIfEnabled(wav);
 
-        String collapsed = collapse(text);
-        lastText = collapsed;
+            String text = transcribe(wav);
+            if (text == null || text.isBlank()) return null;
 
-        appendToDaily(collapsed);
+            String collapsed = collapse(text);
+            lastText = collapsed;
 
-        // Auto-detect music and save to playlist
-        if (playlistService != null && playlistService.isEnabled()) {
-            try { playlistService.classifyAndSave(collapsed); }
-            catch (Exception e) { log.debug("[AudioMemory] Playlist classification failed: {}", e.getMessage()); }
+            appendToDaily(collapsed);
+
+            // Auto-detect music and save to playlist
+            if (playlistService != null && playlistService.isEnabled()) {
+                try { playlistService.classifyAndSave(collapsed); }
+                catch (Exception e) { log.debug("[AudioMemory] Playlist classification failed: {}", e.getMessage()); }
+            }
+
+            return collapsed;
+        } finally {
+            if (durationOverride > 0) clipSeconds = origClip;
         }
-
-        return collapsed;
     }
 
     public String readMemory(String dateStr) {

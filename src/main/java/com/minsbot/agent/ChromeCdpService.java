@@ -98,6 +98,39 @@ public class ChromeCdpService {
     }
 
     /**
+     * Find the currently active Chrome tab by matching the foreground window title.
+     * Falls back to the first page if no title match found.
+     * Returns null if not connected or no pages exist.
+     */
+    public Page getActivePage(String foregroundWindowTitle) {
+        List<Page> pages = listPages();
+        if (pages.isEmpty()) return null;
+
+        if (foregroundWindowTitle != null && !foregroundWindowTitle.isBlank()) {
+            String titleLower = foregroundWindowTitle.toLowerCase();
+            // Chrome window titles are typically "Page Title - Google Chrome"
+            // Match page whose title is a substring of the window title
+            Page bestMatch = null;
+            int bestLen = 0;
+            for (Page page : pages) {
+                try {
+                    String pageTitle = page.title();
+                    if (pageTitle != null && !pageTitle.isBlank()
+                            && titleLower.contains(pageTitle.toLowerCase())
+                            && pageTitle.length() > bestLen) {
+                        bestMatch = page;
+                        bestLen = pageTitle.length();
+                    }
+                } catch (Exception ignored) {}
+            }
+            if (bestMatch != null) return bestMatch;
+        }
+
+        // Fallback: return the first page
+        return pages.get(0);
+    }
+
+    /**
      * Find the first page whose URL contains the given pattern (case-insensitive).
      * Returns null if no match found.
      */

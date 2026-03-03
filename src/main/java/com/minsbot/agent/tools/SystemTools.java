@@ -1,6 +1,9 @@
 package com.minsbot.agent.tools;
 
+import com.microsoft.playwright.Page;
 import com.minsbot.MinsBotQuitService;
+import com.minsbot.agent.ChromeCdpService;
+import com.minsbot.agent.DocumentAiService;
 import com.minsbot.agent.GeminiVisionService;
 import com.minsbot.agent.ScreenMemoryService;
 import com.minsbot.agent.SystemControlService;
@@ -43,19 +46,27 @@ public class SystemTools {
     private final VisionService visionService;
     private final GeminiVisionService geminiVisionService;
     private final ScreenMemoryService screenMemoryService;
+    private final DocumentAiService documentAiService;
     private final TextractService textractService;
+    private final ChromeCdpService cdpService;
+    private final ChromeCdpTools chromeCdpTools;
 
     public SystemTools(SystemControlService systemControl, ToolExecutionNotifier notifier,
                        MinsBotQuitService quitService, VisionService visionService,
                        GeminiVisionService geminiVisionService,
-                       ScreenMemoryService screenMemoryService, TextractService textractService) {
+                       ScreenMemoryService screenMemoryService, DocumentAiService documentAiService,
+                       TextractService textractService,
+                       ChromeCdpService cdpService, ChromeCdpTools chromeCdpTools) {
         this.systemControl = systemControl;
         this.notifier = notifier;
         this.quitService = quitService;
         this.visionService = visionService;
         this.geminiVisionService = geminiVisionService;
         this.screenMemoryService = screenMemoryService;
+        this.documentAiService = documentAiService;
         this.textractService = textractService;
+        this.cdpService = cdpService;
+        this.chromeCdpTools = chromeCdpTools;
     }
 
     @Tool(description = "Quit the Mins Bot application. Only call this when the user has explicitly confirmed they want to quit (e.g. replied 'yes' or 'y' to 'Quit Mins Bot?'). Do NOT call when the user just says 'quit' — in that case only reply with 'Quit Mins Bot?' and wait for their answer.")
@@ -758,35 +769,68 @@ public class SystemTools {
         String searchText = extractSearchText(elementDescription);
         System.out.println("[locate] Search: '" + searchText + "' from '" + elementDescription + "'");
 
-        // Try OCR first (full text)
-        double[] ocrCoords = screenMemoryService.findTextOnScreen(ctx.imagePath(), searchText);
-        if (ocrCoords != null) {
-            int sx = (int) Math.round(ocrCoords[0] * ctx.scaleX());
-            int sy = (int) Math.round(ocrCoords[1] * ctx.scaleY());
-            System.out.println("[locate] OCR MATCH: '" + searchText + "' → screen(" + sx + "," + sy + ")");
-            return new ElementLocation(sx, sy, "OCR", ctx.imgWidth(), ctx.imgHeight(),
-                    ctx.logicalWidth(), ctx.logicalHeight(), ctx.scaleX(), ctx.scaleY());
+        int imgW = ctx.imgWidth() > 0 ? ctx.imgWidth() : ctx.logicalWidth();
+        int imgH = ctx.imgHeight() > 0 ? ctx.imgHeight() : ctx.logicalHeight();
+
+        // 1st: OpenAI Vision (primary AI vision)
+        if (visionService.isAvailable()) {
+            System.out.println("[locate] Trying OpenAI Vision for '" + elementDescription + "'...");
+            int[] visionCoords = visionService.findElementCoordinates(
+                    ctx.imagePath(), elementDescription, imgW, imgH);
+            if (visionCoords != null) {
+                int sx = (int) Math.round(visionCoords[0] * ctx.scaleX());
+                int sy = (int) Math.round(visionCoords[1] * ctx.scaleY());
+                System.out.println("[locate] OPENAI VISION MATCH: '" + elementDescription + "' → screen(" + sx + "," + sy + ")");
+                return new ElementLocation(sx, sy, "OpenAI vision", ctx.imgWidth(), ctx.imgHeight(),
+                        ctx.logicalWidth(), ctx.logicalHeight(), ctx.scaleX(), ctx.scaleY());
+            }
         }
 
-        // OCR fallback: try filename stem without extension (e.g. "file1.txt" → "file1")
-        if (searchText.contains(".")) {
-            String stem = searchText.substring(0, searchText.lastIndexOf('.'));
-            if (!stem.isBlank()) {
-                System.out.println("[locate] OCR retry with stem: '" + stem + "'");
-                ocrCoords = screenMemoryService.findTextOnScreen(ctx.imagePath(), stem);
-                if (ocrCoords != null) {
-                    int sx = (int) Math.round(ocrCoords[0] * ctx.scaleX());
-                    int sy = (int) Math.round(ocrCoords[1] * ctx.scaleY());
-                    System.out.println("[locate] OCR STEM MATCH: '" + stem + "' → screen(" + sx + "," + sy + ")");
-                    return new ElementLocation(sx, sy, "OCR(stem)", ctx.imgWidth(), ctx.imgHeight(),
-                            ctx.logicalWidth(), ctx.logicalHeight(), ctx.scaleX(), ctx.scaleY());
+        // 2nd: Google Cloud Document AI (cloud OCR with bounding boxes)
+        if (documentAiService.isAvailable()) {
+            System.out.println("[locate] OpenAI miss — trying Google Document AI for '" + searchText + "'...");
+            double[] docAiCoords = documentAiService.findTextOnScreen(ctx.imagePath(), searchText);
+            if (docAiCoords != null) {
+                int sx = (int) Math.round(docAiCoords[0] * ctx.scaleX());
+                int sy = (int) Math.round(docAiCoords[1] * ctx.scaleY());
+                System.out.println("[locate] DOCUMENT_AI MATCH: '" + searchText + "' → screen(" + sx + "," + sy + ")");
+                return new ElementLocation(sx, sy, "DocumentAI", ctx.imgWidth(), ctx.imgHeight(),
+                        ctx.logicalWidth(), ctx.logicalHeight(), ctx.scaleX(), ctx.scaleY());
+            }
+
+            // Document AI fallback: try filename stem
+            if (searchText.contains(".")) {
+                String stem = searchText.substring(0, searchText.lastIndexOf('.'));
+                if (!stem.isBlank()) {
+                    docAiCoords = documentAiService.findTextOnScreen(ctx.imagePath(), stem);
+                    if (docAiCoords != null) {
+                        int sx = (int) Math.round(docAiCoords[0] * ctx.scaleX());
+                        int sy = (int) Math.round(docAiCoords[1] * ctx.scaleY());
+                        System.out.println("[locate] DOCUMENT_AI STEM MATCH: '" + stem + "' → screen(" + sx + "," + sy + ")");
+                        return new ElementLocation(sx, sy, "DocumentAI(stem)", ctx.imgWidth(), ctx.imgHeight(),
+                                ctx.logicalWidth(), ctx.logicalHeight(), ctx.scaleX(), ctx.scaleY());
+                    }
                 }
             }
         }
 
-        // Try AWS Textract (better at white text on dark backgrounds)
+        // 3rd: Gemini Flash (AI vision fallback)
+        if (geminiVisionService.isAvailable()) {
+            System.out.println("[locate] OpenAI+DocAI miss — trying Gemini Flash for '" + elementDescription + "'...");
+            int[] geminiCoords = geminiVisionService.findElementCoordinates(
+                    ctx.imagePath(), elementDescription, imgW, imgH);
+            if (geminiCoords != null) {
+                int sx = (int) Math.round(geminiCoords[0] * ctx.scaleX());
+                int sy = (int) Math.round(geminiCoords[1] * ctx.scaleY());
+                System.out.println("[locate] GEMINI MATCH: '" + elementDescription + "' → screen(" + sx + "," + sy + ")");
+                return new ElementLocation(sx, sy, "Gemini", ctx.imgWidth(), ctx.imgHeight(),
+                        ctx.logicalWidth(), ctx.logicalHeight(), ctx.scaleX(), ctx.scaleY());
+            }
+        }
+
+        // 4th: AWS Textract (cloud OCR fallback)
         if (textractService.isAvailable()) {
-            System.out.println("[locate] OCR miss — trying AWS Textract for '" + searchText + "'...");
+            System.out.println("[locate] OpenAI+DocAI+Gemini miss — trying AWS Textract for '" + searchText + "'...");
             double[] textractCoords = textractService.findTextOnScreen(ctx.imagePath(), searchText);
             if (textractCoords != null) {
                 int sx = (int) Math.round(textractCoords[0] * ctx.scaleX());
@@ -812,37 +856,31 @@ public class SystemTools {
             }
         }
 
-        // Try Google Gemini Vision (fast model)
-        if (geminiVisionService.isAvailable()) {
-            System.out.println("[locate] OCR+Textract miss — trying Gemini Vision for '" + elementDescription + "'...");
-            int imgW = ctx.imgWidth() > 0 ? ctx.imgWidth() : ctx.logicalWidth();
-            int imgH = ctx.imgHeight() > 0 ? ctx.imgHeight() : ctx.logicalHeight();
-            int[] geminiCoords = geminiVisionService.findElementCoordinates(
-                    ctx.imagePath(), elementDescription, imgW, imgH);
-            if (geminiCoords != null) {
-                int sx = (int) Math.round(geminiCoords[0] * ctx.scaleX());
-                int sy = (int) Math.round(geminiCoords[1] * ctx.scaleY());
-                System.out.println("[locate] GEMINI MATCH: '" + elementDescription + "' → screen(" + sx + "," + sy + ")");
-                return new ElementLocation(sx, sy, "Gemini", ctx.imgWidth(), ctx.imgHeight(),
-                        ctx.logicalWidth(), ctx.logicalHeight(), ctx.scaleX(), ctx.scaleY());
+        // 5th: Windows OCR (local, free — last resort)
+        double[] ocrCoords = screenMemoryService.findTextOnScreen(ctx.imagePath(), searchText);
+        if (ocrCoords != null) {
+            int sx = (int) Math.round(ocrCoords[0] * ctx.scaleX());
+            int sy = (int) Math.round(ocrCoords[1] * ctx.scaleY());
+            System.out.println("[locate] OCR MATCH: '" + searchText + "' → screen(" + sx + "," + sy + ")");
+            return new ElementLocation(sx, sy, "OCR", ctx.imgWidth(), ctx.imgHeight(),
+                    ctx.logicalWidth(), ctx.logicalHeight(), ctx.scaleX(), ctx.scaleY());
+        }
+        if (searchText.contains(".")) {
+            String stem = searchText.substring(0, searchText.lastIndexOf('.'));
+            if (!stem.isBlank()) {
+                ocrCoords = screenMemoryService.findTextOnScreen(ctx.imagePath(), stem);
+                if (ocrCoords != null) {
+                    int sx = (int) Math.round(ocrCoords[0] * ctx.scaleX());
+                    int sy = (int) Math.round(ocrCoords[1] * ctx.scaleY());
+                    System.out.println("[locate] OCR STEM MATCH: '" + stem + "' → screen(" + sx + "," + sy + ")");
+                    return new ElementLocation(sx, sy, "OCR(stem)", ctx.imgWidth(), ctx.imgHeight(),
+                            ctx.logicalWidth(), ctx.logicalHeight(), ctx.scaleX(), ctx.scaleY());
+                }
             }
         }
 
-        // Fallback: OpenAI Vision (gpt-4o-mini)
-        System.out.println("[locate] OCR+Textract+Gemini miss for '" + searchText + "' — trying OpenAI vision...");
-        if (!visionService.isAvailable()) return null;
-
-        int[] visionCoords = visionService.findElementCoordinates(
-                ctx.imagePath(), elementDescription,
-                ctx.imgWidth() > 0 ? ctx.imgWidth() : ctx.logicalWidth(),
-                ctx.imgHeight() > 0 ? ctx.imgHeight() : ctx.logicalHeight());
-        if (visionCoords == null) return null;
-
-        int sx = (int) Math.round(visionCoords[0] * ctx.scaleX());
-        int sy = (int) Math.round(visionCoords[1] * ctx.scaleY());
-        System.out.println("[locate] OPENAI VISION MATCH: '" + elementDescription + "' → screen(" + sx + "," + sy + ")");
-        return new ElementLocation(sx, sy, "OpenAI vision", ctx.imgWidth(), ctx.imgHeight(),
-                ctx.logicalWidth(), ctx.logicalHeight(), ctx.scaleX(), ctx.scaleY());
+        System.out.println("[locate] All methods missed for '" + searchText + "'");
+        return null;
     }
 
     // ═══ Element click: OCR-first, AI vision fallback ═══
@@ -856,6 +894,27 @@ public class SystemTools {
             @ToolParam(description = "Description of the element to find and click, e.g. 'the Submit button', "
                     + "'the search input field', 'the Selection tab', 'the close icon'") String elementDescription) {
         notifier.notify("Finding: " + elementDescription);
+
+        // ── CDP-first: try Playwright DOM-level click if Chrome is the foreground window ──
+        try {
+            String windowTitle = systemControl.getForegroundWindowTitle();
+            if (windowTitle != null && (windowTitle.contains("Chrome") || windowTitle.contains("Google")
+                    || windowTitle.contains("- chrome") || windowTitle.contains("Chromium"))) {
+                cdpService.ensureConnected();
+                Page activePage = cdpService.getActivePage(windowTitle);
+                if (activePage != null) {
+                    System.out.println("[click] Chrome detected — trying Playwright CDP smart click for '" + elementDescription + "'...");
+                    String cdpResult = chromeCdpTools.smartClick(activePage, elementDescription);
+                    if (cdpResult.startsWith("OK:")) {
+                        System.out.println("[click] " + cdpResult);
+                        return cdpResult;
+                    }
+                    System.out.println("[click] CDP smart click failed — falling back to screenshot approach");
+                }
+            }
+        } catch (Exception e) {
+            System.out.println("[click] CDP attempt failed: " + e.getMessage() + " — falling back to screenshot approach");
+        }
 
         hideMinsBotWindow();
         try {

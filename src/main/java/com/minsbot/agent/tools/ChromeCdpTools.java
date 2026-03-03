@@ -2,13 +2,18 @@ package com.minsbot.agent.tools;
 
 import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
+import com.microsoft.playwright.options.AriaRole;
 import com.microsoft.playwright.options.LoadState;
 import com.minsbot.agent.ChromeCdpService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Browser automation tools via Chrome DevTools Protocol (CDP).
@@ -221,6 +226,150 @@ public class ChromeCdpTools {
         } catch (Exception e) {
             return "FAILED: browserOpenNewTab: " + e.getMessage();
         }
+    }
+
+    // ═══ Smart click — multi-strategy Playwright element clicking ═══
+
+    private static final Logger log = LoggerFactory.getLogger(ChromeCdpTools.class);
+
+    /** Words to strip from element descriptions to get the core search text. */
+    private static final Pattern STRIP_PATTERN = Pattern.compile(
+            "^\\s*(?:the|a|an|click(?:\\s+on)?|press|tap|hit|find|locate)\\s+", Pattern.CASE_INSENSITIVE);
+    private static final Pattern SUFFIX_PATTERN = Pattern.compile(
+            "\\s+(?:button|link|tab|icon|menu\\s*item|option|checkbox|radio|input|field|element)\\s*$",
+            Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Smart click — tries multiple Playwright selector strategies to click an element
+     * described in natural language. Called internally from SystemTools (not a @Tool).
+     *
+     * @param page               the active Chrome page
+     * @param elementDescription natural language like "the Submit button", "Sign in link"
+     * @return "OK: ..." on success, "FAIL: ..." on failure
+     */
+    public String smartClick(Page page, String elementDescription) {
+        if (page == null || page.isClosed()) return "FAIL: page is null or closed";
+
+        String text = extractClickText(elementDescription);
+        log.info("[CDP-SmartClick] Description='{}', extracted text='{}'", elementDescription, text);
+
+        // Strategy 1: Role-based — button
+        try {
+            Locator btn = page.getByRole(AriaRole.BUTTON,
+                    new Page.GetByRoleOptions().setName(text).setExact(false));
+            if (btn.count() > 0 && btn.first().isVisible()) {
+                btn.first().click();
+                log.info("[CDP-SmartClick] BUTTON role match: '{}'", text);
+                return "OK: Clicked button '" + text + "' via Playwright CDP (role=button)";
+            }
+        } catch (Exception e) { log.debug("[CDP-SmartClick] Button role failed: {}", e.getMessage()); }
+
+        // Strategy 2: Role-based — link
+        try {
+            Locator link = page.getByRole(AriaRole.LINK,
+                    new Page.GetByRoleOptions().setName(text).setExact(false));
+            if (link.count() > 0 && link.first().isVisible()) {
+                link.first().click();
+                log.info("[CDP-SmartClick] LINK role match: '{}'", text);
+                return "OK: Clicked link '" + text + "' via Playwright CDP (role=link)";
+            }
+        } catch (Exception e) { log.debug("[CDP-SmartClick] Link role failed: {}", e.getMessage()); }
+
+        // Strategy 3: Role-based — menu item
+        try {
+            Locator menu = page.getByRole(AriaRole.MENUITEM,
+                    new Page.GetByRoleOptions().setName(text).setExact(false));
+            if (menu.count() > 0 && menu.first().isVisible()) {
+                menu.first().click();
+                log.info("[CDP-SmartClick] MENUITEM role match: '{}'", text);
+                return "OK: Clicked menu item '" + text + "' via Playwright CDP (role=menuitem)";
+            }
+        } catch (Exception e) { log.debug("[CDP-SmartClick] Menuitem role failed: {}", e.getMessage()); }
+
+        // Strategy 4: Role-based — tab
+        try {
+            Locator tab = page.getByRole(AriaRole.TAB,
+                    new Page.GetByRoleOptions().setName(text).setExact(false));
+            if (tab.count() > 0 && tab.first().isVisible()) {
+                tab.first().click();
+                log.info("[CDP-SmartClick] TAB role match: '{}'", text);
+                return "OK: Clicked tab '" + text + "' via Playwright CDP (role=tab)";
+            }
+        } catch (Exception e) { log.debug("[CDP-SmartClick] Tab role failed: {}", e.getMessage()); }
+
+        // Strategy 5: Visible text match (any element)
+        try {
+            Locator byText = page.getByText(text, new Page.GetByTextOptions().setExact(false)).first();
+            if (byText.count() > 0 && byText.isVisible()) {
+                byText.click();
+                log.info("[CDP-SmartClick] TEXT match: '{}'", text);
+                return "OK: Clicked text '" + text + "' via Playwright CDP (getByText)";
+            }
+        } catch (Exception e) { log.debug("[CDP-SmartClick] Text match failed: {}", e.getMessage()); }
+
+        // Strategy 6: Label match (for form elements)
+        try {
+            Locator byLabel = page.getByLabel(text, new Page.GetByLabelOptions().setExact(false));
+            if (byLabel.count() > 0 && byLabel.first().isVisible()) {
+                byLabel.first().click();
+                log.info("[CDP-SmartClick] LABEL match: '{}'", text);
+                return "OK: Clicked labeled element '" + text + "' via Playwright CDP (getByLabel)";
+            }
+        } catch (Exception e) { log.debug("[CDP-SmartClick] Label match failed: {}", e.getMessage()); }
+
+        // Strategy 7: Placeholder match (for inputs)
+        try {
+            Locator byPlaceholder = page.getByPlaceholder(text, new Page.GetByPlaceholderOptions().setExact(false));
+            if (byPlaceholder.count() > 0 && byPlaceholder.first().isVisible()) {
+                byPlaceholder.first().click();
+                log.info("[CDP-SmartClick] PLACEHOLDER match: '{}'", text);
+                return "OK: Clicked placeholder '" + text + "' via Playwright CDP (getByPlaceholder)";
+            }
+        } catch (Exception e) { log.debug("[CDP-SmartClick] Placeholder match failed: {}", e.getMessage()); }
+
+        // Strategy 8: Title attribute
+        try {
+            Locator byTitle = page.locator("[title*='" + cssEscape(text) + "' i]").first();
+            if (byTitle.count() > 0 && byTitle.isVisible()) {
+                byTitle.click();
+                log.info("[CDP-SmartClick] TITLE attr match: '{}'", text);
+                return "OK: Clicked element with title '" + text + "' via Playwright CDP (title attr)";
+            }
+        } catch (Exception e) { log.debug("[CDP-SmartClick] Title attr failed: {}", e.getMessage()); }
+
+        // Strategy 9: Aria-label attribute
+        try {
+            Locator byAria = page.locator("[aria-label*='" + cssEscape(text) + "' i]").first();
+            if (byAria.count() > 0 && byAria.isVisible()) {
+                byAria.click();
+                log.info("[CDP-SmartClick] ARIA-LABEL match: '{}'", text);
+                return "OK: Clicked element with aria-label '" + text + "' via Playwright CDP (aria-label)";
+            }
+        } catch (Exception e) { log.debug("[CDP-SmartClick] Aria-label failed: {}", e.getMessage()); }
+
+        log.info("[CDP-SmartClick] All strategies failed for '{}'", elementDescription);
+        return "FAIL: Could not find '" + elementDescription + "' via Playwright CDP";
+    }
+
+    /**
+     * Extract the core clickable text from a natural language description.
+     * "the Submit button" → "Submit", "click on Sign in link" → "Sign in"
+     */
+    static String extractClickText(String description) {
+        if (description == null || description.isBlank()) return "";
+        String text = description.trim();
+        // Strip leading action words: "click on the", "press the", etc.
+        Matcher m = STRIP_PATTERN.matcher(text);
+        if (m.find()) text = text.substring(m.end());
+        // Strip trailing element type: "button", "link", "tab", etc.
+        Matcher s = SUFFIX_PATTERN.matcher(text);
+        if (s.find()) text = text.substring(0, s.start());
+        return text.trim();
+    }
+
+    /** Escape single quotes for CSS attribute selectors. */
+    private static String cssEscape(String s) {
+        return s.replace("'", "\\'");
     }
 
     /** Check if a URL represents a page with real content (not blank/new tab). */

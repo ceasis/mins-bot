@@ -1,5 +1,6 @@
 package com.minsbot.agent.tools;
 
+import com.minsbot.ElevenLabsConfig;
 import com.minsbot.ElevenLabsVoiceService;
 import com.minsbot.agent.OpenAiTtsService;
 import org.slf4j.Logger;
@@ -39,6 +40,7 @@ public class TtsTools {
     private final ToolExecutionNotifier notifier;
     private final ElevenLabsVoiceService elevenLabs;
     private final OpenAiTtsService openAiTts;
+    private final ElevenLabsConfig.ElevenLabsProperties elevenLabsProps;
 
     /** In-memory cache: sanitized text key → WAV bytes. */
     private final ConcurrentHashMap<String, byte[]> audioCache = new ConcurrentHashMap<>();
@@ -59,16 +61,20 @@ public class TtsTools {
     /** Reference to the currently playing Clip (cached playback) — null when idle. */
     private volatile Clip activeClip = null;
 
+    /** True if audio is currently playing (streaming or cached clip). */
+    public boolean isSpeaking() { return activeLine != null || activeClip != null; }
+
     // Config (mutable, reloaded at runtime)
     private volatile boolean autoSpeak = true;
     /** TTS engine preference: "elevenlabs", "openai", or "auto" (try both). */
     private volatile String ttsEngine = "auto";
 
     public TtsTools(ToolExecutionNotifier notifier, ElevenLabsVoiceService elevenLabs,
-                    OpenAiTtsService openAiTts) {
+                    OpenAiTtsService openAiTts, ElevenLabsConfig.ElevenLabsProperties elevenLabsProps) {
         this.notifier = notifier;
         this.elevenLabs = elevenLabs;
         this.openAiTts = openAiTts;
+        this.elevenLabsProps = elevenLabsProps;
     }
 
     @PostConstruct
@@ -223,6 +229,56 @@ public class TtsTools {
                 log.debug("[TTS] Async speak failed: {}", e.getMessage());
             }
         });
+    }
+
+    /**
+     * Speak text with a gender-matched ElevenLabs voice on a background thread.
+     * Used by vocal/mouth mode to speak translations aloud with matching voice.
+     *
+     * @param text   text to speak
+     * @param gender "male", "female", or anything else (defaults to male)
+     */
+    public void speakAsyncWithVoice(String text, String gender) {
+        if (text == null || text.isBlank()) return;
+        String clean = cleanForSpeech(text);
+        if (clean.isBlank()) return;
+        ttsExecutor.submit(() -> {
+            try {
+                stopRequested = false;
+                doSpeakWithVoice(clean, gender);
+            } catch (Exception e) {
+                log.debug("[TTS] Async speak-with-voice failed: {}", e.getMessage());
+            }
+        });
+    }
+
+    private void doSpeakWithVoice(String text, String gender) {
+        // Resolve gendered voice ID from ElevenLabs config
+        String voiceId = "female".equalsIgnoreCase(gender)
+                ? elevenLabsProps.getFemaleVoiceId()
+                : elevenLabsProps.getMaleVoiceId();
+
+        // Try ElevenLabs with the gendered voice
+        if (elevenLabs.isEnabled() && voiceId != null && !voiceId.isBlank()) {
+            log.info("[TTS] Speaking with {} voice (voiceId={})", gender, voiceId);
+            InputStream stream = elevenLabs.textToSpeechStream(text, voiceId);
+            if (streamAndPlay(stream, cacheKey(text + "_" + gender), text, "ElevenLabs-" + gender)) {
+                return;
+            }
+        }
+
+        // Fallback: OpenAI TTS with gender-mapped voice
+        if (openAiTts.isAvailable()) {
+            String origVoice = openAiTts.getVoice();
+            try {
+                openAiTts.setVoice("female".equalsIgnoreCase(gender) ? "nova" : "onyx");
+                if (tryStreamOpenAi(text, cacheKey(text + "_" + gender))) return;
+            } finally {
+                openAiTts.setVoice(origVoice);
+            }
+        }
+
+        log.warn("[TTS] Gender-matched speak failed — no engine available");
     }
 
     // ═══ Core speak logic ═══

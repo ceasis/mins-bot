@@ -10,6 +10,7 @@
   const headerWatchEl = document.getElementById('header-watch');
   const headerControlEl = document.getElementById('header-control');
   const headerListenEl = document.getElementById('header-listen');
+  const headerMouthEl = document.getElementById('header-mouth');
   const quitCountdownEl = document.getElementById('quit-countdown');
   const quitCountdownLabel = document.getElementById('quit-countdown-label');
   const quitCountdownFill = document.getElementById('quit-countdown-fill');
@@ -748,6 +749,29 @@
       }
     } catch (e) { /* ignore */ }
   }, 800);
+
+  // ═══ Mouth button (vocal mode) toggle + status polling ═══
+
+  if (headerMouthEl) {
+    headerMouthEl.addEventListener('click', async function () {
+      try {
+        var res = await fetch('/api/mouth-mode/toggle', { method: 'POST' });
+        var data = await res.json();
+        headerMouthEl.classList.toggle('active', !!data.active);
+      } catch (e) { /* ignore */ }
+    });
+  }
+
+  // Poll mouth mode status every 1s (syncs with listen mode status)
+  setInterval(async function () {
+    try {
+      var res = await fetch('/api/status/mouth-mode');
+      var data = await res.json();
+      if (headerMouthEl) {
+        headerMouthEl.classList.toggle('active', !!data.active);
+      }
+    } catch (e) { /* ignore */ }
+  }, 1000);
 
   // ═══ Browser tab ═══
 

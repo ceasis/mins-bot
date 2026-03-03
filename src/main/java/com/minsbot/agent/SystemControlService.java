@@ -336,6 +336,24 @@ public class SystemControlService {
             java.awt.Rectangle screenRect = new java.awt.Rectangle(
                     java.awt.Toolkit.getDefaultToolkit().getScreenSize());
             java.awt.image.BufferedImage image = new java.awt.Robot().createScreenCapture(screenRect);
+
+            // Draw mouse cursor onto the screenshot
+            try {
+                java.awt.Point mousePos = java.awt.MouseInfo.getPointerInfo().getLocation();
+                java.awt.Graphics2D g = image.createGraphics();
+                g.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+                int mx = mousePos.x, my = mousePos.y;
+                // Draw arrow cursor shape (white fill, black outline)
+                int[] cx = {mx, mx, mx + 10, mx + 6, mx + 8, mx + 5, mx + 5};
+                int[] cy = {my, my + 17, my + 12, my + 12, my + 20, my + 15, my + 13};
+                g.setColor(java.awt.Color.WHITE);
+                g.fillPolygon(cx, cy, cx.length);
+                g.setColor(java.awt.Color.BLACK);
+                g.setStroke(new java.awt.BasicStroke(1.2f));
+                g.drawPolygon(cx, cy, cx.length);
+                g.dispose();
+            } catch (Exception ignored) { /* mouse position unavailable — skip cursor */ }
+
             java.time.LocalDateTime now = java.time.LocalDateTime.now();
             java.nio.file.Path dir = java.nio.file.Paths.get(
                     System.getProperty("user.home"), "mins_bot_data", "screenshots")
