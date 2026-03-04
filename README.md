@@ -1,250 +1,334 @@
 # Mins Bot
 
-A **Java 17** **Spring Boot** desktop app that runs as a **floating UI** on Windows or Mac. It shows a swirling ball that expands into a **chatbot interface with voice** when you hover over it, and collapses back to the ball when the mouse leaves.
+A floating desktop AI assistant built with **Java 17**, **Spring Boot**, and **JavaFX**. A swirling orb sits on your desktop — double-click to expand a full chat panel with voice, vision, browser automation, and connections to 10 messaging platforms.
 
-All configuration is in `application.properties`.
+![Java](https://img.shields.io/badge/Java-17-blue)
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.3-green)
+![JavaFX](https://img.shields.io/badge/JavaFX-21-orange)
+![License](https://img.shields.io/badge/License-AGPL--3.0%20%2B%20Commons%20Clause-red)
+
+---
 
 ## Features
 
-- **Floating window**: Always-on-top, draggable, no title bar.
-- **Collapsed state**: A single swirling animated ball (gradient orb).
-- **Expanded state** (on mouse over): Full chat UI with message history, text input, and send button.
-- **Voice input**: Microphone button uses the Web Speech API (browser/WebView) for speech-to-text.
-- **REST chat API**: `POST /api/chat` with `{"message":"..."}`; reply comes from the backend (OpenAI tool-calling by default; you can plug in your own).
-- **Messaging integrations** (optional): Connect the same chatbot to **10 platforms** via webhooks. Each integration is disabled by default; enable and set tokens in `application.properties` (or secrets). All use the same reply logic (`ChatService`).
+### Desktop UI
+- **Floating window** — always-on-top, transparent, draggable orb with no title bar
+- **Expand/collapse** — double-click the orb to open the chat panel; click the orb again to collapse
+- **Tabbed interface** — Chat, Browser, Skills, Schedules, Todo, and Directives tabs
+- **System tray** — minimize to tray for background operation
+
+### AI & Chat
+- **Multi-model support** — OpenAI (GPT-5.1, GPT-4o), Google Gemini (2.5 Pro, 3 Flash), and local models via Ollama
+- **Tool-calling agent** — 57+ built-in tools the AI can invoke (file management, browser control, system commands, and more)
+- **Task planning** — the bot shows a numbered checklist before executing complex multi-step tasks
+- **Autonomous mode** — the bot can work on directives independently when you're idle
+- **Chat memory** — conversation context window with persistent transcript history
+
+### Voice & Vision
+- **Voice input** — speech-to-text via Web Speech API and native microphone capture
+- **Text-to-speech** — ElevenLabs, OpenAI TTS, or Windows native voice output
+- **Gemini Live** — real-time bidirectional audio streaming with language translation
+- **Screen watching** — periodic screen capture with OCR for context awareness
+- **Webcam** — capture and analyze webcam feed
+- **Audio listening** — background audio capture and transcription
+
+### Browser & Automation
+- **Chrome DevTools Protocol** — control your real Chrome browser (navigate, click, extract data)
+- **Playwright** — headless browser automation for web scraping
+- **System control** — execute system commands, manage processes, control applications
+
+### Tools (57+)
+- **Files** — read, write, search, download, export
+- **Browser** — navigate, screenshot, extract content, fill forms
+- **System** — run commands, manage software, network diagnostics, printer control
+- **Media** — image generation (Hugging Face ONNX), QR codes, PDF extraction, Excel
+- **Utilities** — calculator, unit conversion, hash generation, timers, clipboard
+- **Email** — send and read emails via SMTP/IMAP
+- **Config** — manage bot personality, sites, schedules, and directives
+
+### Messaging Integrations (10 Platforms)
+Connect the same AI chatbot to any combination of these platforms — all share the same reply logic:
+
+| Platform | Webhook Endpoint | Config Prefix |
+|----------|-----------------|---------------|
+| Viber | `POST /api/viber/webhook` | `app.viber.*` |
+| Telegram | `POST /api/telegram/webhook` | `app.telegram.*` |
+| Discord | `POST /api/discord/interactions` | `app.discord.*` |
+| Slack | `POST /api/slack/events` | `app.slack.*` |
+| WhatsApp | `POST /api/whatsapp/webhook` | `app.whatsapp.*` |
+| Messenger | `POST /api/messenger/webhook` | `app.messenger.*` |
+| LINE | `POST /api/line/webhook` | `app.line.*` |
+| Teams | `POST /api/teams/messages` | `app.teams.*` |
+| WeChat | `POST /api/wechat/webhook` | `app.wechat.*` |
+| Signal | `POST /api/signal/webhook` | `app.signal.*` |
+
+All integrations are **disabled by default**. Enable only what you need.
+
+### Skills System
+- Pluggable skill packages under `com.minsbot.skills.<name>`
+- Auto-discovered by Spring — no manual registration
+- **Disk Scan** — browse file systems with security blocklists
+- Easy to add your own: create a Config + Service + Controller package
+
+---
 
 ## Requirements
 
 - **Java 17** (JDK 17 or later)
 - **Maven 3.6+**
-- Windows or macOS (Linux may work but is untested)
+- **Windows**, **macOS**, or **Linux**
+- **API keys** for AI services you want to use (see [Configuration](#configuration))
 
-## Setup
+---
 
-### 1. Clone or open the project
+## Quick Start
+
+### 1. Clone the repository
 
 ```bash
+git clone https://github.com/user/mins-bot.git
 cd mins-bot
 ```
 
-### 2. Build
+### 2. Configure your API keys
+
+Create a file called `application-secrets.properties` in the project root (this file is gitignored):
+
+```properties
+# Required — at least one AI provider
+spring.ai.openai.api-key=YOUR_OPENAI_API_KEY
+
+# Optional — Gemini
+gemini.api.key=YOUR_GEMINI_API_KEY
+
+# Optional — ElevenLabs TTS
+app.elevenlabs.api-key=YOUR_ELEVENLABS_API_KEY
+app.elevenlabs.voice-id=YOUR_VOICE_ID
+
+# Optional — Email
+spring.mail.host=smtp.gmail.com
+spring.mail.username=YOUR_EMAIL
+spring.mail.password=YOUR_APP_PASSWORD
+
+# Optional — Messaging platform tokens (add only what you use)
+# app.telegram.bot-token=YOUR_TOKEN
+# app.discord.bot-token=YOUR_TOKEN
+# app.viber.auth-token=YOUR_TOKEN
+# ... etc.
+```
+
+### 3. Build
 
 ```bash
 mvn clean package -DskipTests
 ```
 
-### 3. Run
+### 4. Run
 
-**Option A – Maven (recommended)**
+**Option A — Maven (recommended)**
 
 ```bash
 mvn spring-boot:run
 ```
 
-On the first run, Maven unpacks the JavaFX Web native library (e.g. `jfxwebkit.dll` on Windows) into `target/javafx-natives` and passes it as `java.library.path` so the floating window’s WebView works. This is done automatically via the OS-specific profile (Windows/Mac/Linux).
-
-If you see an error like *"JavaFX runtime components are missing"*, run with JavaFX modules and opens:
-
-**Windows (PowerShell):**
-
-```powershell
-$env:MAVEN_OPTS="--add-modules javafx.controls,javafx.web,javafx.fxml --add-opens java.base/java.lang=ALL-UNNAMED"
-mvn spring-boot:run
-```
-
-**macOS / Linux:**
+**Option B — JAR**
 
 ```bash
-export MAVEN_OPTS="--add-modules javafx.controls,javafx.web,javafx.fxml --add-opens java.base/java.lang=ALL-UNNAMED"
-mvn spring-boot:run
+java --add-modules javafx.controls,javafx.web,javafx.fxml \
+     --add-opens java.base/java.lang=ALL-UNNAMED \
+     -jar target/mins-bot-1.0.0-SNAPSHOT.jar
 ```
 
-**Option B – Run the JAR**
+**Option C — IDE (Eclipse / IntelliJ)**
 
-```bash
-java --add-modules javafx.controls,javafx.web,javafx.fxml --add-opens java.base/java.lang=ALL-UNNAMED -jar target/mins-bot-1.0.0-SNAPSHOT.jar
-```
+1. Set main class to `com.minsbot.FloatingAppLauncher`
+2. Add VM options: `--add-modules javafx.controls,javafx.web,javafx.fxml --add-opens java.base/java.lang=ALL-UNNAMED`
+3. Run
 
-**Option C – From your IDE (Eclipse / IntelliJ)**
+### 5. Use
 
-1. Set the **main class** to: `com.minsbot.FloatingAppLauncher`
-2. Add VM options (if needed):
-   - `--add-modules javafx.controls,javafx.web,javafx.fxml`
-   - `--add-opens java.base/java.lang=ALL-UNNAMED`
-3. Run `FloatingAppLauncher`.
+- A small **swirling orb** appears on your desktop
+- **Double-click** the orb to expand the chat panel
+- **Type** a message and press Enter or click Send
+- **Click the microphone** for voice input
+- **Drag** the orb to reposition the window
 
-### 4. Use the app
+---
 
-- A small **swirling ball** appears (usually bottom-right of the screen).
-- **Hover** over the ball to expand the chat UI.
-- **Type** a message and press Enter or click Send.
-- Click the **microphone** to use voice input (if supported by the WebView).
-- **Drag** the window by clicking and dragging anywhere on it.
-- **Mouse out** of the window to collapse it back to the ball.
+## Configuration
 
-## Configuration (`application.properties`)
+All configuration lives in `src/main/resources/application.properties`. Sensitive values (API keys, tokens) should go in `application-secrets.properties` (gitignored).
+
+### Window Settings
 
 | Property | Description | Default |
 |----------|-------------|---------|
-| `server.port` | HTTP port for the embedded server and UI | `8765` (or `MINS_BOT_PORT` env) |
-| `app.window.collapsed.width` | Width when collapsed (ball only) | `64` |
-| `app.window.collapsed.height` | Height when collapsed | `64` |
-| `app.window.expanded.width` | Width when expanded (chat) | `380` |
-| `app.window.expanded.height` | Height when expanded | `520` |
-| `app.window.initial.x` | Initial X position (-1 = auto, right side) | `-1` |
+| `server.port` | HTTP port | `8765` |
+| `app.window.collapsed.width` | Orb width (px) | `45` |
+| `app.window.collapsed.height` | Orb height (px) | `45` |
+| `app.window.expanded.width` | Chat panel width (px) | `380` |
+| `app.window.expanded.height` | Chat panel height (px) | `520` |
+| `app.window.initial.x` | Initial X position (-1 = auto) | `-1` |
 | `app.window.initial.y` | Initial Y position (-1 = auto) | `-1` |
-| `app.window.always-on-top` | Keep window on top | `true` |
-| `app.window.hover.expand.delay-ms` | Delay before expanding on hover | `150` |
-| `app.window.hover.collapse.delay-ms` | Delay before collapsing on mouse out | `400` |
-| `app.chat.placeholder.enabled` | Use built-in placeholder replies | `true` |
+| `app.window.always-on-top` | Keep window above all others | `true` |
 
-**Messaging integrations:** Each platform has `app.<platform>.enabled=false` and its own token/ID properties. See [Messaging integrations](#messaging-integrations) below for endpoints and setup.
+### AI Models
 
-Override with environment variables (e.g. `MINS_BOT_PORT=9090`) or by editing `src/main/resources/application.properties`.
+| Property | Description | Default |
+|----------|-------------|---------|
+| `spring.ai.openai.chat.options.model` | OpenAI chat model | `gpt-5.1` |
+| `app.gemini.vision-model` | Gemini vision model | `gemini-3-flash-preview` |
+| `app.gemini.reasoning-model` | Gemini reasoning model | `gemini-2.5-pro` |
+| `app.gemini-live.model` | Gemini Live audio model | `gemini-2.5-flash-native-audio-latest` |
+| `app.gemini-live.source-language` | Live translation source language | `Filipino` |
 
-### Local secrets file (not committed)
+### Feature Toggles
 
-This project supports a separate secrets file for API keys:
+| Property | Description | Default |
+|----------|-------------|---------|
+| `app.planning.enabled` | Show task plans before execution | `true` |
+| `app.autonomous.enabled` | Autonomous mode when idle | `true` |
+| `app.tray.enabled` | System tray icon | `true` |
+| `app.cdp.enabled` | Chrome DevTools Protocol | `true` |
+| `app.hotkeys.enabled` | Global keyboard hooks | `false` |
+| `app.skills.diskscan.enabled` | Disk scan skill | `false` |
 
-- File path: `application-secrets.properties` (project root)
-- Loaded automatically via:
-  - `spring.config.import=optional:file:./application-secrets.properties`
-- Ignored by git via `.gitignore`
+### Environment Variables
 
-Setup:
-
-1. Copy `application-secrets.properties.example` to `application-secrets.properties`.
-2. Put your secrets there (e.g. `spring.ai.openai.api-key` for the AI, and any messaging tokens like `app.telegram.bot-token`).
-3. Run the app normally (`mvn spring-boot:run`).
-
-Example `application-secrets.properties`:
-
-```properties
-spring.ai.openai.api-key=sk-...
-# Optional: keep messaging tokens here instead of application.properties
-# app.telegram.bot-token=...
-# app.discord.bot-token=...
-```
-
-`application-secrets.properties.example` also includes placeholders for other LLM providers (Anthropic, Gemini, Azure OpenAI, etc.); only OpenAI is wired for chat. Messaging platform tokens (`app.viber.auth-token`, `app.telegram.bot-token`, etc.) can go in this file to keep them out of version control.
-
-### Environment configuration
-
-Spring Boot maps `app.openai.*` properties to uppercase env vars with `_` separators:
-
-- `app.openai.enabled` -> `APP_OPENAI_ENABLED`
-- `app.openai.api-key` -> `APP_OPENAI_API_KEY`
-- `app.openai.base-url` -> `APP_OPENAI_BASE_URL`
-- `app.openai.audio-model` -> `APP_OPENAI_AUDIO_MODEL`
-
-You can also set `server.port` using `MINS_BOT_PORT`.
-
-Examples:
-
-**Windows PowerShell (current shell):**
-
-```powershell
-$env:APP_OPENAI_ENABLED="true"
-$env:APP_OPENAI_API_KEY="sk-..."
-$env:APP_OPENAI_AUDIO_MODEL="gpt-4o-audio-preview"
-$env:MINS_BOT_PORT="8765"
-mvn spring-boot:run
-```
-
-**Windows PowerShell (persist for user):**
-
-```powershell
-[Environment]::SetEnvironmentVariable("APP_OPENAI_ENABLED", "true", "User")
-[Environment]::SetEnvironmentVariable("APP_OPENAI_API_KEY", "sk-...", "User")
-[Environment]::SetEnvironmentVariable("APP_OPENAI_AUDIO_MODEL", "gpt-4o-audio-preview", "User")
-```
-
-**macOS / Linux:**
+Spring Boot maps properties to env vars with `_` separators:
 
 ```bash
-export APP_OPENAI_ENABLED=true
-export APP_OPENAI_API_KEY="sk-..."
-export APP_OPENAI_AUDIO_MODEL="gpt-4o-audio-preview"
-export MINS_BOT_PORT=8765
+# Example
+export SPRING_AI_OPENAI_API_KEY="your-key"
+export MINS_BOT_PORT="9090"
 mvn spring-boot:run
 ```
 
-Note: configure `src/main/resources/application.properties`, not `target/classes/application.properties` (that target file is build output and gets overwritten).
+---
 
-### Messaging integrations
+## Messaging Platform Setup
 
-The same chatbot can receive and reply to messages on multiple platforms. Each integration is **off** by default. Enable the ones you need and set the required tokens/IDs in `application.properties` or `application-secrets.properties`. **All webhooks require public HTTPS** (use [ngrok](https://ngrok.com/) for local dev: `ngrok http 8765`).
+All messaging integrations require a **public HTTPS endpoint**. For local development, use [ngrok](https://ngrok.com/):
 
-| Platform | Webhook endpoint | Config prefix | Docs / notes |
-|----------|------------------|---------------|--------------|
-| **Viber** | `POST /api/viber/webhook` | `app.viber.*` | [Viber Bot API](https://developers.viber.com/docs/api/rest-bot-api/) — auth-token, webhook-url (auto-registered if set) |
-| **Telegram** | `POST /api/telegram/webhook` | `app.telegram.*` | [Telegram Bots](https://core.telegram.org/bots/api) — bot-token, webhook-url (auto-registered) |
-| **Discord** | `POST /api/discord/interactions` | `app.discord.*` | [Discord Developer](https://discord.com/developers/docs/intro) — bot-token, application-id, public-key; set Interactions Endpoint URL in Dev Portal |
-| **Slack** | `POST /api/slack/events` | `app.slack.*` | [Slack API](https://api.slack.com/) — bot-token, signing-secret, app-token; Events API Request URL |
-| **WhatsApp** | `POST /api/whatsapp/webhook` | `app.whatsapp.*` | [Meta Cloud API](https://developers.facebook.com/docs/whatsapp/cloud-api) — access-token, phone-number-id, verify-token |
-| **Messenger** | `POST /api/messenger/webhook` | `app.messenger.*` | [Messenger Platform](https://developers.facebook.com/docs/messenger-platform) — page-access-token, verify-token, app-secret |
-| **LINE** | `POST /api/line/webhook` | `app.line.*` | [LINE Messaging API](https://developers.line.biz/en/docs/messaging-api/) — channel-access-token, channel-secret |
-| **Teams** | `POST /api/teams/messages` | `app.teams.*` | [Azure Bot Service](https://learn.microsoft.com/en-us/azure/bot-service/) — app-id, app-password, tenant-id |
-| **WeChat** | `POST /api/wechat/webhook` | `app.wechat.*` | [WeChat Official Account](https://developers.weixin.qq.com/doc/offiaccount/en/) — app-id, app-secret, token, encoding-aes-key |
-| **Signal** | `POST /api/signal/webhook` | `app.signal.*` | [signal-cli-rest-api](https://github.com/bbernhard/signal-cli-rest-api) — requires separate signal-cli-rest-api instance; api-url, phone-number |
+```bash
+ngrok http 8765
+```
 
-**Example — Viber**
+### Example — Telegram
 
-1. Create a Viber bot ([Viber for developers](https://developers.viber.com/docs/api/rest-bot-api/)).
-2. In Viber: **More → Settings → Bots → Edit Info → Your app key** — copy the token.
-3. Set in `application.properties`: `app.viber.enabled=true`, `app.viber.auth-token=YOUR_TOKEN`.
-4. Expose HTTPS (e.g. ngrok): set `app.viber.webhook-url=https://YOUR_NGROK_URL/api/viber/webhook`. Restart the app; the webhook is registered on startup.
-5. Viber sends events to `POST /api/viber/webhook`; the app replies using the same `ChatService` logic as the desktop chat.
+1. Create a bot via [@BotFather](https://t.me/BotFather) and copy the token
+2. Add to `application-secrets.properties`:
+   ```properties
+   app.telegram.enabled=true
+   app.telegram.bot-token=YOUR_BOT_TOKEN
+   app.telegram.webhook-url=https://YOUR_NGROK_URL/api/telegram/webhook
+   ```
+3. Restart the app — the webhook is registered automatically on startup
 
-## Project layout
+Other platforms follow the same pattern. See each platform's developer docs for obtaining tokens.
+
+---
+
+## Project Structure
 
 ```
 mins-bot/
 ├── pom.xml
-├── README.md
+├── LICENSE                              # AGPL-3.0 + Commons Clause
+├── CLAUDE.md                            # AI assistant project context
+│
 ├── src/main/java/com/minsbot/
-│   ├── MinsbotApplication.java      # Spring Boot entry
-│   ├── FloatingAppLauncher.java     # JavaFX entry, starts Spring & floating window
-│   ├── WindowBridge.java            # JS ↔ Java (expand/collapse/drag/voice)
-│   ├── ChatController.java          # REST /api/chat, /api/chat/async, /api/chat/status
-│   ├── ChatService.java             # Shared reply logic (desktop + all messaging platforms)
-│   ├── config/                      # OpenAI secrets loader, etc.
-│   ├── agent/                       # AI config, tools, system context, PcAgent
-│   ├── memory/                      # MemoryService (notes), MemoryConfig
-│   ├── skills/                      # Optional skills (e.g. diskscan)
-│   ├── ViberConfig.java             # + ViberApiClient, ViberWebhookController, ViberWebhookRegistrar
-│   ├── TelegramConfig.java          # + TelegramApiClient, TelegramWebhookController, TelegramWebhookRegistrar
-│   ├── DiscordConfig.java           # + DiscordApiClient, DiscordWebhookController
-│   ├── SlackConfig.java             # + SlackApiClient, SlackEventController
-│   ├── WhatsAppConfig.java          # + WhatsAppApiClient, WhatsAppWebhookController
-│   ├── MessengerConfig.java         # + MessengerApiClient, MessengerWebhookController
-│   ├── LineConfig.java              # + LineApiClient, LineWebhookController
-│   ├── TeamsConfig.java             # + TeamsApiClient, TeamsWebhookController
-│   ├── WeChatConfig.java            # + WeChatApiClient, WeChatWebhookController
-│   └── SignalConfig.java            # + SignalApiClient, SignalWebhookController
-└── src/main/resources/
-    ├── application.properties       # All config (window, platforms, skills, memory, etc.)
-    ├── application-secrets.properties  # Optional, gitignored (OpenAI key, etc.)
-    └── static/
-        ├── index.html
-        ├── css/style.css
-        └── js/app.js
+│   ├── FloatingAppLauncher.java         # JavaFX entry point
+│   ├── MinsbotApplication.java          # Spring Boot entry point
+│   ├── WindowBridge.java                # JS <-> Java bridge
+│   ├── ChatController.java             # REST API (/api/chat)
+│   ├── ChatService.java                # Core reply logic (all platforms)
+│   │
+│   ├── agent/                           # AI configuration & tools
+│   │   ├── AiConfig.java               # ChatClient, memory, tool bindings
+│   │   ├── GeminiLiveService.java       # Real-time audio streaming
+│   │   ├── GeminiVisionService.java     # Image analysis
+│   │   ├── VisionService.java           # Screen capture analysis
+│   │   └── tools/                       # 57+ tool implementations
+│   │
+│   ├── skills/                          # Pluggable skill packages
+│   │   └── diskscan/                    # File system browser
+│   │
+│   ├── config/                          # Secrets loader
+│   │
+│   └── [Platform]*Config.java           # 10 messaging platform integrations
+│       [Platform]*ApiClient.java
+│       [Platform]*WebhookController.java
+│
+├── src/main/resources/
+│   ├── application.properties           # All configuration
+│   ├── application-secrets.properties   # API keys (gitignored)
+│   └── static/                          # Frontend
+│       ├── index.html                   # Main UI
+│       ├── css/style.css                # Dark theme, animations
+│       └── js/app.js                    # Client-side logic
+│
+└── memory/                              # Persistent data (gitignored)
 ```
 
-## Customizing the chatbot
+---
 
-- **Backend logic**: Edit `ChatService.java` — `getReply()` is used by the desktop chat and **all messaging integrations**. Replace or extend the logic (OpenAI tool-calling, regex fallback, or your own services).
-- **UI**: Edit `src/main/resources/static/` (HTML, CSS, JS). The floating window is a JavaFX `WebView` loading the app at `http://localhost:<server.port>/`.
-- **Voice**: Voice input uses the Web Speech API in the WebView; no backend change needed for basic speech-to-text.
+## API Endpoints
+
+### Chat
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/chat` | Send a message, get a reply |
+| `GET` | `/api/chat/history` | Load recent chat history |
+| `GET` | `/api/chat/status` | Poll tool execution updates |
+| `GET` | `/api/chat/async` | Poll background task results |
+| `POST` | `/api/chat/clear` | Clear memory and transcript |
+
+### Skills
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/skills/diskscan/*` | Browse file system |
+
+### Platform Webhooks
+Each enabled platform exposes its webhook endpoint (see table above).
+
+---
+
+## Customization
+
+- **AI behavior** — Edit `ChatService.java` to change how the bot generates replies
+- **Tools** — Add new tools in `src/main/java/com/minsbot/agent/tools/`
+- **Skills** — Create a new package under `com.minsbot.skills.<name>` with Config, Service, and Controller
+- **UI** — Edit files in `src/main/resources/static/` (vanilla HTML/CSS/JS)
+- **Bot personality** — Configure directives through the Directives tab in the UI
+
+---
 
 ## Troubleshooting
 
-- **"no jfxwebkit in java.library.path"**: The build unpacks the WebView native library into `target/javafx-natives` when you run on Windows/Mac/Linux (OS-specific Maven profile). Use `mvn spring-boot:run` so the plugin can set `-Djava.library.path` to that folder. If you run the JAR directly, use:  
-  `java -Djava.library.path=target/javafx-natives -jar target/mins-bot-1.0.0-SNAPSHOT.jar` (and ensure you’ve run a build on the same OS first so `target/javafx-natives` exists).
-- **Window doesn’t appear**: Ensure the port in `application.properties` is free and that no firewall is blocking `localhost`.
-- **"JavaFX runtime components are missing"**: Use the `MAVEN_OPTS` or `java` command with `--add-modules` and `--add-opens` as above.
-- **Voice not working**: Depends on WebView/system support for the Web Speech API (e.g. macOS/Windows with a recent JavaFX/WebKit build). Try in a browser at `http://localhost:<port>/` to compare.
+| Problem | Solution |
+|---------|----------|
+| `no jfxwebkit in java.library.path` | Use `mvn spring-boot:run` (unpacks natives automatically) or add `-Djava.library.path=target/javafx-natives` |
+| `JavaFX runtime components are missing` | Add `--add-modules javafx.controls,javafx.web,javafx.fxml --add-opens java.base/java.lang=ALL-UNNAMED` to VM options |
+| Window doesn't appear | Check that port 8765 is free and not blocked by firewall |
+| Voice not working | Depends on WebView/system Web Speech API support; try `http://localhost:8765/` in a browser |
+| Messaging webhook not receiving | Ensure HTTPS is set up (ngrok) and webhook URL is correct |
+| Ollama models not loading | Install Ollama from [ollama.com](https://ollama.com) and pull your desired model |
+
+---
 
 ## License
 
-Use and modify as you like for your project.
+This project is licensed under the **GNU Affero General Public License v3.0** with the **Commons Clause** license condition.
+
+**You may:**
+- Use, view, and modify the source code
+- Distribute copies under the same license terms
+- Use it for personal and internal purposes
+
+**You may not:**
+- Sell the software or offer it as a paid hosted service
+- Distribute modified versions without sharing the source code
+- Remove license or copyright notices
+
+See [LICENSE](LICENSE) for the full text.

@@ -115,7 +115,7 @@ public class FloatingAppLauncher extends Application {
         final double[] pressPos = new double[2];
         final boolean[] isDrag = {false};
         // Title bar height (must match CSS .title-bar height) for drag detection
-        final int titleBarHeight = 36;
+        final int titleBarHeight = 32;
         final double[] titleBarPressStage = new double[2];
         final boolean[] draggingTitleBar = {false};
         final boolean[] didTitleBarDrag = {false};

@@ -106,16 +106,17 @@ html, body {
 /* ═══ Custom title bar (black, premium) ═══ */
 .title-bar {
   flex-shrink: 0;
-  height: 36px;
-  min-height: 36px;
+  height: 32px;
+  min-height: 32px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #000;
+  background: #202020;
+  border-bottom: 1px solid #333;
   -webkit-app-region: no-drag;
   user-select: none;
   -webkit-user-select: none;
-  cursor: move;
+  cursor: default;
 }
 
 .title-bar-drag {
@@ -123,32 +124,22 @@ html, body {
   height: 100%;
   display: flex;
   align-items: center;
-  padding-left: 14px;
+  padding-left: 12px;
   gap: 8px;
-  cursor: move;
+  cursor: default;
   position: relative;
 }
 
 .title-bar-glow {
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 3px;
-  height: 14px;
-  background: linear-gradient(180deg, transparent, rgba(99,102,241,0.6), transparent);
-  border-radius: 2px;
-  opacity: 0.9;
-  pointer-events: none;
+  display: none;
 }
 
 .title-bar-app-name {
   font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: rgba(255,255,255,0.92);
-  text-shadow: 0 0 24px rgba(99,102,241,0.15);
-  cursor: move;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: rgba(255,255,255,0.85);
+  cursor: default;
   pointer-events: none;
 }
 
@@ -167,9 +158,9 @@ html, body {
   justify-content: center;
   background: transparent;
   border: none;
-  color: rgba(255,255,255,0.6);
+  color: rgba(255,255,255,0.7);
   cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition: background 0.1s ease, color 0.1s ease;
 }
 
 .title-bar-btn svg {
@@ -178,13 +169,13 @@ html, body {
 }
 
 .title-bar-btn:hover {
-  background: rgba(255,255,255,0.06);
-  color: rgba(255,255,255,0.9);
+  background: rgba(255,255,255,0.1);
+  color: #fff;
 }
 
 .title-bar-close:hover {
-  background: rgba(239,68,68,0.25);
-  color: #fca5a5;
+  background: #e81123;
+  color: #fff;
 }
 
 .panel-actions {

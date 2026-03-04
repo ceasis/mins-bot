@@ -7,6 +7,7 @@ import com.google.genai.types.Content;
 import com.google.genai.types.LiveConnectConfig;
 import com.google.genai.types.LiveSendRealtimeInputParameters;
 import com.google.genai.types.LiveServerMessage;
+import com.google.genai.types.HttpOptions;
 import com.google.genai.types.Modality;
 import com.google.genai.types.Part;
 
@@ -36,7 +37,7 @@ public class GeminiLiveService {
     @Value("${app.gemini.api-key:}")
     private String apiKey;
 
-    @Value("${app.gemini-live.model:gemini-2.0-flash-exp}")
+    @Value("${app.gemini-live.model:gemini-2.5-flash-native-audio-latest}")
     private volatile String liveModel;
 
     @Value("${app.gemini-live.enabled:true}")
@@ -96,8 +97,11 @@ public class GeminiLiveService {
         log.info("[GeminiLive] Connecting via SDK (model={})...", liveModel);
 
         try {
-            // Create SDK client
-            client = Client.builder().apiKey(apiKey).build();
+            // Create SDK client with v1beta API version
+            HttpOptions httpOptions = HttpOptions.builder()
+                    .apiVersion("v1beta")
+                    .build();
+            client = Client.builder().apiKey(apiKey).httpOptions(httpOptions).build();
 
             // Build system instruction
             String systemInstruction = "You are a real-time translator for " + sourceLanguage + " to English. "
