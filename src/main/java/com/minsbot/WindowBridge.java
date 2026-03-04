@@ -49,6 +49,22 @@ public class WindowBridge {
         });
     }
 
+    /** Minimize window to taskbar. */
+    public void minimize() {
+        Platform.runLater(() -> stage.setIconified(true));
+    }
+
+    /** Close the application immediately. */
+    public void close() {
+        Platform.runLater(() -> {
+            stage.close();
+            Platform.exit();
+            // Use halt to skip Spring's graceful shutdown which can hang
+            // waiting for background threads (audio, screen watchers, etc.)
+            Runtime.getRuntime().halt(0);
+        });
+    }
+
     /** Current window X (for drag). */
     public double getX() {
         return stage.getX();

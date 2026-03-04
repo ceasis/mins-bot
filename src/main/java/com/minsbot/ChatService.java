@@ -230,6 +230,9 @@ public class ChatService {
     @Value("${app.openai.transcription-model:gpt-4o-mini-transcribe}")
     private String openAiTranscriptionModel;
 
+    @Value("${server.port:8765}")
+    private int serverPort;
+
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(20))
             .version(Version.HTTP_1_1)
@@ -267,6 +270,37 @@ public class ChatService {
             transcriptService.save("BOT", QUIT_REPLY);
             quitService.scheduleQuitIn30Sec();
             return QUIT_REPLY;
+        }
+
+        // Open command center: launch the app in Chrome
+        if (isOpenCommandCenter(trimmed)) {
+            String url = "http://localhost:" + serverPort;
+            try {
+                // Try Chrome first, fall back to default browser
+                String os = System.getProperty("os.name", "").toLowerCase();
+                if (os.contains("win")) {
+                    new ProcessBuilder("cmd", "/c", "start", "chrome", url).start();
+                } else if (os.contains("mac")) {
+                    new ProcessBuilder("open", "-a", "Google Chrome", url).start();
+                } else {
+                    new ProcessBuilder("google-chrome", url).start();
+                }
+                String reply = "Opening command center in Chrome...";
+                transcriptService.save("BOT", reply);
+                return reply;
+            } catch (Exception e) {
+                log.warn("[ChatService] Failed to open Chrome, trying default browser: {}", e.getMessage());
+                try {
+                    java.awt.Desktop.getDesktop().browse(URI.create(url));
+                    String reply = "Opening command center in browser...";
+                    transcriptService.save("BOT", reply);
+                    return reply;
+                } catch (Exception ex) {
+                    String reply = "Could not open browser: " + ex.getMessage();
+                    transcriptService.save("BOT", reply);
+                    return reply;
+                }
+            }
         }
 
         Consumer<String> asyncCallback = result -> {
@@ -494,6 +528,14 @@ public class ChatService {
         } else {
             ttsTools.speakAsync(reply);
         }
+    }
+
+    /** True if the user message is a request to open the command center in Chrome. */
+    private static boolean isOpenCommandCenter(String trimmed) {
+        if (trimmed == null || trimmed.isEmpty()) return false;
+        String lower = trimmed.toLowerCase();
+        return lower.equals("open command center") || lower.equals("command center")
+                || lower.equals("open command centre") || lower.equals("command centre");
     }
 
     /** True if the user message is a quit request (e.g. "quit", "exit", "close mins bot"). */

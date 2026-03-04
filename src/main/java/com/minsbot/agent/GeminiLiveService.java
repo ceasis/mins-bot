@@ -103,25 +103,21 @@ public class GeminiLiveService {
                     .build();
             client = Client.builder().apiKey(apiKey).httpOptions(httpOptions).build();
 
-            // Build system instruction
-            String systemInstruction = "You are a real-time translator for " + sourceLanguage + " to English. "
-                    + "The audio you will hear is in " + sourceLanguage + ". "
-                    + "Listen carefully and provide accurate, natural English translations. "
-                    + "Capture the full meaning, context, and intent of what is being said. "
-                    + "IMPORTANT: Always prefix your response with a gender tag based on the speaker's voice: "
-                    + "[M] for male, [F] for female, [U] if unknown. "
-                    + "Examples: [F] My dream is to become a game developer. "
-                    + "[M] That sounds great, good luck! "
-                    + "[U] The weather is nice today. "
-                    + "If the audio is already in English, still translate/repeat it with the gender prefix. "
-                    + "Output ONLY the gender tag followed by the English translation. No other text.";
+            // Build system instruction — audio mode: model speaks the translation
+            String systemInstruction = "You are a real-time audio translator. "
+                    + "The user speaks in " + sourceLanguage + ". "
+                    + "Speak the English translation out loud, clearly and naturally. "
+                    + "Translate ONLY what was said — do not add commentary, explanations, or reasoning. "
+                    + "Do not narrate your thought process. Just speak the translation. "
+                    + "If the audio is already in English, repeat it back clearly. "
+                    + "Keep translations concise and accurate.";
 
             Content sysContent = Content.builder()
                     .parts(List.of(Part.builder().text(systemInstruction).build()))
                     .build();
 
             LiveConnectConfig config = LiveConnectConfig.builder()
-                    .responseModalities(List.of(new Modality(Modality.Known.TEXT)))
+                    .responseModalities(List.of(new Modality(Modality.Known.AUDIO)))
                     .systemInstruction(sysContent)
                     .build();
 
@@ -235,9 +231,10 @@ public class GeminiLiveService {
         connect(savedListener);
     }
 
-    // Accumulate model text across messages within a turn
+    // Accumulate text across messages within a turn
     private final StringBuilder accModelText = new StringBuilder();
     private String accInputTranscription = null;
+    private String accOutputTranscription = null;
 
     private void handleServerMessage(LiveServerMessage msg) {
         // Check for goAway
@@ -255,9 +252,8 @@ public class GeminiLiveService {
 
         // Process serverContent
         msg.serverContent().ifPresent(content -> {
-            // Extract input transcription
+            // Extract input transcription (what the user said)
             content.inputTranscription().ifPresent(transcription -> {
-                // Transcription object — try to get text
                 String text = transcription.toJson();
                 if (text != null && text.contains("\"text\"")) {
                     String extracted = extractJsonTextField(text);
@@ -265,13 +261,29 @@ public class GeminiLiveService {
                 }
             });
 
-            // Extract model turn text
+            // Extract output transcription (what the model said — available in AUDIO mode)
+            content.outputTranscription().ifPresent(transcription -> {
+                String text = transcription.toJson();
+                if (text != null && text.contains("\"text\"")) {
+                    String extracted = extractJsonTextField(text);
+                    if (extracted != null) {
+                        if (accOutputTranscription == null) {
+                            accOutputTranscription = extracted;
+                        } else {
+                            accOutputTranscription += extracted;
+                        }
+                    }
+                }
+            });
+
+            // Extract model turn — text parts (if any) and audio blobs
             content.modelTurn().ifPresent(modelContent -> {
                 modelContent.parts().ifPresent(parts -> {
                     for (Part part : parts) {
                         part.text().ifPresent(text -> {
                             if (!text.isBlank()) accModelText.append(text);
                         });
+                        // Audio blobs are received but we use transcription for the listener
                     }
                 });
             });
@@ -279,12 +291,22 @@ public class GeminiLiveService {
             // Check if turn is complete
             boolean turnDone = content.turnComplete().orElse(false);
             if (turnDone && listener != null) {
-                String fullModel = accModelText.length() > 0 ? accModelText.toString() : null;
                 String fullInput = accInputTranscription;
+
+                // Priority: model text > output transcription > input transcription
+                String translation = null;
+                if (accModelText.length() > 0) {
+                    translation = accModelText.toString();
+                } else if (accOutputTranscription != null) {
+                    translation = accOutputTranscription;
+                } else if (fullInput != null) {
+                    translation = fullInput;
+                }
+
                 accModelText.setLength(0);
                 accInputTranscription = null;
+                accOutputTranscription = null;
 
-                String translation = fullModel != null ? fullModel : fullInput;
                 if (translation != null && !translation.isBlank()) {
                     listener.onTurnComplete(fullInput, translation);
                 }

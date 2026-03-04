@@ -191,6 +191,12 @@
   }
 
   function buildMessageContent(el, text) {
+    // Translation format: <small>original</small>\ntranslation — render as HTML
+    if (text.indexOf('<small>') !== -1 && text.indexOf('</small>') !== -1) {
+      el.innerHTML = text.replace(/\n/g, '<br>');
+      return;
+    }
+
     // Extract [img:URL] markers and split text around them
     var imgRegex = /\[img:(\/api\/screenshot\?file=[^\]]+)\]/g;
     var segments = [];
@@ -865,17 +871,26 @@
           lastFeedText = latest;
           // Cancel any running typewriter and start new one
           if (feedTypewriteTimer) { clearInterval(feedTypewriteTimer); feedTypewriteTimer = null; }
-          listenFeedInner.textContent = '';
-          var fi = 0;
-          feedTypewriteTimer = setInterval(function () {
-            if (fi < latest.length) {
-              listenFeedInner.textContent += latest.charAt(fi);
-              fi++;
-            } else {
-              clearInterval(feedTypewriteTimer);
-              feedTypewriteTimer = null;
-            }
-          }, 25);
+
+          // Check if message has <small> tag (translation format: <small>original</small>\ntranslation)
+          var hasSmallTag = latest.indexOf('<small>') !== -1;
+          if (hasSmallTag) {
+            // Render HTML directly (original language small + translation regular)
+            listenFeedInner.innerHTML = latest.replace(/\n/g, '<br>');
+          } else {
+            // Plain text: typewriter animation
+            listenFeedInner.textContent = '';
+            var fi = 0;
+            feedTypewriteTimer = setInterval(function () {
+              if (fi < latest.length) {
+                listenFeedInner.textContent += latest.charAt(fi);
+                fi++;
+              } else {
+                clearInterval(feedTypewriteTimer);
+                feedTypewriteTimer = null;
+              }
+            }, 25);
+          }
         }
       }
     } catch (e) { /* ignore */ }

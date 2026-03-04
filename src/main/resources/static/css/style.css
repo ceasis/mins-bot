@@ -976,6 +976,13 @@ html, body {
   font-size: 12px;
   color: rgba(216, 180, 254, 0.9);
   line-height: 1.4;
+}
+.listen-feed-inner small,
+.message small {
+  font-size: 0.8em;
+  color: rgba(180, 180, 190, 0.6);
+  display: block;
+  margin-bottom: 2px;
   max-height: 2.8em;
   overflow: hidden;
   text-overflow: ellipsis;

@@ -307,41 +307,34 @@ public class AudioListeningTools {
                 public void onTurnComplete(String inputTranscription, String translation) {
                     if (translation == null || translation.isBlank()) return;
 
-                    log.info("[ListenMode/Gemini] Raw: {}", translation.length() > 300 ? translation.substring(0, 300) : translation);
-
-                    // Parse gender prefix: [M], [F], or [U] at the start of the response
                     String displayText = translation.trim();
-                    String gender = "unknown";
 
-                    if (displayText.startsWith("[M]")) {
-                        gender = "male";
-                        displayText = displayText.substring(3).trim();
-                    } else if (displayText.startsWith("[F]")) {
-                        gender = "female";
-                        displayText = displayText.substring(3).trim();
-                    } else if (displayText.startsWith("[U]")) {
-                        displayText = displayText.substring(3).trim();
-                    }
+                    log.info("[ListenMode/Gemini] Input: {} | Translation: {}",
+                            inputTranscription, displayText.length() > 300 ? displayText.substring(0, 300) : displayText);
 
                     if (displayText.isBlank()) return;
 
                     // Dedup
                     if (displayText.equals(latestTranscription)) return;
 
-                    // Prefix with speaker gender for display
-                    String feedText = displayText;
-                    if ("male".equals(gender)) feedText = "male: " + displayText;
-                    else if ("female".equals(gender)) feedText = "female: " + displayText;
+                    // Format: original language (small) + translation (regular)
+                    // Uses HTML: <small> for original, regular for translation
+                    StringBuilder feedText = new StringBuilder();
+                    if (inputTranscription != null && !inputTranscription.isBlank()) {
+                        feedText.append("<small>").append(inputTranscription.trim()).append("</small>\n");
+                    }
+                    feedText.append(displayText);
 
-                    log.info("[ListenMode/Gemini] → {} (gender={})", feedText, gender);
+                    String feedString = feedText.toString();
+                    log.info("[ListenMode/Gemini] → {}", feedString);
 
-                    listenFeed.add(feedText);
-                    asyncMessages.push(feedText);
+                    listenFeed.add(feedString);
+                    asyncMessages.push(feedString);
                     latestTranscription = displayText;
 
-                    // Vocal mode: speak with gender-matched voice
+                    // Vocal mode: speak the translation
                     if (vocalMode && !displayText.isBlank()) {
-                        ttsTools.speakAsyncWithVoice(displayText, gender);
+                        ttsTools.speakAsync(displayText);
                     }
                 }
 
