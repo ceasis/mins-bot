@@ -59,6 +59,7 @@ public class AudioListeningTools {
 
     private volatile boolean listening = false;
     private volatile boolean vocalMode = false;
+    private volatile String activeEngine = "";
     private volatile Thread listenThread;
 
     /** Pending transcriptions for the UI feed. */
@@ -87,9 +88,12 @@ public class AudioListeningTools {
     }
 
     public boolean isListening() { return listening; }
+    public String getActiveEngine() { return activeEngine; }
     public boolean isVocalMode() { return vocalMode; }
     public void setVocalMode(boolean vocalMode) { this.vocalMode = vocalMode; }
     public void setCaptureDuration(int seconds) { this.captureDuration = Math.max(1, Math.min(8, seconds)); }
+    public void setModel(String model) { geminiLiveService.setLiveModel(model); }
+    public String getModel() { return geminiLiveService.getLiveModel(); }
 
     public String getLatestTranscription() { return latestTranscription; }
 
@@ -143,6 +147,7 @@ public class AudioListeningTools {
         }
         log.info("[ListenMode] Stop requested");
         listening = false;
+        activeEngine = "";
         geminiLiveService.disconnect();
         if (listenThread != null) {
             listenThread.interrupt();
@@ -157,23 +162,18 @@ public class AudioListeningTools {
 
     /**
      * Translate text to English AND detect speaker gender using gpt-4o-mini.
-     * Returns a TranslationResult with the English translation and "male"/"female"/"unknown".
-     * If vocal mode is off, skips gender detection for speed.
+     * Always detects gender so it can be shown in the UI.
      */
     private TranslationResult translateAndDetectGender(String text) {
         if (text == null || text.isBlank()) return new TranslationResult(text, "unknown");
         if (apiKey == null || apiKey.isBlank() || httpClient == null) return new TranslationResult(text, "unknown");
 
         try {
-            String systemPrompt;
-            if (vocalMode) {
-                systemPrompt = "You are a translator. Translate the user's text to English and detect the speaker's likely gender from vocal context clues. "
-                        + "Return ONLY a JSON object: {\"translation\":\"...\",\"gender\":\"male|female|unknown\"} "
-                        + "If already English, return original text as translation. No extra text.";
-            } else {
-                systemPrompt = "You are a translator. Translate the user's text directly to English. "
-                        + "If already English, return as-is. Output ONLY the translation. No quotes, no labels.";
-            }
+            String systemPrompt = "You are a translator. Translate the user's text to English and detect the speaker's likely gender from context clues (pronouns, names, vocal context). "
+                    + "Return ONLY a JSON object with two fields: "
+                    + "\"translation\" (the English text) and \"gender\" (exactly one of: \"male\", \"female\", or \"unknown\"). "
+                    + "Example: {\"translation\":\"My dream is to be a developer.\",\"gender\":\"male\"} "
+                    + "If already English, return original text as translation. No extra text outside the JSON.";
 
             String requestBody = String.format(
                     "{\"model\":\"gpt-4o-mini\",\"temperature\":0,\"max_tokens\":500,\"messages\":"
@@ -205,18 +205,16 @@ public class AudioListeningTools {
                 return new TranslationResult(text, "unknown");
             }
 
-            // If vocal mode, parse JSON response; otherwise plain text
-            if (vocalMode && content.contains("\"translation\"")) {
+            // Parse JSON response for translation + gender
+            if (content.contains("\"translation\"")) {
                 String translation = extractJsonField(content, "translation");
                 String gender = extractJsonField(content, "gender");
                 if (translation == null || translation.isBlank()) translation = text;
                 if (gender == null || gender.isBlank()) gender = "unknown";
-                log.debug("[ListenMode] Translated+gender ({} → {} chars, gender={})",
-                        text.length(), translation.length(), gender);
+                log.info("[ListenMode] Translated: {} (gender={})", translation, gender);
                 return new TranslationResult(translation.trim(), gender.toLowerCase());
             } else {
-                log.debug("[ListenMode] Translated ({} → {} chars)",
-                        text.length(), content.length());
+                log.info("[ListenMode] Translated (plain): {}", content);
                 return new TranslationResult(content.trim(), "unknown");
             }
         } catch (Exception e) {
@@ -300,6 +298,7 @@ public class AudioListeningTools {
         int round = 0;
         int consecutiveSilent = 0;
         boolean pipelineMode = false;
+        activeEngine = "Gemini Live";
 
         try {
             // Connect to Gemini Live WebSocket
@@ -308,21 +307,36 @@ public class AudioListeningTools {
                 public void onTurnComplete(String inputTranscription, String translation) {
                     if (translation == null || translation.isBlank()) return;
 
-                    // Parse JSON response from Gemini (may contain original/translation/gender)
-                    String displayText = translation;
+                    log.info("[ListenMode/Gemini] Raw: {}", translation.length() > 300 ? translation.substring(0, 300) : translation);
+
+                    // Parse gender prefix: [M], [F], or [U] at the start of the response
+                    String displayText = translation.trim();
                     String gender = "unknown";
-                    if (translation.contains("\"translation\"")) {
-                        String parsed = extractJsonField(translation, "translation");
-                        String parsedGender = extractJsonField(translation, "gender");
-                        if (parsed != null && !parsed.isBlank()) displayText = parsed;
-                        if (parsedGender != null && !parsedGender.isBlank()) gender = parsedGender.toLowerCase();
+
+                    if (displayText.startsWith("[M]")) {
+                        gender = "male";
+                        displayText = displayText.substring(3).trim();
+                    } else if (displayText.startsWith("[F]")) {
+                        gender = "female";
+                        displayText = displayText.substring(3).trim();
+                    } else if (displayText.startsWith("[U]")) {
+                        displayText = displayText.substring(3).trim();
                     }
+
+                    if (displayText.isBlank()) return;
 
                     // Dedup
                     if (displayText.equals(latestTranscription)) return;
 
-                    listenFeed.add(displayText);
-                    asyncMessages.push(displayText);
+                    // Prefix with speaker gender for display
+                    String feedText = displayText;
+                    if ("male".equals(gender)) feedText = "male: " + displayText;
+                    else if ("female".equals(gender)) feedText = "female: " + displayText;
+
+                    log.info("[ListenMode/Gemini] → {} (gender={})", feedText, gender);
+
+                    listenFeed.add(feedText);
+                    asyncMessages.push(feedText);
                     latestTranscription = displayText;
 
                     // Vocal mode: speak with gender-matched voice
@@ -338,6 +352,7 @@ public class AudioListeningTools {
             });
         } catch (Exception e) {
             log.warn("[ListenMode/Gemini] Connection failed: {} — falling back to Whisper+GPT", e.getMessage());
+            activeEngine = "Whisper+GPT (fallback)";
             runListenLoop();
             return;
         }
@@ -369,6 +384,7 @@ public class AudioListeningTools {
                 // If WebSocket dropped, fall back to Whisper+GPT
                 if (!geminiLiveService.isConnected()) {
                     log.warn("[ListenMode/Gemini] WebSocket lost — falling back to Whisper+GPT");
+                    activeEngine = "Whisper+GPT (fallback)";
                     audioPipeline.stop();
                     runListenLoop();
                     return;
@@ -429,6 +445,7 @@ public class AudioListeningTools {
      * start next capture. No idle gap between rounds — translation happens concurrently.
      */
     private void runListenLoop() {
+        if (activeEngine.isEmpty()) activeEngine = "Whisper+GPT";
         int round = 0;
         int consecutiveSilent = 0;
         ExecutorService translator = Executors.newSingleThreadExecutor(r -> {
@@ -460,14 +477,15 @@ public class AudioListeningTools {
                                 ? transcription.substring(0, 300) + "..."
                                 : transcription;
 
-                        log.info("[ListenMode] Round {} — captured ({} chars), submitting translation",
-                                round, transcription.length());
+                        log.info("[ListenMode] Round {} — captured ({} chars): {}",
+                                round, transcription.length(), display);
 
                         // Translate in background — don't block next capture
                         String captured = display;
                         translator.submit(() -> {
                             TranslationResult result = translateAndDetectGender(captured);
                             String translated = result.translation();
+                            String gender = result.gender();
 
                             // Dedup: skip if same as the last translation (feedback artifact)
                             if (translated != null && translated.equals(latestTranscription)) {
@@ -475,13 +493,18 @@ public class AudioListeningTools {
                                 return;
                             }
 
-                            listenFeed.add(translated);
-                            asyncMessages.push(translated);
+                            // Prefix with speaker gender
+                            String feedText = translated;
+                            if ("male".equals(gender)) feedText = "male: " + translated;
+                            else if ("female".equals(gender)) feedText = "female: " + translated;
+
+                            listenFeed.add(feedText);
+                            asyncMessages.push(feedText);
                             latestTranscription = translated;
 
                             // Vocal mode: speak the translation with gender-matched voice
                             if (vocalMode && translated != null && !translated.isBlank()) {
-                                ttsTools.speakAsyncWithVoice(translated, result.gender());
+                                ttsTools.speakAsyncWithVoice(translated, gender);
                             }
                         });
                     } else {

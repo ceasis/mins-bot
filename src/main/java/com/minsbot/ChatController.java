@@ -134,7 +134,19 @@ public class ChatController {
     /** Check if listen mode is active (used by frontend ear indicator). */
     @GetMapping(value = "/status/listen-mode", produces = MediaType.APPLICATION_JSON_VALUE)
     public Map<String, Object> listenModeStatus() {
-        return Map.of("listening", audioListeningTools.isListening());
+        return Map.of("listening", audioListeningTools.isListening(),
+                       "model", audioListeningTools.getModel(),
+                       "engine", audioListeningTools.getActiveEngine());
+    }
+
+    /** Set the Gemini Live model (takes effect on next listen session). */
+    @PostMapping(value = "/listen-mode/model", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> setListenModel(@RequestBody Map<String, String> body) {
+        String model = body != null ? body.get("model") : null;
+        if (model != null && !model.isBlank()) {
+            audioListeningTools.setModel(model);
+        }
+        return Map.of("model", audioListeningTools.getModel());
     }
 
     /** Drain pending listen-mode transcriptions for the UI feed. */

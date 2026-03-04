@@ -372,6 +372,27 @@ html, body {
   user-select: none;
   -webkit-user-select: none;
 }
+.listen-model-select {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: #71717a;
+  font-size: 10px;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  padding: 1px 2px;
+  border-radius: 4px;
+  cursor: pointer;
+  outline: none;
+  max-width: 80px;
+  -webkit-appearance: none;
+}
+.listen-model-select:hover {
+  border-color: rgba(168, 85, 247, 0.4);
+  color: #c084fc;
+}
+.listen-model-select option {
+  background: #1e1e22;
+  color: #e4e4e7;
+}
 
 /* ═══ Mouth button (vocal mode) — Font Awesome ═══ */
 .header-mouth-btn {
@@ -951,6 +972,14 @@ html, body {
 }
 .listen-feed[hidden] {
   display: none !important;
+}
+.listen-engine-label {
+  font-size: 9px;
+  color: rgba(168, 85, 247, 0.7);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 2px;
+  display: block;
 }
 .listen-feed-inner {
   font-size: 12px;

@@ -778,6 +778,7 @@
   var listenDurLabel = document.getElementById('listen-dur-label');
   var listenDurDown = document.getElementById('listen-dur-down');
   var listenDurUp = document.getElementById('listen-dur-up');
+  var listenModelSelect = document.getElementById('listen-model');
   var listenDuration = 4;
 
   // Ear button click → toggle listen mode directly (sends current duration)
@@ -815,13 +816,31 @@
     });
   }
 
+  // Model dropdown — send to backend on change
+  if (listenModelSelect) {
+    listenModelSelect.addEventListener('change', function () {
+      fetch('/api/listen-mode/model', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: listenModelSelect.value })
+      }).catch(function () {});
+    });
+  }
+
   // Poll listen mode state to keep ear button + popup in sync
+  var listenEngineLabel = document.getElementById('listen-engine-label');
   setInterval(async function () {
     try {
       var res = await fetch('/api/status/listen-mode');
       var data = await res.json();
       if (headerListenEl) {
         headerListenEl.classList.toggle('active', !!data.listening);
+      }
+      if (data.model && listenModelSelect && listenModelSelect.value !== data.model) {
+        listenModelSelect.value = data.model;
+      }
+      if (listenEngineLabel) {
+        listenEngineLabel.textContent = data.listening && data.engine ? data.engine : '';
       }
       if (!data.listening) {
         if (listenFeedEl) {
