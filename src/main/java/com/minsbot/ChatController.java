@@ -113,13 +113,19 @@ public class ChatController {
         return Map.of("controlEnabled", screenWatchingTools.isControlEnabled());
     }
 
-    /** Toggle listen mode on/off from the UI ear button. */
+    /** Toggle listen mode on/off from the UI ear button. Accepts optional {duration} in body. */
     @PostMapping(value = "/listen-mode/toggle", produces = MediaType.APPLICATION_JSON_VALUE)
-    public Map<String, Object> toggleListenMode() {
+    public Map<String, Object> toggleListenMode(@RequestBody(required = false) Map<String, Object> body) {
         if (audioListeningTools.isListening()) {
             audioListeningTools.stopListening();
             return Map.of("listening", false, "message", "Listen mode stopped.");
         } else {
+            if (body != null && body.containsKey("duration")) {
+                try {
+                    int duration = ((Number) body.get("duration")).intValue();
+                    audioListeningTools.setCaptureDuration(Math.max(1, Math.min(8, duration)));
+                } catch (Exception ignored) {}
+            }
             String result = audioListeningTools.startListening();
             return Map.of("listening", true, "message", result);
         }

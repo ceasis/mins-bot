@@ -2,6 +2,8 @@ package com.minsbot.agent.tools;
 
 import com.minsbot.agent.AsyncMessageService;
 import com.minsbot.agent.AudioMemoryService;
+import com.minsbot.agent.AudioPipelineService;
+import com.minsbot.agent.GeminiLiveService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
@@ -25,7 +27,7 @@ import java.util.concurrent.Executors;
  * Audio listening mode — continuous background system audio capture and transcription.
  * The "ear" counterpart to ScreenWatchingTools' "eye".
  *
- * <p>Captures system audio (what's playing through speakers/headphones) every 5 seconds,
+ * <p>Captures system audio (what's playing through speakers/headphones) every 2 seconds,
  * transcribes via Whisper, translates to English via gpt-4o-mini (fast, direct HTTP),
  * and pushes live translations to both the feed bar and the chat area.</p>
  */
@@ -34,13 +36,18 @@ public class AudioListeningTools {
 
     private static final Logger log = LoggerFactory.getLogger(AudioListeningTools.class);
 
-    private static final int CAPTURE_SECONDS = 5;
-    private static final int MAX_ROUNDS = 2160; // 3 hours at ~5s per round
+    private static final int DEFAULT_CAPTURE_DURATION = 4;
+    private static final int MAX_ROUNDS = 5400; // 3 hours at ~2s per round
+
+    /** User-configurable capture duration (1-8 seconds), set via popup slider. */
+    private volatile int captureDuration = DEFAULT_CAPTURE_DURATION;
 
     private final AudioMemoryService audioMemoryService;
+    private final AudioPipelineService audioPipeline;
     private final AsyncMessageService asyncMessages;
     private final ToolExecutionNotifier notifier;
     private final TtsTools ttsTools;
+    private final GeminiLiveService geminiLiveService;
 
     @Value("${spring.ai.openai.api-key:}")
     private String apiKey;
@@ -61,12 +68,15 @@ public class AudioListeningTools {
     private volatile String latestTranscription = null;
 
     public AudioListeningTools(AudioMemoryService audioMemoryService,
+                               AudioPipelineService audioPipeline,
                                AsyncMessageService asyncMessages, ToolExecutionNotifier notifier,
-                               TtsTools ttsTools) {
+                               TtsTools ttsTools, GeminiLiveService geminiLiveService) {
         this.audioMemoryService = audioMemoryService;
+        this.audioPipeline = audioPipeline;
         this.asyncMessages = asyncMessages;
         this.notifier = notifier;
         this.ttsTools = ttsTools;
+        this.geminiLiveService = geminiLiveService;
     }
 
     @PostConstruct
@@ -79,6 +89,7 @@ public class AudioListeningTools {
     public boolean isListening() { return listening; }
     public boolean isVocalMode() { return vocalMode; }
     public void setVocalMode(boolean vocalMode) { this.vocalMode = vocalMode; }
+    public void setCaptureDuration(int seconds) { this.captureDuration = Math.max(1, Math.min(8, seconds)); }
 
     public String getLatestTranscription() { return latestTranscription; }
 
@@ -93,7 +104,7 @@ public class AudioListeningTools {
     }
 
     @Tool(description = "Start listening to system audio in the background. "
-            + "Captures what is playing through the speakers/headphones every 5 seconds, "
+            + "Captures what is playing through the speakers/headphones every 2 seconds, "
             + "translates to English, and shows live translations in the UI chat. "
             + "Use when the user says 'listen to what I'm listening', 'what song is this', "
             + "'listen to my meeting', or 'turn on your ears'. "
@@ -105,16 +116,21 @@ public class AudioListeningTools {
             return "Already listening. Call stopListening() first to restart.";
         }
 
-        log.info("[ListenMode] Starting — capture: {}s, max rounds: {}", CAPTURE_SECONDS, MAX_ROUNDS);
-
         listening = true;
         latestTranscription = null;
 
-        listenThread = new Thread(this::runListenLoop, "audio-listen");
+        // Choose engine: Gemini Live (streaming WebSocket) or Whisper+GPT (chunked REST)
+        boolean useGeminiLive = geminiLiveService.isAvailable();
+        String engine = useGeminiLive ? "Gemini Live (real-time streaming)" : "Whisper + GPT (chunked)";
+        int captureInterval = captureDuration;
+        log.info("[ListenMode] Starting — engine: {}, capture: {}s, max rounds: {}", engine, captureInterval, MAX_ROUNDS);
+
+        Runnable loop = useGeminiLive ? this::runGeminiLiveListenLoop : this::runListenLoop;
+        listenThread = new Thread(loop, "audio-listen");
         listenThread.setDaemon(true);
         listenThread.start();
 
-        return "Listening mode started. Capturing system audio every " + CAPTURE_SECONDS
+        return "Listening mode started (" + engine + "). Capturing system audio every " + captureInterval
                 + " seconds with live English translation. Say 'stop listening' to end.";
     }
 
@@ -127,6 +143,7 @@ public class AudioListeningTools {
         }
         log.info("[ListenMode] Stop requested");
         listening = false;
+        geminiLiveService.disconnect();
         if (listenThread != null) {
             listenThread.interrupt();
         }
@@ -272,10 +289,143 @@ public class AudioListeningTools {
                 .replace("\t", "\\t");
     }
 
-    // ═══ Listen loop ═══
+    // ═══ Gemini Live listen loop (streaming WebSocket) ═══
 
     /**
-     * Listen loop: capture 5s audio → fire off translation in background → immediately
+     * Gemini Live listen loop: uses continuous AudioPipeline for zero-gap capture.
+     * Reads overlapping chunks from the ring buffer — no subprocess overhead per chunk.
+     * Falls back to legacy per-chunk capture if pipeline fails to start.
+     */
+    private void runGeminiLiveListenLoop() {
+        int round = 0;
+        int consecutiveSilent = 0;
+        boolean pipelineMode = false;
+
+        try {
+            // Connect to Gemini Live WebSocket
+            geminiLiveService.connect(new GeminiLiveService.LiveTranscriptionListener() {
+                @Override
+                public void onTurnComplete(String inputTranscription, String translation) {
+                    if (translation == null || translation.isBlank()) return;
+
+                    // Parse JSON response from Gemini (may contain original/translation/gender)
+                    String displayText = translation;
+                    String gender = "unknown";
+                    if (translation.contains("\"translation\"")) {
+                        String parsed = extractJsonField(translation, "translation");
+                        String parsedGender = extractJsonField(translation, "gender");
+                        if (parsed != null && !parsed.isBlank()) displayText = parsed;
+                        if (parsedGender != null && !parsedGender.isBlank()) gender = parsedGender.toLowerCase();
+                    }
+
+                    // Dedup
+                    if (displayText.equals(latestTranscription)) return;
+
+                    listenFeed.add(displayText);
+                    asyncMessages.push(displayText);
+                    latestTranscription = displayText;
+
+                    // Vocal mode: speak with gender-matched voice
+                    if (vocalMode && !displayText.isBlank()) {
+                        ttsTools.speakAsyncWithVoice(displayText, gender);
+                    }
+                }
+
+                @Override
+                public void onError(String error) {
+                    log.warn("[ListenMode/Gemini] Error: {} — will fall back to Whisper+GPT", error);
+                }
+            });
+        } catch (Exception e) {
+            log.warn("[ListenMode/Gemini] Connection failed: {} — falling back to Whisper+GPT", e.getMessage());
+            runListenLoop();
+            return;
+        }
+
+        // Try to start continuous pipeline (zero-gap capture)
+        try {
+            audioPipeline.start();
+            // Short warmup — pipeline starts filling the ring buffer immediately
+            Thread.sleep(2000);
+            pipelineMode = audioPipeline.isRunning();
+            if (pipelineMode) {
+                log.info("[ListenMode/Gemini] Pipeline mode — continuous streaming, ~1s increments");
+            }
+        } catch (Exception e) {
+            log.info("[ListenMode/Gemini] Pipeline failed to start: {} — using legacy per-chunk capture", e.getMessage());
+        }
+
+        try {
+            while (listening && round < MAX_ROUNDS) {
+                round++;
+
+                // Skip capture while TTS is playing (feedback prevention)
+                if (vocalMode && ttsTools.isSpeaking()) {
+                    log.debug("[ListenMode/Gemini] Round {} — skipping (TTS playing)", round);
+                    try { Thread.sleep(500); } catch (InterruptedException e) { break; }
+                    continue;
+                }
+
+                // If WebSocket dropped, fall back to Whisper+GPT
+                if (!geminiLiveService.isConnected()) {
+                    log.warn("[ListenMode/Gemini] WebSocket lost — falling back to Whisper+GPT");
+                    audioPipeline.stop();
+                    runListenLoop();
+                    return;
+                }
+
+                try {
+                    byte[] pcm;
+                    if (pipelineMode && audioPipeline.isRunning()) {
+                        // Pipeline mode: read only NEW audio since last call (continuous stream)
+                        pcm = audioPipeline.readNewAudio();
+                    } else {
+                        // Legacy fallback: per-chunk subprocess capture
+                        if (pipelineMode) {
+                            log.warn("[ListenMode/Gemini] Pipeline died, falling back to legacy capture");
+                            pipelineMode = false;
+                        }
+                        pcm = audioMemoryService.captureRawPcm(captureDuration);
+                    }
+
+                    if (pcm != null && pcm.length > 0) {
+                        consecutiveSilent = 0;
+                        geminiLiveService.sendAudio(pcm);
+                    } else {
+                        consecutiveSilent++;
+                        if (consecutiveSilent == 60) {
+                            listenFeed.add("(no audio detected — is something playing?)");
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("[ListenMode/Gemini] Round {} — capture failed: {}", round, e.getMessage());
+                }
+
+                // Pipeline: send every ~1s for continuous stream. Legacy: capture is the pacer.
+                if (pipelineMode) {
+                    try { Thread.sleep(1000); } catch (InterruptedException e) { break; }
+                }
+            }
+        } catch (Exception e) {
+            if (!(e instanceof InterruptedException)) {
+                log.warn("[ListenMode/Gemini] Loop ended: {}", e.getMessage());
+            }
+        } finally {
+            audioPipeline.stop();
+            geminiLiveService.disconnect();
+            listening = false;
+            listenThread = null;
+            log.info("[ListenMode/Gemini] Ended after {} rounds", round);
+            if (round >= MAX_ROUNDS) {
+                listenFeed.add("Listening mode ended (reached maximum duration).");
+            }
+        }
+    }
+
+    // ═══ Whisper+GPT listen loop (fallback) ═══
+
+    /**
+     * Listen loop: capture 2s audio → fire off translation in background → immediately
      * start next capture. No idle gap between rounds — translation happens concurrently.
      */
     private void runListenLoop() {
@@ -299,10 +449,10 @@ public class AudioListeningTools {
                     continue;
                 }
 
-                log.info("[ListenMode] Round {}/{} — capturing {}s audio...", round, MAX_ROUNDS, CAPTURE_SECONDS);
+                log.info("[ListenMode] Round {}/{} — capturing {}s audio...", round, MAX_ROUNDS, captureDuration);
 
                 try {
-                    String transcription = audioMemoryService.captureNow(CAPTURE_SECONDS);
+                    String transcription = audioMemoryService.captureNow(captureDuration);
 
                     if (transcription != null && !transcription.isBlank()) {
                         consecutiveSilent = 0;
@@ -339,7 +489,7 @@ public class AudioListeningTools {
                         log.debug("[ListenMode] Round {} — silence ({} consecutive)",
                                 round, consecutiveSilent);
 
-                        if (consecutiveSilent == 60) { // ~5 min at 5s captures
+                        if (consecutiveSilent == 60) { // ~2 min at 2s captures
                             listenFeed.add("(no audio detected — is something playing?)");
                         }
                     }
@@ -348,7 +498,7 @@ public class AudioListeningTools {
                 }
 
                 // No sleep — next capture starts immediately
-                // (the 5s capture itself is the natural pacing)
+                // (the 2s capture itself is the natural pacing)
             }
         } catch (Exception e) {
             if (!(e instanceof InterruptedException)) {

@@ -17,11 +17,15 @@ html, body {
   height: 100%;
   position: relative;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
   background: linear-gradient(145deg, #18181b 0%, #1e1e22 50%, #27272a 100%);
 }
 
 /* Prevent accidental drag-start in non-input UI regions ("Copy" ghost on Windows). */
 #root,
+.title-bar,
+.title-bar-drag,
 .panel,
 .panel-header,
 .messages,
@@ -79,13 +83,11 @@ html, body {
 
 /* Chat panel - always visible in regular window mode */
 .panel {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  flex: 1;
+  position: relative;
   display: flex;
   flex-direction: column;
+  min-height: 0;
   opacity: 1;
   pointer-events: auto;
 }
@@ -97,6 +99,92 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  position: relative;
+  z-index: 50;
+}
+
+/* ═══ Custom title bar (black, premium) ═══ */
+.title-bar {
+  flex-shrink: 0;
+  height: 36px;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #000;
+  -webkit-app-region: no-drag;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: move;
+}
+
+.title-bar-drag {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  padding-left: 14px;
+  gap: 8px;
+  cursor: move;
+  position: relative;
+}
+
+.title-bar-glow {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 14px;
+  background: linear-gradient(180deg, transparent, rgba(99,102,241,0.6), transparent);
+  border-radius: 2px;
+  opacity: 0.9;
+  pointer-events: none;
+}
+
+.title-bar-app-name {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: rgba(255,255,255,0.92);
+  text-shadow: 0 0 24px rgba(99,102,241,0.15);
+  cursor: move;
+  pointer-events: none;
+}
+
+.title-bar-controls {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  cursor: default;
+}
+
+.title-bar-btn {
+  width: 46px;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,0.6);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.title-bar-btn svg {
+  width: 10px;
+  height: 10px;
+}
+
+.title-bar-btn:hover {
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.9);
+}
+
+.title-bar-close:hover {
+  background: rgba(239,68,68,0.25);
+  color: #fca5a5;
 }
 
 .panel-actions {
@@ -251,6 +339,38 @@ html, body {
 @keyframes listen-ear-pulse {
   0%, 100% { opacity: 0.7; filter: drop-shadow(0 0 3px rgba(168, 85, 247, 0.5)); }
   50%      { opacity: 1;   filter: drop-shadow(0 0 6px rgba(168, 85, 247, 1)); }
+}
+
+/* ═══ Inline listen duration controls (−/+) ═══ */
+.listen-dur-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: #71717a;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.15s, color 0.15s;
+}
+.listen-dur-btn:hover {
+  background: rgba(168, 85, 247, 0.2);
+  color: #c084fc;
+  border-color: rgba(168, 85, 247, 0.4);
+}
+.listen-dur-label {
+  font-size: 11px;
+  color: #71717a;
+  min-width: 18px;
+  text-align: center;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /* ═══ Mouth button (vocal mode) — Font Awesome ═══ */

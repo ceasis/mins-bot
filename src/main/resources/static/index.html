@@ -9,6 +9,20 @@
 </head>
 <body>
   <div id="root" class="expanded">
+    <header id="title-bar" class="title-bar">
+      <div class="title-bar-drag">
+        <span class="title-bar-glow"></span>
+        <span class="title-bar-app-name">Mins Bot</span>
+      </div>
+      <div class="title-bar-controls">
+        <button type="button" id="title-bar-minimize" class="title-bar-btn" title="Minimize" aria-label="Minimize">
+          <svg viewBox="0 0 12 12" aria-hidden="true"><rect x="0" y="5" width="12" height="1" fill="currentColor"/></svg>
+        </button>
+        <button type="button" id="title-bar-close" class="title-bar-btn title-bar-close" title="Close" aria-label="Close">
+          <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" fill="none"/></svg>
+        </button>
+      </div>
+    </header>
     <div id="panel" class="panel">
       <div class="panel-header">
         <div style="display:flex;align-items:center;gap:8px;">
@@ -40,6 +54,9 @@
           <button type="button" id="header-listen" class="header-listen-btn" title="Listen to system audio" aria-label="Toggle audio listening">
             <i class="fa-solid fa-headphones listen-icon"></i>
           </button>
+          <button type="button" id="listen-dur-down" class="listen-dur-btn" title="Decrease duration" aria-label="Decrease capture duration">−</button>
+          <span id="listen-dur-label" class="listen-dur-label">4s</span>
+          <button type="button" id="listen-dur-up" class="listen-dur-btn" title="Increase duration" aria-label="Increase capture duration">+</button>
           <button type="button" id="header-mouth" class="header-mouth-btn" title="Speak translations aloud" aria-label="Toggle vocal mode">
             <i class="fa-solid fa-volume-high mouth-icon"></i>
           </button>

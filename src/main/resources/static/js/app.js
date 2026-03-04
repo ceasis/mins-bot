@@ -88,6 +88,53 @@
   document.addEventListener('dragenter', noDrag, true);
   document.addEventListener('dragleave', noDrag, true);
 
+  // ═══ Custom title bar: drag, minimize, close ═══
+  (function () {
+    var titleBarDrag = document.querySelector('.title-bar-drag');
+    var titleBarMinimize = document.getElementById('title-bar-minimize');
+    var titleBarClose = document.getElementById('title-bar-close');
+    var dragging = false;
+    var startStageX, startStageY, startClientX, startClientY;
+
+    function onTitleBarMouseDown(e) {
+      if (typeof window.java === 'undefined' || !window.java.getX) return;
+      if (e.button !== 0) return;
+      dragging = true;
+      startClientX = e.clientX;
+      startClientY = e.clientY;
+      startStageX = window.java.getX();
+      startStageY = window.java.getY();
+    }
+
+    function onMouseMove(e) {
+      if (!dragging || typeof window.java === 'undefined' || !window.java.setPosition) return;
+      var x = startStageX + startClientX - e.clientX;
+      var y = startStageY + startClientY - e.clientY;
+      window.java.setPosition(x, y);
+    }
+
+    function onMouseUp() {
+      dragging = false;
+    }
+
+    if (titleBarDrag) {
+      titleBarDrag.addEventListener('mousedown', onTitleBarMouseDown);
+    }
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+
+    if (titleBarMinimize) {
+      titleBarMinimize.addEventListener('click', function () {
+        if (typeof window.java !== 'undefined' && window.java.minimize) window.java.minimize();
+      });
+    }
+    if (titleBarClose) {
+      titleBarClose.addEventListener('click', function () {
+        if (typeof window.java !== 'undefined' && window.java.close) window.java.close();
+      });
+    }
+  })();
+
   // Clear chat — also clears AI memory so the bot starts fresh
   if (clearBtn) {
     clearBtn.addEventListener('click', function () {
@@ -236,23 +283,43 @@
     });
   }
 
-  function appendMessage(text, isUser) {
+  function appendMessage(text, isUser, typewriter) {
     var wrapper = document.createElement('div');
     wrapper.className = 'message-wrapper ' + (isUser ? 'user' : 'bot');
 
     var msg = document.createElement('div');
     msg.className = 'message ' + (isUser ? 'user' : 'bot');
-    buildMessageContent(msg, text);
 
     var time = document.createElement('div');
     time.className = 'message-time';
     time.textContent = getTimeStr();
 
-    addCopyListener(msg);
-
     wrapper.appendChild(msg);
     wrapper.appendChild(time);
     messagesEl.appendChild(wrapper);
+
+    if (typewriter && !isUser && text) {
+      // Typewriter animation: reveal character by character
+      var i = 0;
+      msg.textContent = '';
+      var timer = setInterval(function () {
+        if (i < text.length) {
+          msg.textContent += text.charAt(i);
+          i++;
+          messagesEl.scrollTop = messagesEl.scrollHeight;
+        } else {
+          clearInterval(timer);
+          // Rebuild with proper formatting after animation completes
+          msg.textContent = '';
+          buildMessageContent(msg, text);
+          addCopyListener(msg);
+        }
+      }, 25);
+    } else {
+      buildMessageContent(msg, text);
+      addCopyListener(msg);
+    }
+
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 
@@ -628,7 +695,7 @@
       var res = await fetch('/api/chat/async');
       var data = await res.json();
       if (data.hasResult && data.reply) {
-        appendMessage(data.reply, false);
+        appendMessage(data.reply, false, true);
       }
     } catch (e) { /* ignore */ }
   }, 2000);
@@ -708,19 +775,47 @@
 
   const listenFeedEl = document.getElementById('listen-feed');
   const listenFeedInner = document.getElementById('listen-feed-inner');
+  var listenDurLabel = document.getElementById('listen-dur-label');
+  var listenDurDown = document.getElementById('listen-dur-down');
+  var listenDurUp = document.getElementById('listen-dur-up');
+  var listenDuration = 4;
 
-  // Ear button click → toggle listen mode via API
+  // Ear button click → toggle listen mode directly (sends current duration)
   if (headerListenEl) {
     headerListenEl.addEventListener('click', async function () {
       try {
-        var res = await fetch('/api/listen-mode/toggle', { method: 'POST' });
+        var res = await fetch('/api/listen-mode/toggle', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ duration: listenDuration })
+        });
         var data = await res.json();
         headerListenEl.classList.toggle('active', !!data.listening);
       } catch (e) { /* ignore */ }
     });
   }
 
-  // Poll listen mode state to keep ear button in sync
+  // − button decreases duration (min 1)
+  if (listenDurDown) {
+    listenDurDown.addEventListener('click', function () {
+      if (listenDuration > 1) {
+        listenDuration--;
+        if (listenDurLabel) listenDurLabel.textContent = listenDuration + 's';
+      }
+    });
+  }
+
+  // + button increases duration (max 8)
+  if (listenDurUp) {
+    listenDurUp.addEventListener('click', function () {
+      if (listenDuration < 8) {
+        listenDuration++;
+        if (listenDurLabel) listenDurLabel.textContent = listenDuration + 's';
+      }
+    });
+  }
+
+  // Poll listen mode state to keep ear button + popup in sync
   setInterval(async function () {
     try {
       var res = await fetch('/api/status/listen-mode');
@@ -738,6 +833,8 @@
   }, 1000);
 
   // Poll listen feed transcriptions every 800ms — only show the LATEST one
+  var feedTypewriteTimer = null;
+  var lastFeedText = '';
   setInterval(async function () {
     try {
       var res = await fetch('/api/status/listen-feed');
@@ -745,7 +842,22 @@
       if (data.transcriptions && data.transcriptions.length > 0) {
         if (listenFeedEl) listenFeedEl.hidden = false;
         var latest = data.transcriptions[data.transcriptions.length - 1];
-        listenFeedInner.textContent = latest;
+        if (latest !== lastFeedText) {
+          lastFeedText = latest;
+          // Cancel any running typewriter and start new one
+          if (feedTypewriteTimer) { clearInterval(feedTypewriteTimer); feedTypewriteTimer = null; }
+          listenFeedInner.textContent = '';
+          var fi = 0;
+          feedTypewriteTimer = setInterval(function () {
+            if (fi < latest.length) {
+              listenFeedInner.textContent += latest.charAt(fi);
+              fi++;
+            } else {
+              clearInterval(feedTypewriteTimer);
+              feedTypewriteTimer = null;
+            }
+          }, 25);
+        }
       }
     } catch (e) { /* ignore */ }
   }, 800);

@@ -49,6 +49,8 @@ public class AudioMemoryService {
             Paths.get(System.getProperty("user.home"), "mins_bot_data", "ffmpeg");
     private static final Path WASAPI_EXE = FFMPEG_DIR.resolve("wasapi_capture.exe");
     private static final Path WASAPI_CS  = FFMPEG_DIR.resolve("wasapi_capture.cs");
+    private static final Path WASAPI_VER = FFMPEG_DIR.resolve("wasapi_capture.ver");
+    private static final int WASAPI_SOURCE_VERSION = 2; // bump to force recompile
 
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm:ss");
@@ -121,6 +123,9 @@ public class AudioMemoryService {
     }
 
     public String getLastCaptureError() { return lastCaptureError; }
+    public boolean isWasapiAvailable() { return wasapiAvailable; }
+    public Path getWasapiExePath() { return WASAPI_EXE; }
+    public FfmpegProvider getFfmpegProviderRef() { return ffmpegProvider; }
 
     public List<String> listCaptureDevices() {
         return ffmpegProvider.listDshowAudioDevices();
@@ -181,6 +186,26 @@ public class AudioMemoryService {
             return collapsed;
         } finally {
             if (durationOverride > 0) clipSeconds = origClip;
+        }
+    }
+
+    /**
+     * Capture system audio and return raw 16kHz mono 16-bit PCM bytes (no WAV header).
+     * Used by GeminiLiveService which needs raw PCM for its WebSocket protocol.
+     * Returns null if capture fails or audio is silent.
+     */
+    public synchronized byte[] captureRawPcm(int durationSeconds) {
+        int origClip = clipSeconds;
+        if (durationSeconds > 0) clipSeconds = durationSeconds;
+        try {
+            byte[] wav = captureSystemAudio();
+            if (wav == null || wav.length <= 44) return null;
+            // Strip 44-byte WAV header to get raw PCM
+            byte[] pcm = new byte[wav.length - 44];
+            System.arraycopy(wav, 44, pcm, 0, pcm.length);
+            return pcm;
+        } finally {
+            if (durationSeconds > 0) clipSeconds = origClip;
         }
     }
 
@@ -339,7 +364,21 @@ public class AudioMemoryService {
      * Writes the source, compiles with csc.exe, returns true if the exe was created.
      */
     private boolean buildWasapiCapture() {
-        if (Files.exists(WASAPI_EXE)) return true;
+        // Check if existing exe matches current source version
+        if (Files.exists(WASAPI_EXE)) {
+            try {
+                if (Files.exists(WASAPI_VER)) {
+                    int ver = Integer.parseInt(Files.readString(WASAPI_VER).trim());
+                    if (ver == WASAPI_SOURCE_VERSION) return true;
+                }
+                // Version mismatch or no ver file — rebuild
+                log.info("[AudioMemory] WASAPI source version changed (v{}), rebuilding...", WASAPI_SOURCE_VERSION);
+                Files.deleteIfExists(WASAPI_EXE);
+            } catch (Exception e) {
+                // Can't read version — rebuild
+                try { Files.deleteIfExists(WASAPI_EXE); } catch (IOException ignored) {}
+            }
+        }
         try {
             Path csc = findCsc();
             if (csc == null) {
@@ -367,7 +406,11 @@ public class AudioMemoryService {
                 log.warn("[AudioMemory] Failed to compile wasapi_capture.cs: {}", output.trim());
                 return false;
             }
-            return Files.exists(WASAPI_EXE);
+            boolean built = Files.exists(WASAPI_EXE);
+            if (built) {
+                Files.writeString(WASAPI_VER, String.valueOf(WASAPI_SOURCE_VERSION));
+            }
+            return built;
         } catch (Exception e) {
             log.warn("[AudioMemory] Could not build WASAPI capture tool: {}", e.getMessage());
             return false;
@@ -678,12 +721,20 @@ class Program {
     }
 
     static int Main(string[] args) {
-        if (args.Length < 2) {
+        if (args.Length < 1) {
+            Console.Error.WriteLine("Usage: wasapi_capture <seconds> <output.wav>");
+            Console.Error.WriteLine("       wasapi_capture --stdout <seconds>");
+            return 1;
+        }
+
+        bool stdoutMode = args[0] == "--stdout";
+        int secs = stdoutMode ? (args.Length > 1 ? int.Parse(args[1]) : 3600) : int.Parse(args[0]);
+        string outPath = stdoutMode ? null : (args.Length > 1 ? args[1] : null);
+
+        if (!stdoutMode && outPath == null) {
             Console.Error.WriteLine("Usage: wasapi_capture <seconds> <output.wav>");
             return 1;
         }
-        int secs = int.Parse(args[0]);
-        string outPath = args[1];
 
         try {
             // Get default audio render (speaker) device
@@ -717,7 +768,35 @@ class Program {
             Check(ac.GetService(ref capId, out co), "GetService");
             var cc = (IAudioCaptureClient)co;
 
-            // Capture loop
+            if (stdoutMode) {
+                // Stdout mode: print format to stderr, stream raw PCM to stdout
+                Console.Error.WriteLine("FORMAT " + wfx.nSamplesPerSec + " " + wfx.nChannels + " " + wfx.wBitsPerSample);
+                Console.Error.Flush();
+                var stdout = Console.OpenStandardOutput();
+                Check(ac.Start(), "Start");
+                var end = DateTime.Now.AddSeconds(secs);
+                while (DateTime.Now < end) {
+                    uint pkt;
+                    cc.GetNextPacketSize(out pkt);
+                    while (pkt > 0) {
+                        IntPtr d; uint n, f; long dp, qp;
+                        if (cc.GetBuffer(out d, out n, out f, out dp, out qp) != 0) break;
+                        int b = (int)(n * wfx.nBlockAlign);
+                        byte[] buf = new byte[b];
+                        if ((f & 2) == 0) Marshal.Copy(d, buf, 0, b);
+                        stdout.Write(buf, 0, b);
+                        stdout.Flush();
+                        cc.ReleaseBuffer(n);
+                        cc.GetNextPacketSize(out pkt);
+                    }
+                    Thread.Sleep(10);
+                }
+                ac.Stop();
+                stdout.Flush();
+                return 0;
+            }
+
+            // File mode: capture to WAV file (original behavior)
             Check(ac.Start(), "Start");
             using (var ms = new MemoryStream()) {
                 var end = DateTime.Now.AddSeconds(secs);

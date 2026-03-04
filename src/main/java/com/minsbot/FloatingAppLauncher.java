@@ -5,6 +5,7 @@ import javafx.application.Platform;
 import javafx.concurrent.Worker;
 import javafx.geometry.Rectangle2D;
 import javafx.scene.Scene;
+import javafx.scene.paint.Color;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.web.WebEngine;
 import javafx.scene.web.WebView;
@@ -72,6 +73,8 @@ public class FloatingAppLauncher extends Application {
         WebView webView = new WebView();
         webView.setFocusTraversable(true);
         webView.setContextMenuEnabled(false);
+        // Cache as bitmap so dragging the window repaints from cache instead of re-rendering the page (reduces flicker)
+        webView.setCache(true);
         WebEngine engine = webView.getEngine();
         String url = "http://localhost:" + port + "/";
         engine.load(url);
@@ -106,41 +109,75 @@ public class FloatingAppLauncher extends Application {
         });
 
         Scene scene = new Scene(webView, expandedWidth, expandedHeight);
-        // Forward mouse clicks into the page via JS: on some JavaFX/WebKit builds mouse events
-        // never reach the web content (keyboard/TAB works but clicks don't).
-        // We track press position to detect drags (text selection) vs clicks.
+        // Opaque fill so window move repaints don't show transparency or garbage (reduces flicker when dragging)
+        scene.setFill(Color.web("#0a0a0c"));
+        // Forward mouse clicks into the page via JS (keyboard works; on some builds clicks don't reach WebView).
         final double[] pressPos = new double[2];
         final boolean[] isDrag = {false};
+        // Title bar height (must match CSS .title-bar height) for drag detection
+        final int titleBarHeight = 36;
+        final double[] titleBarPressStage = new double[2];
+        final boolean[] draggingTitleBar = {false};
+        final boolean[] didTitleBarDrag = {false};
 
+        // Title bar drag: press/drag in top titleBarHeight px moves the window
+        // Uses SCREEN coordinates (not scene) to avoid flicker — scene coords shift as the window moves
+        final double[] titleBarPressScreen = new double[2];
+        // Width of the window-control buttons area (minimize + close, 46px each + buffer)
+        final int controlsWidth = 100;
         scene.addEventFilter(MouseEvent.MOUSE_PRESSED, e -> {
+            if (e.getButton() != javafx.scene.input.MouseButton.PRIMARY) return;
+            isDrag[0] = false; // always reset drag flag on any press
+            if (e.getY() < titleBarHeight) {
+                // Let clicks on the close/minimize buttons pass through to WebView natively
+                if (e.getX() > scene.getWidth() - controlsWidth) {
+                    return; // don't consume — let native WebView handle button clicks
+                }
+                draggingTitleBar[0] = true;
+                didTitleBarDrag[0] = false;
+                titleBarPressScreen[0] = e.getScreenX();
+                titleBarPressScreen[1] = e.getScreenY();
+                titleBarPressStage[0] = primaryStage.getX();
+                titleBarPressStage[1] = primaryStage.getY();
+                e.consume();
+                return;
+            }
             pressPos[0] = e.getX();
             pressPos[1] = e.getY();
-            isDrag[0] = false;
-            // Don't consume — let the WebView handle it for text selection
         });
 
         scene.addEventFilter(MouseEvent.MOUSE_DRAGGED, e -> {
-            // If mouse moved more than 3px from press point, it's a drag (text selection)
+            if (draggingTitleBar[0]) {
+                didTitleBarDrag[0] = true;
+                double dx = e.getScreenX() - titleBarPressScreen[0];
+                double dy = e.getScreenY() - titleBarPressScreen[1];
+                primaryStage.setX(titleBarPressStage[0] + dx);
+                primaryStage.setY(titleBarPressStage[1] + dy);
+                e.consume();
+                return;
+            }
             if (Math.abs(e.getX() - pressPos[0]) > 3 || Math.abs(e.getY() - pressPos[1]) > 3) {
                 isDrag[0] = true;
             }
-            // Don't consume — let WebView handle drag for text selection
         });
 
         scene.addEventFilter(MouseEvent.MOUSE_RELEASED, e -> {
-            // Only forward synthetic click if this was NOT a drag (text selection)
-            if (!isDrag[0]) {
-                int x = (int) e.getX();
-                int y = (int) e.getY();
-                Platform.runLater(() -> {
-                    forwardClickToPage(engine, x, y);
-                    webView.requestFocus();
-                });
+            if (e.getButton() == javafx.scene.input.MouseButton.PRIMARY) {
+                boolean wasTitleBarDrag = draggingTitleBar[0] && didTitleBarDrag[0];
+                draggingTitleBar[0] = false;
+                // Forward synthetic click if this was not a drag
+                if (!isDrag[0] && !wasTitleBarDrag) {
+                    int x = (int) e.getX();
+                    int y = (int) e.getY();
+                    Platform.runLater(() -> {
+                        forwardClickToPage(engine, x, y);
+                        webView.requestFocus();
+                    });
+                }
             }
-            // Don't consume — let WebView handle it
         });
         primaryStage.setScene(scene);
-        primaryStage.initStyle(StageStyle.DECORATED);
+        primaryStage.initStyle(StageStyle.UNDECORATED);
         primaryStage.setAlwaysOnTop(alwaysOnTop);
         primaryStage.setWidth(expandedWidth);
         primaryStage.setHeight(expandedHeight);
