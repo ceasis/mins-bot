@@ -8,6 +8,7 @@ import com.google.genai.types.LiveConnectConfig;
 import com.google.genai.types.LiveSendRealtimeInputParameters;
 import com.google.genai.types.LiveServerMessage;
 import com.google.genai.types.HttpOptions;
+import com.google.genai.types.AudioTranscriptionConfig;
 import com.google.genai.types.Modality;
 import com.google.genai.types.Part;
 
@@ -118,6 +119,8 @@ public class GeminiLiveService {
 
             LiveConnectConfig config = LiveConnectConfig.builder()
                     .responseModalities(List.of(new Modality(Modality.Known.AUDIO)))
+                    .inputAudioTranscription(AudioTranscriptionConfig.builder().build())
+                    .outputAudioTranscription(AudioTranscriptionConfig.builder().build())
                     .systemInstruction(sysContent)
                     .build();
 
@@ -173,8 +176,17 @@ public class GeminiLiveService {
      * Send raw 16kHz mono 16-bit PCM audio to Gemini via the SDK.
      * Auto-reconnects if session is nearing the 15-minute limit.
      */
+    private long totalBytesSent = 0;
+    private int sendCount = 0;
+
     public void sendAudio(byte[] pcmData) {
         if (!connected || session == null || pcmData == null || pcmData.length == 0) return;
+        totalBytesSent += pcmData.length;
+        sendCount++;
+        if (sendCount % 10 == 1) {
+            log.info("[GeminiLive] sendAudio #{} — {} bytes this chunk, {} total KB sent",
+                    sendCount, pcmData.length, totalBytesSent / 1024);
+        }
 
         // Auto-reconnect before session expires
         if (needsReconnect()) {
@@ -232,7 +244,6 @@ public class GeminiLiveService {
     }
 
     // Accumulate text across messages within a turn
-    private final StringBuilder accModelText = new StringBuilder();
     private String accInputTranscription = null;
     private String accOutputTranscription = null;
 
@@ -252,6 +263,12 @@ public class GeminiLiveService {
 
         // Process serverContent
         msg.serverContent().ifPresent(content -> {
+            log.debug("[GeminiLive] serverContent received: inputTranscription={}, outputTranscription={}, modelTurn={}, turnComplete={}",
+                    content.inputTranscription().isPresent(),
+                    content.outputTranscription().isPresent(),
+                    content.modelTurn().isPresent(),
+                    content.turnComplete().orElse(false));
+
             // Extract input transcription (what the user said)
             content.inputTranscription().ifPresent(transcription -> {
                 String text = transcription.toJson();
@@ -276,34 +293,18 @@ public class GeminiLiveService {
                 }
             });
 
-            // Extract model turn — text parts (if any) and audio blobs
-            content.modelTurn().ifPresent(modelContent -> {
-                modelContent.parts().ifPresent(parts -> {
-                    for (Part part : parts) {
-                        part.text().ifPresent(text -> {
-                            if (!text.isBlank()) accModelText.append(text);
-                        });
-                        // Audio blobs are received but we use transcription for the listener
-                    }
-                });
-            });
+            // Skip model turn text — in AUDIO mode it contains thinking/reasoning,
+            // not the actual spoken translation. We use outputTranscription instead.
 
             // Check if turn is complete
             boolean turnDone = content.turnComplete().orElse(false);
             if (turnDone && listener != null) {
                 String fullInput = accInputTranscription;
+                String translation = accOutputTranscription;
+                log.info("[GeminiLive] Turn complete — input: [{}], outputTranscription: [{}]",
+                        fullInput != null ? fullInput : "null",
+                        translation != null ? translation : "null");
 
-                // Priority: model text > output transcription > input transcription
-                String translation = null;
-                if (accModelText.length() > 0) {
-                    translation = accModelText.toString();
-                } else if (accOutputTranscription != null) {
-                    translation = accOutputTranscription;
-                } else if (fullInput != null) {
-                    translation = fullInput;
-                }
-
-                accModelText.setLength(0);
                 accInputTranscription = null;
                 accOutputTranscription = null;
 

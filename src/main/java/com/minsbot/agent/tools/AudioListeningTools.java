@@ -87,13 +87,29 @@ public class AudioListeningTools {
                 .build();
     }
 
+    private static final String ENGINE_WHISPER_GPT = "whisper-gpt";
+    private volatile String selectedEngine = null; // null = auto-detect, or explicit engine value
+
     public boolean isListening() { return listening; }
     public String getActiveEngine() { return activeEngine; }
     public boolean isVocalMode() { return vocalMode; }
     public void setVocalMode(boolean vocalMode) { this.vocalMode = vocalMode; }
     public void setCaptureDuration(int seconds) { this.captureDuration = Math.max(1, Math.min(8, seconds)); }
-    public void setModel(String model) { geminiLiveService.setLiveModel(model); }
-    public String getModel() { return geminiLiveService.getLiveModel(); }
+
+    /** Set the translation engine. Gemini model names use Gemini Live; "whisper-gpt" uses Whisper+ChatGPT. */
+    public void setEngine(String engine) {
+        if (ENGINE_WHISPER_GPT.equals(engine)) {
+            this.selectedEngine = ENGINE_WHISPER_GPT;
+        } else if (engine != null && !engine.isBlank()) {
+            this.selectedEngine = engine;
+            geminiLiveService.setLiveModel(engine);
+        }
+    }
+
+    /** Returns the currently selected engine value (Gemini model name or "whisper-gpt"). */
+    public String getEngine() {
+        return ENGINE_WHISPER_GPT.equals(selectedEngine) ? ENGINE_WHISPER_GPT : geminiLiveService.getLiveModel();
+    }
 
     public String getLatestTranscription() { return latestTranscription; }
 
@@ -123,8 +139,13 @@ public class AudioListeningTools {
         listening = true;
         latestTranscription = null;
 
-        // Choose engine: Gemini Live (streaming WebSocket) or Whisper+GPT (chunked REST)
-        boolean useGeminiLive = geminiLiveService.isAvailable();
+        // Choose engine based on user selection
+        boolean useGeminiLive;
+        if (ENGINE_WHISPER_GPT.equals(selectedEngine)) {
+            useGeminiLive = false;
+        } else {
+            useGeminiLive = geminiLiveService.isAvailable();
+        }
         String engine = useGeminiLive ? "Gemini Live (real-time streaming)" : "Whisper + GPT (chunked)";
         int captureInterval = captureDuration;
         log.info("[ListenMode] Starting — engine: {}, capture: {}s, max rounds: {}", engine, captureInterval, MAX_ROUNDS);
@@ -317,19 +338,10 @@ public class AudioListeningTools {
                     // Dedup
                     if (displayText.equals(latestTranscription)) return;
 
-                    // Format: original language (small) + translation (regular)
-                    // Uses HTML: <small> for original, regular for translation
-                    StringBuilder feedText = new StringBuilder();
-                    if (inputTranscription != null && !inputTranscription.isBlank()) {
-                        feedText.append("<small>").append(inputTranscription.trim()).append("</small>\n");
-                    }
-                    feedText.append(displayText);
+                    log.info("[ListenMode/Gemini] → {}", displayText);
 
-                    String feedString = feedText.toString();
-                    log.info("[ListenMode/Gemini] → {}", feedString);
-
-                    listenFeed.add(feedString);
-                    asyncMessages.push(feedString);
+                    listenFeed.add(displayText);
+                    asyncMessages.push(displayText);
                     latestTranscription = displayText;
 
                     // Vocal mode: speak the translation

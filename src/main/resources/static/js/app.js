@@ -842,11 +842,11 @@
       if (headerListenEl) {
         headerListenEl.classList.toggle('active', !!data.listening);
       }
-      if (data.model && listenModelSelect && listenModelSelect.value !== data.model) {
-        listenModelSelect.value = data.model;
+      if (data.engine && listenModelSelect && listenModelSelect.value !== data.engine) {
+        listenModelSelect.value = data.engine;
       }
       if (listenEngineLabel) {
-        listenEngineLabel.textContent = data.listening && data.engine ? data.engine : '';
+        listenEngineLabel.textContent = data.listening && data.activeEngine ? data.activeEngine : '';
       }
       if (!data.listening) {
         if (listenFeedEl) {

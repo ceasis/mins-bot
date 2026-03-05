@@ -135,18 +135,18 @@ public class ChatController {
     @GetMapping(value = "/status/listen-mode", produces = MediaType.APPLICATION_JSON_VALUE)
     public Map<String, Object> listenModeStatus() {
         return Map.of("listening", audioListeningTools.isListening(),
-                       "model", audioListeningTools.getModel(),
-                       "engine", audioListeningTools.getActiveEngine());
+                       "engine", audioListeningTools.getEngine(),
+                       "activeEngine", audioListeningTools.getActiveEngine());
     }
 
-    /** Set the Gemini Live model (takes effect on next listen session). */
+    /** Set the translation engine (Gemini model name or "whisper-gpt"). Takes effect on next listen session. */
     @PostMapping(value = "/listen-mode/model", produces = MediaType.APPLICATION_JSON_VALUE)
     public Map<String, Object> setListenModel(@RequestBody Map<String, String> body) {
-        String model = body != null ? body.get("model") : null;
-        if (model != null && !model.isBlank()) {
-            audioListeningTools.setModel(model);
+        String engine = body != null ? body.get("model") : null;
+        if (engine != null && !engine.isBlank()) {
+            audioListeningTools.setEngine(engine);
         }
-        return Map.of("model", audioListeningTools.getModel());
+        return Map.of("engine", audioListeningTools.getEngine());
     }
 
     /** Drain pending listen-mode transcriptions for the UI feed. */
