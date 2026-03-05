@@ -44,7 +44,12 @@ public class SystemTrayService {
         }
         try {
             SystemTray tray = SystemTray.getSystemTray();
-            Image icon = createIcon(Color.CYAN);
+            Image icon;
+            try {
+                icon = javax.imageio.ImageIO.read(getClass().getResourceAsStream("/static/bot-icon-64.png"));
+            } catch (Exception ex) {
+                icon = createIcon(Color.CYAN); // fallback
+            }
 
             PopupMenu popup = new PopupMenu("Mins Bot");
 

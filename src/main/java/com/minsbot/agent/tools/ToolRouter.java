@@ -88,6 +88,7 @@ public class ToolRouter {
     private final TravelSearchTools travelSearchTools;
     private final WordDocTools wordDocTools;
     private final GlobalHotkeyService globalHotkeyService;
+    private final AppSwitchTools appSwitchTools;
     private final PluginLoaderService pluginLoaderService;
     private final SystemTrayService systemTrayService;
 
@@ -156,6 +157,7 @@ public class ToolRouter {
             TravelSearchTools travelSearchTools,
             WordDocTools wordDocTools,
             GlobalHotkeyService globalHotkeyService,
+            AppSwitchTools appSwitchTools,
             PluginLoaderService pluginLoaderService,
             SystemTrayService systemTrayService) {
 
@@ -207,6 +209,7 @@ public class ToolRouter {
         this.travelSearchTools = travelSearchTools;
         this.wordDocTools = wordDocTools;
         this.globalHotkeyService = globalHotkeyService;
+        this.appSwitchTools = appSwitchTools;
         this.pluginLoaderService = pluginLoaderService;
         this.systemTrayService = systemTrayService;
 
@@ -308,7 +311,7 @@ public class ToolRouter {
                 exportTools, sitesConfigTools, cronConfigTools,
                 screenMemoryTools, audioMemoryTools, playlistTools,
                 softwareTools, networkTools, printerTools, screenRecordTools, screenWatchingTools, audioListeningTools,
-                travelSearchTools, wordDocTools, globalHotkeyService, pluginLoaderService, systemTrayService
+                travelSearchTools, wordDocTools, appSwitchTools, globalHotkeyService, pluginLoaderService, systemTrayService
         };
         for (Object bean : allBeans) {
             if (bean != null && !toolCounts.containsKey(bean)) {
@@ -368,7 +371,7 @@ public class ToolRouter {
         map.put("sites",        List.of(sitesConfigTools));
         map.put("files",        List.of(fileTools, fileSystemTools, excelTools, systemTools, wordDocTools, pdfTools));
         map.put("excel",        List.of(excelTools));
-        map.put("system",       List.of(systemTools, softwareTools, screenRecordTools));
+        map.put("system",       List.of(systemTools, softwareTools, screenRecordTools, appSwitchTools));
         map.put("software",    List.of(softwareTools));
         map.put("network",     List.of(networkTools));
         map.put("printing",    List.of(printerTools));

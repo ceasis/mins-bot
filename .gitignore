@@ -1,2 +1,3 @@
 application-secrets.properties
 /target
+buildNumber.properties

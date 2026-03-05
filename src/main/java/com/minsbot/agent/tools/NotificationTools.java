@@ -49,11 +49,18 @@ public class NotificationTools {
             if (trayIcon != null) return;
             if (!SystemTray.isSupported()) return;
             try {
-                BufferedImage icon = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
-                Graphics2D g = icon.createGraphics();
-                g.setColor(new Color(60, 120, 200));
-                g.fillOval(2, 2, 12, 12);
-                g.dispose();
+                java.awt.Image icon;
+                try {
+                    icon = javax.imageio.ImageIO.read(
+                            NotificationTools.class.getResourceAsStream("/static/bot-icon-32.png"));
+                } catch (Exception ex) {
+                    BufferedImage fb = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
+                    Graphics2D g = fb.createGraphics();
+                    g.setColor(new Color(60, 120, 200));
+                    g.fillOval(2, 2, 12, 12);
+                    g.dispose();
+                    icon = fb;
+                }
                 trayIcon = new TrayIcon(icon, "Mins Bot");
                 SystemTray.getSystemTray().add(trayIcon);
             } catch (Exception ignored) {

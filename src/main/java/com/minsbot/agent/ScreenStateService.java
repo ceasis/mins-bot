@@ -215,13 +215,21 @@ public class ScreenStateService {
         String lower = message.trim().toLowerCase();
         int wordCount = lower.split("\\s+").length;
 
+        // Skip non-visual programmatic operations (no screen context needed)
+        if (lower.matches(".*(open|new|close|switch).*(tab|chrome|browser|edge|firefox).*")
+                || lower.matches(".*(open|launch|start|run)\\s+(an?\\s+)?\\w+\\s*(app)?$")
+                || lower.matches(".*run\\s+(powershell|cmd|command|terminal|script).*")
+                || lower.matches(".*install\\s+.*") || lower.matches(".*uninstall\\s+.*")
+                || lower.matches(".*set\\s+(volume|brightness|timer|alarm|reminder).*")) {
+            return false;
+        }
+
         // Skip very short messages (1-3 words): greetings, confirmations, simple questions
         if (wordCount <= 3) {
-            // But allow short action commands like "take screenshot", "open chrome"
-            if (lower.contains("open") || lower.contains("click") || lower.contains("drag")
-                    || lower.contains("search") || lower.contains("screenshot") || lower.contains("browse")
-                    || lower.contains("navigate") || lower.contains("type") || lower.contains("close")
-                    || lower.contains("move") || lower.contains("find")) {
+            // But allow short action commands that need visual context
+            if (lower.contains("click") || lower.contains("drag")
+                    || lower.contains("screenshot") || lower.contains("browse")
+                    || lower.contains("type") || lower.contains("move") || lower.contains("find")) {
                 return true;
             }
             return false;

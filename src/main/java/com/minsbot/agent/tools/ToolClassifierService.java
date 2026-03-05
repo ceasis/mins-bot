@@ -56,7 +56,7 @@ public class ToolClassifierService {
             - cdp: type into browser search box, fill browser form field, click browser button via DOM, list chrome tabs, read page text from chrome tab, browser automation via CDP
             - sites: login credentials, saved sites, passwords
             - files: programmatic file/folder operations, disk, zip, read/write files, file paths
-            - system: apps, windows, processes, screenshots, mouse/keyboard control, volume, shutdown, restart, click on element, find button, click button, drag files, move files on screen, move to folder, put files in folder, organize desktop, sort files into folders, visual file operations, navigate website by clicking, scroll web page, interact with browser page, click on links/buttons on website, screen recording
+            - system: apps, windows, processes, screenshots, mouse/keyboard control, volume, shutdown, restart, click on element, find button, click button, drag files, move files on screen, move to folder, put files in folder, organize desktop, sort files into folders, visual file operations, navigate website by clicking, scroll web page, interact with browser page, click on links/buttons on website, screen recording, switch to app, alt tab, switch window, go to app, open app, focus window
             - media: images, photos, PDF, text-to-speech, voice
             - ai_model: ollama, model switching, summarization, huggingface
             - communication: email, weather

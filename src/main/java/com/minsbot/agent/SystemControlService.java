@@ -9,6 +9,7 @@ import java.awt.Rectangle;
 import java.awt.Robot;
 import java.awt.Toolkit;
 import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
 import java.awt.image.BufferedImage;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -242,21 +243,160 @@ public class SystemControlService {
                 }
             }
         }
+        // ═══ Try multiple approaches — if one fails, move to the next ═══
+        List<String> errors = new ArrayList<>();
+
+        // Attempt 1: Win+S (Windows Search) — type app name and press Enter
+        try {
+            log.info("[openApp] Trying Win+S search for '{}'", appName);
+            Robot robot = new Robot();
+            robot.setAutoDelay(10);
+
+            // Press Win+S to open Windows Search
+            robot.keyPress(KeyEvent.VK_WINDOWS);
+            robot.keyPress(KeyEvent.VK_S);
+            robot.keyRelease(KeyEvent.VK_S);
+            robot.keyRelease(KeyEvent.VK_WINDOWS);
+            robot.delay(800); // wait for search bar to open
+
+            // Type the app name
+            for (char c : appName.toCharArray()) {
+                if (c == ' ') {
+                    robot.keyPress(KeyEvent.VK_SPACE);
+                    robot.keyRelease(KeyEvent.VK_SPACE);
+                } else if (c >= 'A' && c <= 'Z') {
+                    robot.keyPress(KeyEvent.VK_SHIFT);
+                    robot.keyPress(KeyEvent.VK_A + (c - 'A'));
+                    robot.keyRelease(KeyEvent.VK_A + (c - 'A'));
+                    robot.keyRelease(KeyEvent.VK_SHIFT);
+                } else if (c >= 'a' && c <= 'z') {
+                    robot.keyPress(KeyEvent.VK_A + (c - 'a'));
+                    robot.keyRelease(KeyEvent.VK_A + (c - 'a'));
+                } else if (c >= '0' && c <= '9') {
+                    robot.keyPress(KeyEvent.VK_0 + (c - '0'));
+                    robot.keyRelease(KeyEvent.VK_0 + (c - '0'));
+                }
+                robot.delay(50);
+            }
+
+            robot.delay(1500); // wait for search results to populate
+
+            // Press Enter to launch top result
+            robot.keyPress(KeyEvent.VK_ENTER);
+            robot.keyRelease(KeyEvent.VK_ENTER);
+
+            return "Opened " + appName + " via Windows Search (Win+S).";
+        } catch (Exception e) {
+            errors.add("win-s-search: " + e.getMessage());
+            log.warn("[openApp] Win+S search failed for '{}': {}", appName, e.getMessage());
+        }
+
+        // Attempt 2: Known launch command from the map
         if (matchedKey != null) {
             try {
-                new ProcessBuilder(launchCommands.get(matchedKey)).start();
+                Process p = new ProcessBuilder(launchCommands.get(matchedKey)).start();
+                if (waitAndCheck(p, 2000)) {
+                    return "Opened " + matchedKey + ".";
+                }
+                // Process started but may have failed silently — treat as success
                 return "Opened " + matchedKey + ".";
             } catch (Exception e) {
-                return "Failed to open " + matchedKey + ": " + e.getMessage();
+                errors.add("launch-command: " + e.getMessage());
+                log.warn("[openApp] Known command failed for '{}': {}", matchedKey, e.getMessage());
             }
         }
 
-        // Try generic "start" for anything else
+        // Attempt 3: Generic "start" command
         try {
-            new ProcessBuilder("cmd", "/c", "start", "", appName).start();
-            return "Trying to open " + appName + "...";
+            Process p = new ProcessBuilder("cmd", "/c", "start", "", appName).start();
+            if (waitAndCheck(p, 3000)) {
+                return "Opened " + appName + ".";
+            }
+            return "Opened " + appName + ".";
         } catch (Exception e) {
-            return "Could not open " + appName + ": " + e.getMessage();
+            errors.add("start-command: " + e.getMessage());
+            log.warn("[openApp] Generic start failed for '{}': {}", appName, e.getMessage());
+        }
+
+        // Attempt 3: PowerShell Start-Process (handles UWP/Store apps, apps not on PATH)
+        try {
+            String ps = "try { Start-Process '" + appName.replace("'", "''") + "' } " +
+                    "catch { " +
+                    "  $found = Get-Command '" + appName.replace("'", "''") +
+                    "' -ErrorAction SilentlyContinue; " +
+                    "  if ($found) { Start-Process $found.Source } " +
+                    "  else { " +
+                    "    $pkg = Get-StartApps | Where-Object { $_.Name -like '*" +
+                    appName.replace("'", "''") + "*' } | Select-Object -First 1; " +
+                    "    if ($pkg) { Start-Process ('shell:appsFolder\\' + $pkg.AppId) } " +
+                    "    else { Write-Error 'NOT_FOUND' } " +
+                    "  } " +
+                    "}";
+            Process p = new ProcessBuilder("powershell", "-NoProfile", "-Command", ps)
+                    .redirectErrorStream(true).start();
+            String output;
+            try (var reader = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
+                output = reader.lines().collect(Collectors.joining("\n"));
+            }
+            p.waitFor(8, TimeUnit.SECONDS);
+            if (p.exitValue() == 0 || !output.contains("NOT_FOUND")) {
+                return "Opened " + appName + " (via PowerShell).";
+            }
+            errors.add("powershell: " + output.trim());
+            log.warn("[openApp] PowerShell failed for '{}': {}", appName, output.trim());
+        } catch (Exception e) {
+            errors.add("powershell: " + e.getMessage());
+            log.warn("[openApp] PowerShell exception for '{}': {}", appName, e.getMessage());
+        }
+
+        // Attempt 4: Search for .exe via where.exe (finds apps on PATH)
+        try {
+            Process p = new ProcessBuilder("where.exe", appName)
+                    .redirectErrorStream(true).start();
+            String output;
+            try (var reader = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
+                output = reader.lines().collect(Collectors.joining("\n"));
+            }
+            p.waitFor(5, TimeUnit.SECONDS);
+            if (p.exitValue() == 0 && !output.isBlank()) {
+                String exePath = output.lines().findFirst().orElse("").trim();
+                if (!exePath.isBlank()) {
+                    new ProcessBuilder(exePath).start();
+                    return "Opened " + appName + " (" + exePath + ").";
+                }
+            }
+            errors.add("where: not found on PATH");
+        } catch (Exception e) {
+            errors.add("where: " + e.getMessage());
+        }
+
+        // Attempt 5: winget search + path lookup as last resort
+        try {
+            String ps = "Get-StartApps | Where-Object { $_.Name -like '*" +
+                    appName.replace("'", "''") + "*' } | Select-Object -First 1 -ExpandProperty Name";
+            Process p = new ProcessBuilder("powershell", "-NoProfile", "-Command", ps)
+                    .redirectErrorStream(true).start();
+            String output;
+            try (var reader = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
+                output = reader.lines().collect(Collectors.joining("\n")).trim();
+            }
+            p.waitFor(5, TimeUnit.SECONDS);
+            if (!output.isBlank() && p.exitValue() == 0) {
+                errors.add("Found app '" + output + "' in Start menu but could not launch it");
+            }
+        } catch (Exception ignored) {}
+
+        log.error("[openApp] All attempts failed for '{}'. Errors: {}", appName, errors);
+        return "Could not open '" + appName + "' — tried multiple methods:\n" +
+                String.join("\n", errors);
+    }
+
+    /** Wait up to timeoutMs for process to exit; returns true if it exited with code 0. */
+    private boolean waitAndCheck(Process p, long timeoutMs) {
+        try {
+            return p.waitFor(timeoutMs, TimeUnit.MILLISECONDS) && p.exitValue() == 0;
+        } catch (Exception e) {
+            return false;
         }
     }
 
@@ -414,34 +554,62 @@ public class SystemControlService {
             return "Provide a window title or process name to focus (e.g. 'notepad', 'chrome').";
         }
         String safe = search.trim().replace("'", "''");
-        String ps = "Add-Type -TypeDefinition @\"\n" +
-                "using System; using System.Runtime.InteropServices;\n" +
-                "public class Win32Focus {\n" +
-                "  [DllImport(\\\"user32.dll\\\")] public static extern bool SetForegroundWindow(IntPtr hwnd);\n" +
-                "  [DllImport(\\\"user32.dll\\\")] public static extern bool ShowWindow(IntPtr hwnd, int cmd);\n" +
-                "  [DllImport(\\\"user32.dll\\\")] public static extern bool IsIconic(IntPtr hwnd);\n" +
-                "  [DllImport(\\\"user32.dll\\\")] public static extern IntPtr GetForegroundWindow();\n" +
-                "  [DllImport(\\\"user32.dll\\\")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);\n" +
-                "  [DllImport(\\\"kernel32.dll\\\")] public static extern uint GetCurrentThreadId();\n" +
-                "  [DllImport(\\\"user32.dll\\\")] public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);\n" +
-                "  public static void ForceForeground(IntPtr hwnd) {\n" +
-                "    if (IsIconic(hwnd)) ShowWindow(hwnd, 9);\n" + // SW_RESTORE
-                "    IntPtr fg = GetForegroundWindow();\n" +
-                "    uint fgPid = 0;\n" +
-                "    uint fgTid = GetWindowThreadProcessId(fg, out fgPid);\n" +
-                "    uint ourTid = GetCurrentThreadId();\n" +
-                "    if (fgTid != ourTid) AttachThreadInput(ourTid, fgTid, true);\n" +
-                "    SetForegroundWindow(hwnd);\n" +
-                "    ShowWindow(hwnd, 5);\n" + // SW_SHOW
-                "    if (fgTid != ourTid) AttachThreadInput(ourTid, fgTid, false);\n" +
-                "  }\n" +
-                "}\n" +
-                "\"@ -ErrorAction SilentlyContinue; " +
-                "$procs = Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and " +
-                "($_.MainWindowTitle -like '*" + safe + "*' -or $_.ProcessName -like '*" + safe + "*') }; " +
-                "if ($procs) { [Win32Focus]::ForceForeground($procs[0].MainWindowHandle); 'Focused: ' + $procs[0].ProcessName + ' - ' + $procs[0].MainWindowTitle } " +
-                "else { 'No window found matching: " + safe.replace("'", "''") + "' }";
-        return runPowerShell(ps);
+
+        // Write a temp .ps1 script that uses Win32 AttachThreadInput + SetForegroundWindow
+        // (here-strings work correctly in script files, unlike -Command)
+        try {
+            Path script = Files.createTempFile("focus_", ".ps1");
+            String ps1 = "Add-Type -TypeDefinition @\"\n"
+                    + "using System;\n"
+                    + "using System.Runtime.InteropServices;\n"
+                    + "public class Win32Focus {\n"
+                    + "  [DllImport(\"user32.dll\")] public static extern bool SetForegroundWindow(IntPtr hwnd);\n"
+                    + "  [DllImport(\"user32.dll\")] public static extern bool ShowWindow(IntPtr hwnd, int cmd);\n"
+                    + "  [DllImport(\"user32.dll\")] public static extern bool IsIconic(IntPtr hwnd);\n"
+                    + "  [DllImport(\"user32.dll\")] public static extern IntPtr GetForegroundWindow();\n"
+                    + "  [DllImport(\"user32.dll\")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);\n"
+                    + "  [DllImport(\"kernel32.dll\")] public static extern uint GetCurrentThreadId();\n"
+                    + "  [DllImport(\"user32.dll\")] public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);\n"
+                    + "  public static void ForceForeground(IntPtr hwnd) {\n"
+                    + "    if (IsIconic(hwnd)) ShowWindow(hwnd, 9);\n"
+                    + "    IntPtr fg = GetForegroundWindow();\n"
+                    + "    uint fgPid = 0;\n"
+                    + "    uint fgTid = GetWindowThreadProcessId(fg, out fgPid);\n"
+                    + "    uint ourTid = GetCurrentThreadId();\n"
+                    + "    if (fgTid != ourTid) { AttachThreadInput(ourTid, fgTid, true); }\n"
+                    + "    SetForegroundWindow(hwnd);\n"
+                    + "    ShowWindow(hwnd, 5);\n"
+                    + "    if (fgTid != ourTid) { AttachThreadInput(ourTid, fgTid, false); }\n"
+                    + "  }\n"
+                    + "}\n"
+                    + "\"@ -ErrorAction SilentlyContinue\n"
+                    + "$procs = Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and "
+                    + "($_.MainWindowTitle -like '*" + safe + "*' -or $_.ProcessName -like '*" + safe + "*') }\n"
+                    + "if ($procs) {\n"
+                    + "  [Win32Focus]::ForceForeground($procs[0].MainWindowHandle)\n"
+                    + "  'Focused: ' + $procs[0].ProcessName + ' - ' + $procs[0].MainWindowTitle\n"
+                    + "} else {\n"
+                    + "  'No window found matching: " + safe.replace("'", "''") + "'\n"
+                    + "}\n";
+            Files.writeString(script, ps1);
+
+            Process p = new ProcessBuilder("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                    "-File", script.toString())
+                    .redirectErrorStream(true).start();
+            String output;
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
+                output = reader.lines().collect(Collectors.joining("\n"));
+            }
+            p.waitFor();
+            Files.deleteIfExists(script);
+
+            log.info("[focusWindow] Result for '{}': {}", safe, output);
+            return (output != null && !output.isBlank()) ? output.trim() : "No window found matching: " + search;
+        } catch (Exception e) {
+            log.warn("[focusWindow] Failed: {}", e.getMessage());
+            return "No window found matching: " + search;
+        }
     }
 
     /**
@@ -1001,7 +1169,9 @@ public class SystemControlService {
         String processName = browser.toLowerCase();
         String ps = "Get-Process -Name '" + processName + "' -ErrorAction SilentlyContinue | Select-Object -First 1 | ForEach-Object { 'RUNNING' }";
         String result = runPowerShell(ps);
-        return result != null && result.trim().contains("RUNNING");
+        boolean running = result != null && result.trim().contains("RUNNING");
+        log.info("[isBrowserRunning] {} process check: {}", processName, running ? "RUNNING" : "NOT FOUND");
+        return running;
     }
 
     /**
@@ -1025,8 +1195,64 @@ public class SystemControlService {
      */
     public String browserNewTab(String browserName) {
         String browser = browserName != null ? browserName : "chrome";
-        focusAndSendKeys(browser, "^t");
-        return "Opened new tab in " + browser + ".";
+
+        try {
+            Robot robot = new Robot();
+            robot.setAutoDelay(10);
+
+            if (isBrowserRunning(browser)) {
+                // Browser is running — switch to it via AppActivate (most reliable)
+                log.info("[browserNewTab] {} is running — switching via AppActivate", browser);
+                String safe = browser.trim().replace("'", "''");
+                String appActivate = "(New-Object -ComObject WScript.Shell).AppActivate('" + safe + "')";
+                String result = runPowerShell(appActivate);
+                log.info("[browserNewTab] AppActivate result: {}", result);
+                robot.delay(800);
+            } else {
+                // Browser not running — launch via Win+S search
+                log.info("[browserNewTab] {} not running — launching via Win+S", browser);
+                robot.keyPress(KeyEvent.VK_WINDOWS);
+                robot.keyPress(KeyEvent.VK_S);
+                robot.keyRelease(KeyEvent.VK_S);
+                robot.keyRelease(KeyEvent.VK_WINDOWS);
+                robot.delay(800);
+
+                // Type browser name
+                for (char c : browser.toCharArray()) {
+                    if (c >= 'a' && c <= 'z') {
+                        robot.keyPress(KeyEvent.VK_A + (c - 'a'));
+                        robot.keyRelease(KeyEvent.VK_A + (c - 'a'));
+                    } else if (c == ' ') {
+                        robot.keyPress(KeyEvent.VK_SPACE);
+                        robot.keyRelease(KeyEvent.VK_SPACE);
+                    }
+                    robot.delay(50);
+                }
+
+                robot.delay(1500);
+                robot.keyPress(KeyEvent.VK_ENTER);
+                robot.keyRelease(KeyEvent.VK_ENTER);
+
+                // Wait for browser to open
+                long deadline = System.currentTimeMillis() + 10000;
+                while (!isBrowserRunning(browser) && System.currentTimeMillis() < deadline) {
+                    robot.delay(500);
+                }
+                robot.delay(1500); // extra time for window to be ready
+            }
+
+            // Press Ctrl+T to open new tab
+            robot.keyPress(KeyEvent.VK_CONTROL);
+            robot.keyPress(KeyEvent.VK_T);
+            robot.delay(100);
+            robot.keyRelease(KeyEvent.VK_T);
+            robot.keyRelease(KeyEvent.VK_CONTROL);
+
+            return "Opened new tab in " + browser + ".";
+        } catch (Exception e) {
+            log.warn("[browserNewTab] Failed: {}", e.getMessage());
+            return "Failed to open new tab: " + e.getMessage();
+        }
     }
 
     /**

@@ -19,6 +19,9 @@ import java.util.Map;
 @RequestMapping("/api")
 public class ChatController {
 
+    @org.springframework.beans.factory.annotation.Value("${app.version:unknown}")
+    private String appVersion;
+
     private final ChatService chatService;
     private final TranscriptService transcriptService;
     private final ScreenWatchingTools screenWatchingTools;
@@ -31,6 +34,11 @@ public class ChatController {
         this.transcriptService = transcriptService;
         this.screenWatchingTools = screenWatchingTools;
         this.audioListeningTools = audioListeningTools;
+    }
+
+    @GetMapping(value = "/version", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> version() {
+        return Map.of("version", appVersion);
     }
 
     /** Returns recent chat history for the frontend to display on load. */

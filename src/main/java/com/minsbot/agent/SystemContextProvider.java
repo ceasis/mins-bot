@@ -305,6 +305,11 @@ public class SystemContextProvider {
                 - VERIFICATION: When the takeScreenshot description says "rectangle" but you expected a "circle", \
                 that means the action FAILED — redo it. Trust the vision description over your assumptions.
                 - NEVER skip the screenshot. NEVER guess. ALWAYS look first. ALWAYS verify after.
+                - EXCEPTION: For non-visual operations that already check process state programmatically, \
+                skip the screenshot. These include: browserNewTab (checks if browser is running via process list), \
+                openApp (launches via process/search), runPowerShell, runCmd, and any tool that does NOT \
+                interact with on-screen UI elements. Only screenshot-first for VISUAL actions (click, drag, type, \
+                find element, interact with visible UI).
 
                 IDENTIFY FROM SCREEN, NOT FROM MEMORY (CRITICAL — ZERO TOLERANCE):
                 - ABSOLUTE RULE: You MUST NEVER use file names, folder names, or element names from earlier \

@@ -1450,7 +1450,11 @@ public class SystemTools {
         return systemControl.browserNavigate(browserName, url);
     }
 
-    @Tool(description = "Open a new empty tab in the user's PC browser (Ctrl+T).")
+    @Tool(description = "Open a new empty tab in the user's PC browser. "
+            + "Handles EVERYTHING automatically: checks if the browser is already running, "
+            + "switches to it if so, or launches it if not. Then opens a new tab (Ctrl+T). "
+            + "Do NOT call openApp() before this — this tool already does it. "
+            + "Use this for 'open chrome tab', 'new tab', 'open browser tab'.")
     public String browserNewTab(
             @ToolParam(description = "Browser name: 'chrome', 'edge', 'firefox'. Defaults to 'chrome'.") String browserName) {
         notifier.notify("Opening new browser tab");

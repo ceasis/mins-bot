@@ -178,6 +178,18 @@ public class FloatingAppLauncher extends Application {
         });
         primaryStage.setScene(scene);
         primaryStage.initStyle(StageStyle.UNDECORATED);
+
+        // App icon — AI bot (replaces default Java icon in taskbar/alt-tab)
+        try {
+            primaryStage.getIcons().addAll(
+                    new javafx.scene.image.Image(getClass().getResourceAsStream("/static/bot-icon.png")),
+                    new javafx.scene.image.Image(getClass().getResourceAsStream("/static/bot-icon-64.png")),
+                    new javafx.scene.image.Image(getClass().getResourceAsStream("/static/bot-icon-32.png")),
+                    new javafx.scene.image.Image(getClass().getResourceAsStream("/static/bot-icon-16.png"))
+            );
+        } catch (Exception e) {
+            // Icon loading is non-critical
+        }
         primaryStage.setAlwaysOnTop(alwaysOnTop);
         primaryStage.setWidth(expandedWidth);
         primaryStage.setHeight(expandedHeight);

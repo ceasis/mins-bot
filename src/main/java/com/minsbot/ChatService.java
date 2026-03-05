@@ -279,7 +279,23 @@ public class ChatService {
                 // Try Chrome first, fall back to default browser
                 String os = System.getProperty("os.name", "").toLowerCase();
                 if (os.contains("win")) {
-                    new ProcessBuilder("cmd", "/c", "start", "chrome", url).start();
+                    // Try to focus an existing Chrome window with the command center URL.
+                    // If none found, open the URL in Chrome (reuses existing Chrome instance).
+                    String ps = String.format(
+                            "Add-Type @'\n" +
+                            "using System; using System.Runtime.InteropServices;\n" +
+                            "public class W { [DllImport(\"user32.dll\")] public static extern bool SetForegroundWindow(IntPtr h); " +
+                            "[DllImport(\"user32.dll\")] public static extern bool ShowWindow(IntPtr h, int c); }\n" +
+                            "'@\n" +
+                            "$found=$false; " +
+                            "Get-Process chrome -ErrorAction SilentlyContinue | ForEach-Object { " +
+                            "  if ($_.MainWindowTitle -match 'Mins Bot' -or $_.MainWindowTitle -match 'localhost:%d') { " +
+                            "    [W]::ShowWindow($_.MainWindowHandle, 9); " +
+                            "    [W]::SetForegroundWindow($_.MainWindowHandle); " +
+                            "    $found=$true; return } }; " +
+                            "if (-not $found) { Start-Process chrome '%s' }",
+                            serverPort, url);
+                    new ProcessBuilder("powershell", "-NoProfile", "-Command", ps).start();
                 } else if (os.contains("mac")) {
                     new ProcessBuilder("open", "-a", "Google Chrome", url).start();
                 } else {
