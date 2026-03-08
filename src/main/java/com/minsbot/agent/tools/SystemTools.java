@@ -1141,6 +1141,55 @@ public class SystemTools {
         }
     }
 
+    // ═══ Visual drag: Gemini finds source + target in one call, then Robot drags ═══
+
+    @Tool(description = "Drag a visual element from one position to another on screen using AI vision. "
+            + "Takes a screenshot, sends it to Gemini to find BOTH the source and target coordinates in one call, "
+            + "then performs a smooth mouse drag. Perfect for chess moves, puzzle pieces, card games, "
+            + "or any visual drag-and-drop where elements don't have text labels. "
+            + "Example: visualDrag('the white pawn on e2', 'the square e4') — drags the chess piece. "
+            + "Example: visualDrag('the red card on the left', 'the empty slot on the right').")
+    public String visualDrag(
+            @ToolParam(description = "Description of the element to drag FROM, e.g. 'white pawn on e2', 'the card on the left pile'")
+            String sourceDescription,
+            @ToolParam(description = "Description of the position to drag TO, e.g. 'square e4', 'the empty slot in the middle'")
+            String targetDescription) {
+        notifier.notify("Visual drag: " + sourceDescription + " → " + targetDescription);
+
+        hideMinsBotWindow();
+        try {
+            ScreenshotContext ctx = captureScreen();
+            if (ctx == null) return "FAILED: Could not take screenshot.";
+
+            int imgW = ctx.imgWidth() > 0 ? ctx.imgWidth() : ctx.logicalWidth();
+            int imgH = ctx.imgHeight() > 0 ? ctx.imgHeight() : ctx.logicalHeight();
+
+            // Ask Gemini to find BOTH coordinates in a single call
+            int[] coords = geminiVisionService.findDragCoordinates(
+                    ctx.imagePath(), sourceDescription, targetDescription, imgW, imgH);
+
+            if (coords == null) {
+                return "FAILED: Could not find '" + sourceDescription + "' or '" + targetDescription + "' on screen.";
+            }
+
+            // Convert image coordinates to screen coordinates
+            int sx = (int) Math.round(coords[0] * ctx.scaleX());
+            int sy = (int) Math.round(coords[1] * ctx.scaleY());
+            int tx = (int) Math.round(coords[2] * ctx.scaleX());
+            int ty = (int) Math.round(coords[3] * ctx.scaleY());
+
+            System.out.println("[visualDrag] Dragging from screen(" + sx + "," + sy + ") to screen(" + tx + "," + ty + ")");
+
+            String dragResult = systemControl.mouseDrag(sx, sy, tx, ty);
+            return "Dragged '" + sourceDescription + "' → '" + targetDescription
+                    + "' | from (" + sx + "," + sy + ") to (" + tx + "," + ty + "). " + dragResult;
+        } catch (Exception e) {
+            return "FAILED: visualDrag error: " + e.getMessage();
+        } finally {
+            showMinsBotWindow();
+        }
+    }
+
     // ═══ Drag-and-drop: find both items on ONE screenshot and drag ═══
 
     /** Result of verifying a drag operation. */
@@ -1461,11 +1510,38 @@ public class SystemTools {
         return systemControl.browserNewTab(browserName);
     }
 
+    @Tool(description = "Search on a website (YouTube, Google, Amazon, Reddit, GitHub, etc.) by navigating directly "
+            + "to the site's search URL. Uses Robot keyboard — no CDP needed. "
+            + "Handles EVERYTHING: focuses browser, types URL in address bar, presses Enter. "
+            + "Use for 'search youtube for music', 'google best laptops', 'search amazon for headphones'. "
+            + "Do NOT call openApp or browserNewTab before this — it focuses the browser automatically.")
+    public String browserSearchOnSite(
+            @ToolParam(description = "Website to search on: 'youtube.com', 'google.com', 'amazon.com', 'reddit.com', etc.")
+            String site,
+            @ToolParam(description = "The search query, e.g. 'saas tools', 'best headphones 2026'")
+            String query) {
+        notifier.notify("Searching '" + query + "' on " + site);
+        return systemControl.browserSearchOnSite(site, query);
+    }
+
     @Tool(description = "Close the current tab in the user's PC browser (Ctrl+W).")
     public String browserCloseTab(
             @ToolParam(description = "Browser name: 'chrome', 'edge', 'firefox'. Defaults to 'chrome'.") String browserName) {
         notifier.notify("Closing browser tab");
         return systemControl.browserCloseTab(browserName);
+    }
+
+    @Tool(description = "Close ALL browser tabs whose URL or title contains a keyword. "
+            + "Scans EVERY tab in one pass (first to last) and closes all matches. "
+            + "Only call ONCE — it handles everything in a single run. Do NOT call again after it returns. "
+            + "Supports multiple keywords separated by comma or 'and'. "
+            + "Use 'empty' or 'new tab' to close blank/new tabs. "
+            + "Examples: 'youtube', 'reddit', 'youtube and empty', 'facebook, messenger'.")
+    public String browserCloseTabsByUrl(
+            @ToolParam(description = "Keyword(s) to match against URL/title. Comma or 'and' separated for multiple. "
+                    + "Use 'empty'/'blank'/'new tab' for empty tabs. E.g. 'youtube and empty'") String urlKeyword) {
+        notifier.notify("Closing all " + urlKeyword + " tabs");
+        return systemControl.browserCloseTabsByUrl("chrome", urlKeyword);
     }
 
     @Tool(description = "Switch to the next or previous tab in the user's PC browser. "

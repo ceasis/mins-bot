@@ -126,6 +126,70 @@ public class GeminiVisionService {
         }
     }
 
+    /**
+     * Find source and target coordinates for a drag operation in a single Gemini call.
+     * Returns int[4] = {sourceX, sourceY, targetX, targetY} or null if not found.
+     */
+    public int[] findDragCoordinates(Path imagePath, String sourceDescription, String targetDescription,
+                                      int imageWidth, int imageHeight) {
+        if (!isAvailable() || imagePath == null || !Files.exists(imagePath)) return null;
+
+        try {
+            byte[] imageBytes = Files.readAllBytes(imagePath);
+            String base64 = Base64.getEncoder().encodeToString(imageBytes);
+
+            String prompt = "You are a precise visual element locator for drag-and-drop operations.\n\n"
+                    + "Find TWO elements in this screenshot and return their CENTER pixel coordinates.\n\n"
+                    + "SOURCE (drag FROM): " + sourceDescription + "\n"
+                    + "TARGET (drag TO): " + targetDescription + "\n\n"
+                    + "Image dimensions: " + imageWidth + "x" + imageHeight + " pixels.\n\n"
+                    + "RULES:\n"
+                    + "- Return EXACTLY two lines in this format:\n"
+                    + "  SOURCE:x,y\n"
+                    + "  TARGET:x,y\n"
+                    + "- x,y are integer pixel coordinates of the CENTER of each element.\n"
+                    + "- For chess/board games: identify pieces and squares by their grid position.\n"
+                    + "- If either element cannot be found, return: NOT_FOUND\n"
+                    + "- Do NOT add any other text or explanation.";
+
+            String response = callGemini(base64, prompt, "image/png", model);
+            log.info("[Gemini] findDragCoordinates — source='{}', target='{}', response: '{}'",
+                    sourceDescription, targetDescription, truncate(response, 200));
+
+            if (response == null || response.isBlank() || response.contains("NOT_FOUND")) return null;
+
+            int[] source = null, target = null;
+            for (String line : response.split("\\r?\\n")) {
+                line = line.trim();
+                if (line.startsWith("SOURCE:")) {
+                    source = parseCoordsLine(line.substring(7), imageWidth, imageHeight);
+                } else if (line.startsWith("TARGET:")) {
+                    target = parseCoordsLine(line.substring(7), imageWidth, imageHeight);
+                }
+            }
+
+            if (source != null && target != null) {
+                return new int[]{source[0], source[1], target[0], target[1]};
+            }
+            return null;
+        } catch (Exception e) {
+            log.info("[Gemini] findDragCoordinates — FAILED: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private int[] parseCoordsLine(String s, int maxW, int maxH) {
+        try {
+            String[] parts = s.trim().split(",");
+            if (parts.length == 2) {
+                int x = Integer.parseInt(parts[0].trim());
+                int y = Integer.parseInt(parts[1].trim());
+                if (x >= 0 && x <= maxW && y >= 0 && y <= maxH) return new int[]{x, y};
+            }
+        } catch (NumberFormatException ignored) {}
+        return null;
+    }
+
     // ═══ Drag verification (uses reasoning model for higher accuracy) ═══
 
     private static final String VERIFY_DRAG_PROMPT = """

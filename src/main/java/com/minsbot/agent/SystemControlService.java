@@ -1130,7 +1130,7 @@ public class SystemControlService {
     /**
      * Get the URL of the currently active browser tab.
      * Focuses the browser, copies the address bar content to clipboard via Ctrl+L → Ctrl+C,
-     * reads the clipboard, and presses Escape to deselect.
+     * reads the clipboard, and presses Escape to deselect.image.png
      *
      * @param browserName browser name (chrome, edge, firefox)
      * @return the current tab URL, or null if unable to retrieve
@@ -1201,13 +1201,11 @@ public class SystemControlService {
             robot.setAutoDelay(10);
 
             if (isBrowserRunning(browser)) {
-                // Browser is running — switch to it via AppActivate (most reliable)
-                log.info("[browserNewTab] {} is running — switching via AppActivate", browser);
-                String safe = browser.trim().replace("'", "''");
-                String appActivate = "(New-Object -ComObject WScript.Shell).AppActivate('" + safe + "')";
-                String result = runPowerShell(appActivate);
-                log.info("[browserNewTab] AppActivate result: {}", result);
-                robot.delay(800);
+                // Browser is running — switch to it via Win32 focusWindow
+                log.info("[browserNewTab] {} is running — focusing via focusWindow", browser);
+                String focusResult = focusWindow(browser);
+                log.info("[browserNewTab] focusWindow result: {}", focusResult);
+                robot.delay(500);
             } else {
                 // Browser not running — launch via Win+S search
                 log.info("[browserNewTab] {} not running — launching via Win+S", browser);
@@ -1247,13 +1245,69 @@ public class SystemControlService {
             robot.delay(100);
             robot.keyRelease(KeyEvent.VK_T);
             robot.keyRelease(KeyEvent.VK_CONTROL);
+            robot.delay(500);
 
-            return "Opened new tab in " + browser + ".";
+            // Verify by checking the browser's window title for "New Tab"
+            String safe = browser.trim().replace("'", "''");
+            String titlePs = "$p = Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and "
+                    + "$_.ProcessName -like '*" + safe + "*' } | Select-Object -First 1; "
+                    + "if ($p) { $p.MainWindowTitle } else { '' }";
+            String title = runPowerShell(titlePs);
+            if (title != null) title = title.trim();
+            log.info("[browserNewTab] Window title after Ctrl+T: {}", title);
+            boolean verified = title != null && title.toLowerCase().contains("new tab");
+            return verified
+                    ? "Opened new tab in " + browser + ". Verified: window title is '" + title + "'."
+                    : "Opened new tab in " + browser + ". (Window title: " + title + ")";
         } catch (Exception e) {
             log.warn("[browserNewTab] Failed: {}", e.getMessage());
             return "Failed to open new tab: " + e.getMessage();
         }
     }
+
+    /**
+     * Search on a website by opening the search URL directly via the OS.
+     * Instant — one command, no Robot, no delays.
+     */
+    public String browserSearchOnSite(String site, String query) {
+        if (site == null || site.isBlank()) site = "google.com";
+        if (query == null || query.isBlank()) return "No search query provided.";
+
+        String siteLower = site.toLowerCase().trim();
+        String encoded = java.net.URLEncoder.encode(query.trim(), StandardCharsets.UTF_8);
+
+        // Build the direct search URL for known sites
+        String searchUrl;
+        if (siteLower.contains("youtube")) {
+            searchUrl = "https://www.youtube.com/results?search_query=" + encoded;
+        } else if (siteLower.contains("google")) {
+            searchUrl = "https://www.google.com/search?q=" + encoded;
+        } else if (siteLower.contains("amazon")) {
+            searchUrl = "https://www.amazon.com/s?k=" + encoded;
+        } else if (siteLower.contains("reddit")) {
+            searchUrl = "https://www.reddit.com/search/?q=" + encoded;
+        } else if (siteLower.contains("github")) {
+            searchUrl = "https://github.com/search?q=" + encoded;
+        } else if (siteLower.contains("bing")) {
+            searchUrl = "https://www.bing.com/search?q=" + encoded;
+        } else {
+            String domain = siteLower.startsWith("http") ? siteLower : "https://" + siteLower;
+            searchUrl = domain + "/search?q=" + encoded;
+        }
+
+        log.info("[browserSearchOnSite] Searching '{}' on {} → {}", query, site, searchUrl);
+
+        try {
+            // Open URL directly via OS — opens in default browser instantly
+            new ProcessBuilder("cmd", "/c", "start", "", searchUrl).start();
+            return "Searching '" + query + "' on " + site + ". Opened: " + searchUrl;
+        } catch (Exception e) {
+            log.warn("[browserSearchOnSite] Failed: {}", e.getMessage());
+            return "Failed to search: " + e.getMessage();
+        }
+    }
+
+
 
     /**
      * Close the current tab in the PC browser.
@@ -1262,6 +1316,214 @@ public class SystemControlService {
         String browser = browserName != null ? browserName : "chrome";
         focusAndSendKeys(browser, "^w");
         return "Closed current tab.";
+    }
+
+    /**
+     * Close all browser tabs whose URL contains the given keyword.
+     * Uses Robot: focus Chrome → Ctrl+1 (first tab) → loop through tabs checking URL via Ctrl+L + copy.
+     */
+    public String browserCloseTabsByUrl(String browserName, String urlKeyword) {
+        String browser = browserName != null ? browserName : "chrome";
+        String keywordRaw = urlKeyword != null ? urlKeyword.toLowerCase().trim() : "";
+        if (keywordRaw.isEmpty()) return "No URL keyword provided.";
+
+        // Support multiple keywords separated by comma, "and", or pipe
+        String[] keywords = keywordRaw.split("\\s*[,|]\\s*|\\s+and\\s+");
+        // Check if any keyword is an empty-tab keyword
+        boolean matchEmpty = false;
+        List<String> urlKeywords = new java.util.ArrayList<>();
+        for (String kw : keywords) {
+            String k = kw.trim();
+            if (k.isEmpty()) continue;
+            if (isEmptyTabKeyword(k)) {
+                matchEmpty = true;
+            } else {
+                urlKeywords.add(k);
+            }
+        }
+        // Keep a single keyword reference for logging
+        String keyword = keywordRaw;
+
+        try {
+            Robot robot = new Robot();
+            robot.setAutoDelay(10);
+
+            // Switch to browser
+            log.info("[closeTabsByUrl] Focusing {} to close tabs matching '{}'", browser, keyword);
+            String focusResult = focusWindow(browser);
+            log.info("[closeTabsByUrl] focusWindow result: {}", focusResult);
+            if (focusResult != null && focusResult.startsWith("No window")) {
+                return "Browser not running.";
+            }
+            robot.delay(500);
+
+            // Go to first tab: Ctrl+1
+            robot.keyPress(KeyEvent.VK_CONTROL);
+            robot.keyPress(KeyEvent.VK_1);
+            robot.keyRelease(KeyEvent.VK_1);
+            robot.keyRelease(KeyEvent.VK_CONTROL);
+            robot.delay(300);
+
+            // Record the first tab's URL to detect when we loop back
+            clearClipboard();
+            robot.keyPress(KeyEvent.VK_CONTROL);
+            robot.keyPress(KeyEvent.VK_L);
+            robot.keyRelease(KeyEvent.VK_L);
+            robot.keyRelease(KeyEvent.VK_CONTROL);
+            robot.delay(200);
+            robot.keyPress(KeyEvent.VK_CONTROL);
+            robot.keyPress(KeyEvent.VK_C);
+            robot.keyRelease(KeyEvent.VK_C);
+            robot.keyRelease(KeyEvent.VK_CONTROL);
+            robot.delay(200);
+            robot.keyPress(KeyEvent.VK_ESCAPE);
+            robot.keyRelease(KeyEvent.VK_ESCAPE);
+            robot.delay(100);
+            String firstTabUrl = getClipboardText();
+            String firstTabTitle = getBrowserWindowTitle(browser);
+            log.info("[closeTabsByUrl] First tab: URL = {}, title = {}", firstTabUrl, firstTabTitle);
+
+            int closed = 0;
+            int maxTabs = 80; // absolute safety limit
+            boolean firstIteration = true;
+
+            for (int i = 0; i < maxTabs; i++) {
+                // Clear clipboard so we can detect empty tabs
+                clearClipboard();
+
+                // Ctrl+L to focus address bar, then Ctrl+C to copy URL
+                robot.keyPress(KeyEvent.VK_CONTROL);
+                robot.keyPress(KeyEvent.VK_L);
+                robot.keyRelease(KeyEvent.VK_L);
+                robot.keyRelease(KeyEvent.VK_CONTROL);
+                robot.delay(200);
+
+                robot.keyPress(KeyEvent.VK_CONTROL);
+                robot.keyPress(KeyEvent.VK_C);
+                robot.keyRelease(KeyEvent.VK_C);
+                robot.keyRelease(KeyEvent.VK_CONTROL);
+                robot.delay(200);
+
+                // Press Escape to deselect the address bar
+                robot.keyPress(KeyEvent.VK_ESCAPE);
+                robot.keyRelease(KeyEvent.VK_ESCAPE);
+                robot.delay(100);
+
+                // Read clipboard URL and also get window title for empty tab detection
+                String url = getClipboardText();
+                String winTitle = getBrowserWindowTitle(browser);
+                log.info("[closeTabsByUrl] Tab {}: URL = {}, title = {}", i + 1, url, winTitle);
+
+                // Detect if we've looped back to the first tab
+                if (!firstIteration && !isEmptyTabUrl(url)) {
+                    // Check if current tab matches the first tab (we've gone full circle)
+                    if (url != null && !url.isBlank() && url.equals(firstTabUrl)) {
+                        log.info("[closeTabsByUrl] Looped back to first tab (URL: {}), stopping", url);
+                        break;
+                    }
+                }
+                firstIteration = false;
+
+                boolean matches = false;
+                // Check empty tab match
+                if (matchEmpty && (isEmptyTabUrl(url) || isEmptyTabTitle(winTitle))) {
+                    matches = true;
+                }
+                // Check URL keyword matches
+                if (!matches) {
+                    String urlLower = url != null ? url.toLowerCase() : "";
+                    String titleLower = winTitle != null ? winTitle.toLowerCase() : "";
+                    for (String kw : urlKeywords) {
+                        if (urlLower.contains(kw) || titleLower.contains(kw)) {
+                            matches = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (matches) {
+                    // Match — close this tab with Ctrl+W
+                    log.info("[closeTabsByUrl] MATCH — closing tab: {}", url);
+                    robot.keyPress(KeyEvent.VK_CONTROL);
+                    robot.keyPress(KeyEvent.VK_W);
+                    robot.keyRelease(KeyEvent.VK_W);
+                    robot.keyRelease(KeyEvent.VK_CONTROL);
+                    robot.delay(300);
+                    closed++;
+                    // After closing, the next tab is auto-focused, don't Ctrl+Tab
+                } else {
+                    // No match — move to next tab with Ctrl+Tab
+                    robot.keyPress(KeyEvent.VK_CONTROL);
+                    robot.keyPress(KeyEvent.VK_TAB);
+                    robot.keyRelease(KeyEvent.VK_TAB);
+                    robot.keyRelease(KeyEvent.VK_CONTROL);
+                    robot.delay(300);
+                }
+            }
+
+            log.info("[closeTabsByUrl] Done. Closed {} tabs matching '{}'", closed, keyword);
+            return closed > 0
+                    ? "DONE. Closed " + closed + " tab(s) matching '" + urlKeyword + "'. All tabs scanned in one pass — no need to run again."
+                    : "DONE. No tabs found matching '" + urlKeyword + "'. All tabs were scanned — do NOT retry.";
+        } catch (Exception e) {
+            log.warn("[closeTabsByUrl] Failed: {}", e.getMessage());
+            return "Failed to close tabs: " + e.getMessage();
+        }
+    }
+
+    /** Check if the keyword means "empty/new/blank tabs". */
+    private boolean isEmptyTabKeyword(String keyword) {
+        return keyword.contains("empty") || keyword.contains("blank") || keyword.contains("new tab")
+                || keyword.equals("newtab") || keyword.equals("new");
+    }
+
+    /** Check if a URL represents an empty/new tab. */
+    private boolean isEmptyTabUrl(String url) {
+        if (url == null || url.isBlank()) return true;
+        String lower = url.toLowerCase().trim();
+        return lower.equals("about:blank") || lower.startsWith("chrome://newtab")
+                || lower.startsWith("chrome://new-tab") || lower.equals("edge://newtab/")
+                || lower.equals("about:newtab") || lower.isEmpty();
+    }
+
+    /** Check if the window title indicates an empty/new tab. */
+    private boolean isEmptyTabTitle(String title) {
+        if (title == null || title.isBlank()) return true;
+        String lower = title.toLowerCase().trim();
+        return lower.equals("new tab") || lower.startsWith("new tab -")
+                || lower.equals("new tab - google chrome") || lower.equals("new tab - mozilla firefox")
+                || lower.contains("new tab");
+    }
+
+    /** Clear the system clipboard so we can detect when Ctrl+C copies nothing. */
+    private void clearClipboard() {
+        try {
+            java.awt.Toolkit.getDefaultToolkit().getSystemClipboard()
+                    .setContents(new java.awt.datatransfer.StringSelection(""), null);
+        } catch (Exception ignored) {}
+    }
+
+    /** Get the window title of the browser process. */
+    private String getBrowserWindowTitle(String browser) {
+        String safe = browser.trim().replace("'", "''");
+        String ps = "$p = Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and "
+                + "$_.ProcessName -like '*" + safe + "*' } | Select-Object -First 1; "
+                + "if ($p) { $p.MainWindowTitle } else { '' }";
+        String result = runPowerShell(ps);
+        return result != null ? result.trim() : "";
+    }
+
+    /**
+     * Get text from the system clipboard.
+     */
+    private String getClipboardText() {
+        try {
+            java.awt.datatransfer.Clipboard clipboard = java.awt.Toolkit.getDefaultToolkit().getSystemClipboard();
+            Object data = clipboard.getData(java.awt.datatransfer.DataFlavor.stringFlavor);
+            return data != null ? data.toString() : null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /**
