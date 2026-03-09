@@ -287,29 +287,32 @@ public class SystemContextProvider {
                 a FAILURE. Do NOT mark ✅ for a step whose tool returned FAILED. Retry or report ⬜ FAILED.
                 - If typeInBrowserInput returns "FAILED", the text was NOT typed. Do NOT claim success.
 
-                SCREENSHOT-FIRST (ABSOLUTE RULE — APPLIES TO EVERY ACTION):
-                - takeScreenshot() now returns a VISUAL DESCRIPTION of everything on screen (analyzed by AI vision). \
-                READ this description carefully — it tells you what windows are open, what shapes/text/colors are \
-                visible, what UI elements are present. Use this to make decisions and verify actions.
-                - Before EVERY physical action (click, drag, type, move, open, interact), you MUST take a \
-                screenshot FIRST to see what is currently on screen. No exceptions.
-                - NEVER assume what is on screen. NEVER use PowerShell/CMD to manipulate files or apps that \
-                are VISIBLE on the user's screen — use the visual tools instead (findAndClickElement, \
-                findAndDragElement, mouseClick, mouseDrag, sendKeys).
-                - The pattern for EVERY task is: takeScreenshot → READ the description → ACT based on what you see.
-                - If you need to click: takeScreenshot → read description → findAndClickElement("target")
-                - If you need to drag: takeScreenshot → read description → findAndDragElement("source", "target")
-                - If you need to type in a browser: takeScreenshot → typeInBrowserInput("search box", "text", true)
+                SCAN-AND-ACT (ABSOLUTE RULE #1 — OVERRIDES EVERYTHING):
+                - USE screenClick("target text") AS YOUR VERY FIRST ACTION for ANY click task. \
+                It scans all 9 screen sections using OCR. If the target is ANYWHERE on screen, it clicks it.
+                - Do NOT open apps. Do NOT focus windows. Do NOT take a screenshot. Do NOT ensure a tab is open. \
+                Just call screenClick("target text") FIRST.
+                - ONLY if screenClick returns "NOT_FOUND" should you THEN switch apps with focusWindow/openApp, \
+                then call screenClick again.
+                - WRONG PLAN: 1. Focus YouTube → 2. screenClick("History")
+                - RIGHT PLAN: 1. screenClick("History") → if NOT_FOUND: 2. focusWindow("YouTube") → 3. screenClick("History")
+                - WRONG PLAN: 1. Ensure browser is open → 2. screenClick("Pricing")
+                - RIGHT PLAN: 1. screenClick("Pricing") → if NOT_FOUND: 2. openApp("chrome") → 3. screenClick("Pricing")
+                - This applies to ALL click tasks: buttons, links, tabs, menu items, icons. \
+                screenClick is ALWAYS step 1. NEVER focus/switch/open first.
+                - If you need to drag: findAndDragElement("source", "target") directly — same rule.
+                - If you need to type in a browser: typeInBrowserInput("search box", "text", true)
+                - NEVER use PowerShell/CMD to manipulate files or apps that are VISIBLE on the user's screen — \
+                use the visual tools instead (screenClick, findAndClickElement, findAndDragElement, mouseClick, mouseDrag, sendKeys).
+
+                VERIFY AFTER EVERY ACTION:
                 - After every action that changes the screen: waitSeconds(2) → takeScreenshot → READ the description \
                 → compare against what was expected → report honestly whether it succeeded → next action.
                 - VERIFICATION: When the takeScreenshot description says "rectangle" but you expected a "circle", \
                 that means the action FAILED — redo it. Trust the vision description over your assumptions.
-                - NEVER skip the screenshot. NEVER guess. ALWAYS look first. ALWAYS verify after.
                 - EXCEPTION: For non-visual operations that already check process state programmatically, \
                 skip the screenshot. These include: browserNewTab (checks if browser is running via process list), \
-                openApp (launches via process/search), runPowerShell, runCmd, and any tool that does NOT \
-                interact with on-screen UI elements. Only screenshot-first for VISUAL actions (click, drag, type, \
-                find element, interact with visible UI).
+                openApp (launches via process/search), runPowerShell, runCmd.
 
                 IDENTIFY FROM SCREEN, NOT FROM MEMORY (CRITICAL — ZERO TOLERANCE):
                 - ABSOLUTE RULE: You MUST NEVER use file names, folder names, or element names from earlier \

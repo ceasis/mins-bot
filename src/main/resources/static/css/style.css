@@ -498,6 +498,226 @@ html, body {
   display: flex;
 }
 
+/* ─── Calibration tab ─── */
+.calibration-container {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  overflow-y: auto;
+}
+
+.cal-instruction {
+  color: #e4e4e7;
+  font-size: 12px;
+  text-align: center;
+  line-height: 1.5;
+  padding: 6px 8px;
+  background: rgba(99,102,241,0.12);
+  border: 1px solid rgba(99,102,241,0.25);
+  border-radius: 6px;
+  width: 100%;
+}
+
+.cal-instruction strong {
+  color: #a5b4fc;
+}
+
+.engine-priority-section {
+  padding: 6px 8px;
+}
+.engine-priority-header {
+  font-size: 12px;
+  font-weight: 600;
+  color: #e4e4e7;
+  margin-bottom: 4px;
+  text-align: center;
+}
+.engine-priority-hint {
+  font-weight: 400;
+  font-size: 10px;
+  color: #71717a;
+}
+.engine-priority-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 6px 0;
+}
+.engine-priority-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  margin: 2px 0;
+  border-radius: 4px;
+  background: #27272a;
+  cursor: grab;
+  font-size: 12px;
+  color: #d4d4d8;
+  user-select: none;
+}
+.engine-priority-item:active { cursor: grabbing; }
+.engine-priority-item.dragging { opacity: 0.4; }
+.engine-priority-item.drag-over { border-top: 2px solid #818cf8; margin-top: 0; }
+.engine-priority-rank {
+  font-size: 10px;
+  color: #71717a;
+  min-width: 14px;
+  text-align: center;
+}
+.engine-priority-name { flex: 1; }
+.engine-priority-arrows {
+  display: flex;
+  gap: 2px;
+}
+.engine-priority-arrows button {
+  background: none;
+  border: 1px solid #3f3f46;
+  color: #a1a1aa;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 10px;
+  padding: 0 4px;
+  line-height: 16px;
+}
+.engine-priority-arrows button:hover { background: #3f3f46; color: #fff; }
+.engine-priority-save {
+  padding: 4px 14px;
+  font-size: 11px;
+  display: block;
+  margin: 0 auto;
+}
+.cal-divider {
+  border: none;
+  border-top: 1px solid #3f3f46;
+  margin: 8px 0;
+}
+
+.cal-engine-checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  justify-content: center;
+  padding: 4px 8px;
+  margin-bottom: 4px;
+}
+.cal-engine-checkboxes label {
+  font-size: 11px;
+  color: #d4d4d8;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cal-engine-checkboxes input[type="checkbox"] {
+  margin-right: 2px;
+  vertical-align: middle;
+}
+
+.calibration-start {
+  padding: 8px 20px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.cal-arena {
+  position: relative;
+  width: 100%;
+  height: 300px;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 6px;
+  background: rgba(0,0,0,0.2);
+}
+
+.cal-btn-wrap {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transition: opacity 0.2s;
+}
+
+.cal-btn-num {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 2px;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.cal-arena-btn {
+  background: rgba(239,68,68,0.15);
+  border: 2px solid #ef4444;
+  border-radius: 6px;
+  color: #fca5a5;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  cursor: pointer;
+  padding: 8px 14px;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.cal-arena-btn:hover {
+  background: rgba(239,68,68,0.3);
+}
+
+.cal-chess-btn {
+  width: 75px;
+  height: 75px;
+  padding: 0;
+  font-size: 42px;
+  text-align: center;
+  line-height: 71px;
+}
+
+.calibration-status {
+  color: rgba(255,255,255,0.6);
+  font-size: 12px;
+  min-height: 20px;
+}
+
+.cal-results-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  color: #e4e4e7;
+}
+
+.cal-results-table th {
+  padding: 4px 6px;
+  text-align: left;
+  border-bottom: 1px solid rgba(255,255,255,0.15);
+  color: rgba(255,255,255,0.5);
+  font-weight: 600;
+}
+
+.cal-results-table td {
+  padding: 4px 6px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.cal-results-table tfoot td {
+  padding-top: 6px;
+  font-weight: 700;
+  border-bottom: none;
+  color: #a5b4fc;
+}
+
+.cal-dist-good { color: #22c55e; }
+.cal-dist-bad { color: #ef4444; }
+
+.cal-comparison {
+  width: 100%;
+  text-align: center;
+}
+
+.cal-comparison-img {
+  max-width: 100%;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+
 /* ─── Browser tab ─── */
 .browser-toolbar {
   flex-shrink: 0;
@@ -1284,4 +1504,24 @@ html, body {
   border-radius: 3px;
   width: 100%;
   transition: width 0.3s linear;
+}
+
+/* ── Status bar ── */
+.status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 2px 10px;
+  font-size: 11px;
+  color: #71717a;
+  background: rgba(24, 24, 27, 0.85);
+  border-top: 1px solid rgba(63, 63, 70, 0.4);
+  user-select: none;
+  -webkit-user-select: none;
+  flex-shrink: 0;
+}
+
+.status-bar #mouse-coords {
+  font-family: 'Consolas', 'Courier New', monospace;
+  letter-spacing: 0.5px;
 }

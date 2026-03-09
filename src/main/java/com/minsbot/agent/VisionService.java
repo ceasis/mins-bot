@@ -144,13 +144,18 @@ public class VisionService {
      * Uses gpt-4o-mini with a 10s timeout for speed.
      */
     public String analyzeWithPrompt(Path imagePath, String prompt) {
+        return analyzeWithPrompt(imagePath, prompt, null);
+    }
+
+    public String analyzeWithPrompt(Path imagePath, String prompt, String modelOverride) {
         if (!isAvailable()) return null;
         if (imagePath == null || !Files.exists(imagePath)) return null;
         try {
+            String useModel = (modelOverride != null && !modelOverride.isBlank()) ? modelOverride : model;
             byte[] imageBytes = Files.readAllBytes(imagePath);
             String base64 = Base64.getEncoder().encodeToString(imageBytes);
             String mediaType = imagePath.toString().toLowerCase().endsWith(".png") ? "image/png" : "image/jpeg";
-            String requestBody = buildVisionRequestWithModel(base64, prompt, mediaType, model);
+            String requestBody = buildVisionRequestWithModel(base64, prompt, mediaType, useModel);
             String url = baseUrl.endsWith("/")
                     ? baseUrl + "v1/chat/completions"
                     : baseUrl + "/v1/chat/completions";
@@ -257,6 +262,20 @@ public class VisionService {
      * @param screenHeight       actual screen height (for coordinate validation)
      * @return int[] {x, y} or null if not found
      */
+    /**
+     * Find element using a specific model (e.g. "gpt-5.4" for calibration).
+     */
+    public int[] findElementCoordinates(Path imagePath, String elementDescription,
+                                         int screenWidth, int screenHeight, String modelOverride) {
+        String savedModel = this.model;
+        this.model = modelOverride;
+        try {
+            return findElementCoordinates(imagePath, elementDescription, screenWidth, screenHeight);
+        } finally {
+            this.model = savedModel;
+        }
+    }
+
     public int[] findElementCoordinates(Path imagePath, String elementDescription,
                                          int screenWidth, int screenHeight) {
         if (!isAvailable()) {
@@ -469,11 +488,14 @@ public class VisionService {
     // ═══ JSON helpers (manual — same pattern as ToolClassifierService) ═══
 
     private String buildVisionRequestWithModel(String base64Image, String prompt, String mediaType, String modelOverride) {
-        return ("{\"model\":\"%s\",\"max_tokens\":1000,\"messages\":[{\"role\":\"user\",\"content\":" +
+        // GPT-5.x models require "max_completion_tokens" instead of "max_tokens"
+        String tokenParam = modelOverride.startsWith("gpt-5") ? "max_completion_tokens" : "max_tokens";
+        return ("{\"model\":\"%s\",\"%s\":1000,\"messages\":[{\"role\":\"user\",\"content\":" +
                 "[{\"type\":\"text\",\"text\":\"%s\"},{\"type\":\"image_url\",\"image_url\":" +
                 "{\"url\":\"data:%s;base64,%s\",\"detail\":\"%s\"}}]}]}")
                 .formatted(
                         escapeJson(modelOverride),
+                        tokenParam,
                         escapeJson(prompt),
                         mediaType,
                         base64Image,

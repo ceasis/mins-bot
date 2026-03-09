@@ -83,6 +83,7 @@
         <button class="tab" data-tab="schedules">Schedules</button>
         <button class="tab" data-tab="todos">Todo</button>
         <button class="tab" data-tab="directives">Directives</button>
+        <button class="tab" data-tab="calibration">Calibration</button>
       </div>
       <div id="tab-chat" class="tab-content active">
         <div class="chat-area">
@@ -170,6 +171,55 @@
           </button>
         </div>
       </div>
+      <div id="tab-calibration" class="tab-content">
+        <div class="tab-scroll-container calibration-container">
+          <div class="engine-priority-section">
+            <div class="engine-priority-header">Vision Engine Priority <span class="engine-priority-hint">(drag or use arrows — screenClick tries top to bottom)</span></div>
+            <ul id="engine-priority-list" class="engine-priority-list"></ul>
+            <button id="save-engine-priority" class="action-btn engine-priority-save">Save Priority</button>
+          </div>
+          <hr class="cal-divider">
+          <div id="cal-instruction" class="cal-instruction">Click <strong>Start Calibration</strong>. Buttons appear at random positions. Click each, then engines analyze the screenshot. Results show offset per engine.</div>
+          <div class="cal-engine-checkboxes">
+            <label><input type="checkbox" class="cal-engine-cb" value="gemini" checked> <span style="color:#ef4444">Gemini 2.5</span></label>
+            <label><input type="checkbox" class="cal-engine-cb" value="docai"> <span style="color:#ffa500">Document AI</span></label>
+            <label><input type="checkbox" class="cal-engine-cb" value="textract" checked> <span style="color:#8a2be2">Textract</span></label>
+            <label><input type="checkbox" class="cal-engine-cb" value="rek"> <span style="color:#ffd700">Rekognition</span></label>
+            <label><input type="checkbox" class="cal-engine-cb" value="ocr" checked> <span style="color:#00bfff">Win OCR</span></label>
+            <label><input type="checkbox" class="cal-engine-cb" value="gpt" checked> <span style="color:#00ff7f">GPT-5.4</span></label>
+            <label><input type="checkbox" class="cal-engine-cb" value="gemini3"> <span style="color:#ff69b4">Gemini 3.1</span></label>
+            <label><input type="checkbox" class="cal-engine-cb" value="claude" checked> <span style="color:#d97706">Claude Opus 4.6</span></label>
+          </div>
+          <button id="start-calibration-btn" class="action-btn calibration-start">Start Calibration</button>
+          <div id="cal-arena" class="cal-arena" hidden></div>
+          <div id="calibration-status" class="calibration-status"></div>
+          <table id="cal-results-table" class="cal-results-table" hidden>
+            <thead>
+              <tr>
+                <th>#</th><th>Label</th><th>User (x,y)</th>
+                <th style="color:#ef4444">Gemini 2.5</th><th>Dist</th><th>Time</th>
+                <th style="color:#ffa500">Document AI</th><th>Dist</th><th>Time</th>
+                <th style="color:#8a2be2">Textract</th><th>Dist</th><th>Time</th>
+                <th style="color:#ffd700">Rekognition</th><th>Dist</th><th>Time</th>
+                <th style="color:#00bfff">Win OCR</th><th>Dist</th><th>Time</th>
+                <th style="color:#00ff7f">GPT-5.4</th><th>Dist</th><th>Time</th>
+                <th style="color:#ff69b4">Gemini 3.1</th><th>Dist</th><th>Time</th>
+                <th style="color:#d97706">Claude Opus 4.6</th><th>Dist</th><th>Time</th>
+              </tr>
+            </thead>
+            <tbody id="cal-results-body"></tbody>
+            <tfoot>
+              <tr id="cal-results-avg"><td colspan="27"></td></tr>
+            </tfoot>
+          </table>
+          <div id="cal-comparison" class="cal-comparison" hidden>
+            <img id="cal-comparison-img" class="cal-comparison-img" alt="Calibration comparison">
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="status-bar" class="status-bar">
+      <span id="mouse-coords">X: 0 &nbsp; Y: 0</span>
     </div>
   </div>
   <script src="js/app.js"></script>

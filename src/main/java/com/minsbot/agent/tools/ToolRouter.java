@@ -91,6 +91,7 @@ public class ToolRouter {
     private final AppSwitchTools appSwitchTools;
     private final PluginLoaderService pluginLoaderService;
     private final SystemTrayService systemTrayService;
+    private final ScreenClickTools screenClickTools;
 
     @Autowired(required = false)
     private ToolClassifierService classifier;
@@ -159,7 +160,8 @@ public class ToolRouter {
             GlobalHotkeyService globalHotkeyService,
             AppSwitchTools appSwitchTools,
             PluginLoaderService pluginLoaderService,
-            SystemTrayService systemTrayService) {
+            SystemTrayService systemTrayService,
+            ScreenClickTools screenClickTools) {
 
         this.directivesTools = directivesTools;
         this.directiveDataTools = directiveDataTools;
@@ -212,6 +214,7 @@ public class ToolRouter {
         this.appSwitchTools = appSwitchTools;
         this.pluginLoaderService = pluginLoaderService;
         this.systemTrayService = systemTrayService;
+        this.screenClickTools = screenClickTools;
 
         // Count @Tool methods on every bean (once, via reflection)
         countToolsOnAllBeans();
@@ -366,12 +369,12 @@ public class ToolRouter {
         Map<String, List<Object>> map = new LinkedHashMap<>();
 
         map.put("chat_browser", List.of(playwrightTools, downloadTools, sitesConfigTools, webSearchTools));
-        map.put("browser",      List.of(playwrightTools, downloadTools, sitesConfigTools, systemTools, chromeCdpTools, webSearchTools, travelSearchTools));
+        map.put("browser",      List.of(screenClickTools, playwrightTools, downloadTools, sitesConfigTools, systemTools, chromeCdpTools, webSearchTools, travelSearchTools));
         map.put("cdp",          List.of(chromeCdpTools));
         map.put("sites",        List.of(sitesConfigTools));
         map.put("files",        List.of(fileTools, fileSystemTools, excelTools, systemTools, wordDocTools, pdfTools));
         map.put("excel",        List.of(excelTools));
-        map.put("system",       List.of(systemTools, softwareTools, screenRecordTools, appSwitchTools));
+        map.put("system",       List.of(screenClickTools, systemTools, softwareTools, screenRecordTools, appSwitchTools));
         map.put("software",    List.of(softwareTools));
         map.put("network",     List.of(networkTools));
         map.put("printing",    List.of(printerTools));
@@ -396,7 +399,7 @@ public class ToolRouter {
     private List<Object> buildDefaultTools() {
         return List.of(
                 systemTools, fileTools, chromeCdpTools,
-                screenMemoryTools, audioMemoryTools,
+                screenClickTools, screenMemoryTools, audioMemoryTools,
                 scheduledTaskTools, notificationTools,
                 weatherTools);
     }
@@ -434,7 +437,7 @@ public class ToolRouter {
     private List<Object> buildAutonomousDefaultTools() {
         return List.of(
                 systemTools, fileTools, fileSystemTools,
-                playwrightTools, chromeCdpTools, imageTools, emailTools,
+                screenClickTools, playwrightTools, chromeCdpTools, imageTools, emailTools,
                 scheduledTaskTools, summarizationTools,
                 exportTools, localModelTools, softwareTools);
     }

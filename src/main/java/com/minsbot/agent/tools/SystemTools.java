@@ -259,7 +259,7 @@ public class SystemTools {
     @Tool(description = "Send keystrokes to the currently focused window. Use for shortcuts: ^v = Ctrl+V (paste), ^c = Ctrl+C (copy), %{F4} = Alt+F4. Type text directly; use {ENTER}, {TAB}, {ESC} for special keys.")
     public String sendKeys(
             @ToolParam(description = "Keystrokes to send: + = Shift, ^ = Ctrl, % = Alt, {ENTER}, {TAB}, {ESC}, {DOWN}, {UP}, or plain text") String keys) {
-        notifier.notify("Sending keystrokes...");
+        notifier.notify("Sending keystrokes: " + keys);
         return systemControl.sendKeys(keys);
     }
 
@@ -636,6 +636,7 @@ public class SystemTools {
     public String mouseMove(
             @ToolParam(description = "X coordinate") int x,
             @ToolParam(description = "Y coordinate") int y) {
+        notifier.notify("Moving mouse to (" + x + ", " + y + ")");
         return systemControl.mouseMove(x, y);
     }
 
@@ -654,6 +655,7 @@ public class SystemTools {
             + "Each notch is about 3 lines of text.")
     public String mouseScroll(
             @ToolParam(description = "Number of notches to scroll. Positive = down, negative = up. e.g. 3 or -5") int amount) {
+        notifier.notify("Scrolling " + (amount > 0 ? "down" : "up") + " " + Math.abs(amount) + " notches");
         return systemControl.mouseScroll(amount);
     }
 
@@ -764,17 +766,171 @@ public class SystemTools {
         return new ScreenshotContext(imagePath, imgW, imgH, screenSize.width, screenSize.height, scaleX, scaleY);
     }
 
+    // ═══ Step OCR: divide screen into 9 sections, OCR each starting from mouse position ═══
+
+    /**
+     * Divide the screen into a 3x3 grid, capture each section starting from the one
+     * containing the mouse cursor, run Windows OCR on each to find the target text.
+     * Returns an ElementLocation with actual screen coordinates, or null if not found.
+     */
+    private ElementLocation stepOcrScreenshotLogic(String searchText, String elementDescription) {
+        try {
+            java.awt.Dimension screen = java.awt.Toolkit.getDefaultToolkit().getScreenSize();
+            int sw = screen.width, sh = screen.height;
+            int cellW = sw / 3, cellH = sh / 3;
+
+            // Determine which cell the mouse is currently in
+            java.awt.Point mouse = java.awt.MouseInfo.getPointerInfo().getLocation();
+            int mouseCol = Math.min(mouse.x / cellW, 2);
+            int mouseRow = Math.min(mouse.y / cellH, 2);
+            // Build search order: start from mouse cell, then spiral outward by distance
+            int[][] cells = new int[9][2]; // [col, row]
+            for (int r = 0; r < 3; r++)
+                for (int c = 0; c < 3; c++)
+                    cells[r * 3 + c] = new int[]{c, r};
+
+            // Sort by Manhattan distance from mouse cell
+            java.util.Arrays.sort(cells, (a, b) -> {
+                int distA = Math.abs(a[0] - mouseCol) + Math.abs(a[1] - mouseRow);
+                int distB = Math.abs(b[0] - mouseCol) + Math.abs(b[1] - mouseRow);
+                return Integer.compare(distA, distB);
+            });
+
+            java.awt.Robot robot = new java.awt.Robot();
+            System.out.println("[stepOCR] Searching for '" + searchText + "' across 9 sections (mouse at cell " + mouseCol + "," + mouseRow + ")");
+
+            for (int i = 0; i < cells.length; i++) {
+                int col = cells[i][0], row = cells[i][1];
+                int x = col * cellW, y = row * cellH;
+                // Last column/row extends to screen edge
+                int w = (col == 2) ? sw - x : cellW;
+                int h = (row == 2) ? sh - y : cellH;
+
+                java.awt.Rectangle rect = new java.awt.Rectangle(x, y, w, h);
+                java.awt.image.BufferedImage sectionImg = robot.createScreenCapture(rect);
+
+                // Save section screenshot for OCR + navigation debug
+                Path navDir = Paths.get(System.getProperty("user.home"), "mins_bot_data", "navigation_screenshots");
+                Files.createDirectories(navDir);
+                String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss-SSS"));
+                Path tempFile = navDir.resolve("section_" + col + "_" + row + "_" + ts + ".png");
+                javax.imageio.ImageIO.write(sectionImg, "png", tempFile.toFile());
+
+                System.out.println("[stepOCR] Section " + (i + 1) + "/9 (col=" + col + ",row=" + row + ") rect=" + x + "," + y + " " + w + "x" + h);
+
+                // Use runOcrWithBounds directly to get full bounding box for accurate click targeting
+                List<ScreenMemoryService.OcrWord> words = screenMemoryService.runOcrWithBounds(tempFile);
+
+                String searchLower = searchText.toLowerCase();
+                ScreenMemoryService.OcrWord match = null;
+                // Exact match first
+                for (ScreenMemoryService.OcrWord word : words) {
+                    if (word.text().equalsIgnoreCase(searchText)) { match = word; break; }
+                }
+                // Substring match
+                if (match == null) {
+                    for (ScreenMemoryService.OcrWord word : words) {
+                        if (word.text().toLowerCase().contains(searchLower)) { match = word; break; }
+                    }
+                }
+                // Multi-word: join consecutive words
+                if (match == null && searchText.contains(" ")) {
+                    String[] tokens = searchText.split("\\s+");
+                    for (int j = 0; j <= words.size() - tokens.length; j++) {
+                        boolean found = true;
+                        for (int k = 0; k < tokens.length; k++) {
+                            if (!words.get(j + k).text().equalsIgnoreCase(tokens[k])) { found = false; break; }
+                        }
+                        if (found) {
+                            // Merge bounding boxes
+                            double minX = Double.MAX_VALUE, minY = Double.MAX_VALUE, maxX = 0, maxY = 0;
+                            for (int k = 0; k < tokens.length; k++) {
+                                ScreenMemoryService.OcrWord mw = words.get(j + k);
+                                minX = Math.min(minX, mw.x());
+                                minY = Math.min(minY, mw.y());
+                                maxX = Math.max(maxX, mw.x() + mw.width());
+                                maxY = Math.max(maxY, mw.y() + mw.height());
+                            }
+                            match = new ScreenMemoryService.OcrWord(searchText, minX, minY, maxX - minX, maxY - minY);
+                            break;
+                        }
+                    }
+                }
+
+                if (match != null) {
+                    // Click at center-X but bottom-third-Y of the bounding box
+                    // UI elements (buttons, links) have clickable area below the text top edge
+                    int screenX = x + (int) Math.round(match.x() + match.width() / 2.0);
+                    int screenY = y + (int) Math.round(match.y() + match.height() * 0.65);
+
+                    // Draw bounding box + click point on the section screenshot and save
+                    try {
+                        java.awt.Graphics2D g = sectionImg.createGraphics();
+                        g.setStroke(new java.awt.BasicStroke(2f));
+                        // Green rectangle around the matched text
+                        g.setColor(java.awt.Color.GREEN);
+                        g.drawRect((int) match.x(), (int) match.y(),
+                                   (int) match.width(), (int) match.height());
+                        // Red crosshair at click point
+                        int clickLocalX = (int) Math.round(match.x() + match.width() / 2.0);
+                        int clickLocalY = (int) Math.round(match.y() + match.height() * 0.65);
+                        g.setColor(java.awt.Color.RED);
+                        g.drawLine(clickLocalX - 8, clickLocalY, clickLocalX + 8, clickLocalY);
+                        g.drawLine(clickLocalX, clickLocalY - 8, clickLocalX, clickLocalY + 8);
+                        g.fillOval(clickLocalX - 3, clickLocalY - 3, 6, 6);
+                        g.dispose();
+                        // Overwrite with annotated version
+                        javax.imageio.ImageIO.write(sectionImg, "png", tempFile.toFile());
+                    } catch (Exception ignored) {}
+
+                    System.out.println("[stepOCR] FOUND '" + searchText + "' in section (col=" + col + ",row=" + row
+                            + ") bbox(" + String.format("%.1f", match.x()) + "," + String.format("%.1f", match.y())
+                            + " " + String.format("%.1f", match.width()) + "x" + String.format("%.1f", match.height())
+                            + ") → screen(" + screenX + "," + screenY + ") saved: " + tempFile.getFileName());
+                    notifier.notify("Found '" + searchText + "' via OCR at (" + screenX + ", " + screenY + ")");
+                    return new ElementLocation(screenX, screenY, "StepOCR(section " + col + "," + row + ")",
+                            sw, sh, sw, sh, 1.0, 1.0);
+                }
+            }
+
+            System.out.println("[stepOCR] '" + searchText + "' not found in any section");
+            return null;
+        } catch (Exception e) {
+            System.out.println("[stepOCR] Failed: " + e.getMessage());
+            return null;
+        }
+    }
+
     /** Find an element on a pre-captured screenshot. */
     private ElementLocation locateOnImage(ScreenshotContext ctx, String elementDescription) {
         String searchText = extractSearchText(elementDescription);
         System.out.println("[locate] Search: '" + searchText + "' from '" + elementDescription + "'");
 
+        // 0th: Step OCR — divide screen into 9 sections, fast local OCR (no API cost)
+        notifier.notify("Scanning screen for '" + searchText + "'...");
+        ElementLocation stepOcrResult = stepOcrScreenshotLogic(searchText, elementDescription);
+        if (stepOcrResult != null) return stepOcrResult;
+
         int imgW = ctx.imgWidth() > 0 ? ctx.imgWidth() : ctx.logicalWidth();
         int imgH = ctx.imgHeight() > 0 ? ctx.imgHeight() : ctx.logicalHeight();
 
-        // 1st: OpenAI Vision (primary AI vision)
+        // 1st: Gemini (best spatial/coordinate accuracy)
+        if (geminiVisionService.isAvailable()) {
+            System.out.println("[locate] Trying Gemini for '" + elementDescription + "'...");
+            int[] geminiCoords = geminiVisionService.findElementCoordinates(
+                    ctx.imagePath(), elementDescription, imgW, imgH);
+            if (geminiCoords != null) {
+                int sx = (int) Math.round(geminiCoords[0] * ctx.scaleX());
+                int sy = (int) Math.round(geminiCoords[1] * ctx.scaleY());
+                System.out.println("[locate] GEMINI MATCH: '" + elementDescription + "' → screen(" + sx + "," + sy + ")");
+                return new ElementLocation(sx, sy, "Gemini", ctx.imgWidth(), ctx.imgHeight(),
+                        ctx.logicalWidth(), ctx.logicalHeight(), ctx.scaleX(), ctx.scaleY());
+            }
+        }
+
+        // 2nd: OpenAI Vision (fallback)
         if (visionService.isAvailable()) {
-            System.out.println("[locate] Trying OpenAI Vision for '" + elementDescription + "'...");
+            System.out.println("[locate] Gemini miss — trying OpenAI Vision for '" + elementDescription + "'...");
             int[] visionCoords = visionService.findElementCoordinates(
                     ctx.imagePath(), elementDescription, imgW, imgH);
             if (visionCoords != null) {
@@ -786,9 +942,9 @@ public class SystemTools {
             }
         }
 
-        // 2nd: Google Cloud Document AI (cloud OCR with bounding boxes)
+        // 3rd: Google Cloud Document AI (cloud OCR with bounding boxes)
         if (documentAiService.isAvailable()) {
-            System.out.println("[locate] OpenAI miss — trying Google Document AI for '" + searchText + "'...");
+            System.out.println("[locate] Gemini+OpenAI miss — trying Google Document AI for '" + searchText + "'...");
             double[] docAiCoords = documentAiService.findTextOnScreen(ctx.imagePath(), searchText);
             if (docAiCoords != null) {
                 int sx = (int) Math.round(docAiCoords[0] * ctx.scaleX());
@@ -814,23 +970,9 @@ public class SystemTools {
             }
         }
 
-        // 3rd: Gemini Flash (AI vision fallback)
-        if (geminiVisionService.isAvailable()) {
-            System.out.println("[locate] OpenAI+DocAI miss — trying Gemini Flash for '" + elementDescription + "'...");
-            int[] geminiCoords = geminiVisionService.findElementCoordinates(
-                    ctx.imagePath(), elementDescription, imgW, imgH);
-            if (geminiCoords != null) {
-                int sx = (int) Math.round(geminiCoords[0] * ctx.scaleX());
-                int sy = (int) Math.round(geminiCoords[1] * ctx.scaleY());
-                System.out.println("[locate] GEMINI MATCH: '" + elementDescription + "' → screen(" + sx + "," + sy + ")");
-                return new ElementLocation(sx, sy, "Gemini", ctx.imgWidth(), ctx.imgHeight(),
-                        ctx.logicalWidth(), ctx.logicalHeight(), ctx.scaleX(), ctx.scaleY());
-            }
-        }
-
         // 4th: AWS Textract (cloud OCR fallback)
         if (textractService.isAvailable()) {
-            System.out.println("[locate] OpenAI+DocAI+Gemini miss — trying AWS Textract for '" + searchText + "'...");
+            System.out.println("[locate] All AI vision missed — trying AWS Textract for '" + searchText + "'...");
             double[] textractCoords = textractService.findTextOnScreen(ctx.imagePath(), searchText);
             if (textractCoords != null) {
                 int sx = (int) Math.round(textractCoords[0] * ctx.scaleX());
@@ -885,17 +1027,52 @@ public class SystemTools {
 
     // ═══ Element click: OCR-first, AI vision fallback ═══
 
-    @Tool(description = "Find a UI element on screen by description and click on it. Takes a screenshot, "
-            + "uses OCR/Textract/Gemini/AI vision to locate the element. Retries up to 5 times with fresh screenshots. "
+    @Tool(description = "Find a UI element on screen by description and click on it. "
+            + "IMPORTANT: Call this FIRST before focusWindow or openApp — it scans the current screen "
+            + "and clicks immediately if the element is already visible. Only switch apps if this returns 'not found'. "
+            + "Uses OCR/Gemini/AI vision to locate the element. Retries up to 5 times with fresh screenshots. "
             + "Automatically hides the Mins Bot window during capture. "
-            + "Use when you need to click a button, link, input field, tab, icon, or any "
-            + "visible element. Example: findAndClickElement('the Submit button').")
+            + "Example: findAndClickElement('the Submit button').")
     public String findAndClickElement(
             @ToolParam(description = "Description of the element to find and click, e.g. 'the Submit button', "
                     + "'the search input field', 'the Selection tab', 'the close icon'") String elementDescription) {
         notifier.notify("Finding: " + elementDescription);
 
-        // ── CDP-first: try Playwright DOM-level click if Chrome is the foreground window ──
+        // ── Pre-scan: quick stepOCR to check if element is already visible on screen ──
+        String searchText = extractSearchText(elementDescription);
+        notifier.notify("Scanning screen for '" + searchText + "'...");
+        hideMinsBotWindow();
+        ElementLocation preScan = stepOcrScreenshotLogic(searchText, elementDescription);
+        if (preScan != null) {
+            notifier.notify("Found '" + searchText + "' — moving mouse to (" + preScan.screenX() + ", " + preScan.screenY() + ")");
+            System.out.println("[click] Pre-scan found '" + searchText + "' on screen — clicking directly");
+            String clickResult = systemControl.mouseClick(preScan.screenX(), preScan.screenY(), "left");
+            notifier.notify("Clicked '" + searchText + "' — verifying...");
+
+            // Post-click verification: wait, take screenshot, check if something changed
+            try { Thread.sleep(1500); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+            ScreenshotContext verifyCtx = captureScreen();
+            if (verifyCtx != null) {
+                // Check if the element is still visible at the same spot (click might not have worked)
+                ElementLocation recheck = stepOcrScreenshotLogic(searchText, elementDescription);
+                if (recheck != null
+                        && Math.abs(recheck.screenX() - preScan.screenX()) < 20
+                        && Math.abs(recheck.screenY() - preScan.screenY()) < 20) {
+                    // Element still in same place — click probably didn't work, retry
+                    notifier.notify("'" + searchText + "' still visible — retrying click...");
+                    System.out.println("[click] Post-click verify: element still at same position — retrying");
+                    clickResult = systemControl.mouseClick(preScan.screenX(), preScan.screenY(), "left");
+                    notifier.notify("Retried click on '" + searchText + "'");
+                } else {
+                    notifier.notify("Click verified — '" + searchText + "' responded");
+                }
+            }
+            showMinsBotWindow();
+            return preScan.summary(elementDescription) + ". " + clickResult;
+        }
+        showMinsBotWindow();
+
+        // ── CDP: try Playwright DOM-level click if Chrome is the foreground window ──
         try {
             String windowTitle = systemControl.getForegroundWindowTitle();
             if (windowTitle != null && (windowTitle.contains("Chrome") || windowTitle.contains("Google")
@@ -920,11 +1097,11 @@ public class SystemTools {
         try {
             for (int attempt = 1; attempt <= 5; attempt++) {
                 if (attempt > 1) {
+                    notifier.notify("Retry " + attempt + "/5 — searching for '" + searchText + "'...");
                     System.out.println("[click] Retry " + attempt + "/5 for '" + elementDescription + "'...");
                     try { Thread.sleep(1000); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
                 }
 
-                // Check if user is actively moving mouse before we act
                 if (checkUserAbort()) {
                     return "Click aborted: user mouse movement detected.";
                 }
@@ -934,15 +1111,35 @@ public class SystemTools {
 
                 ElementLocation loc = locateOnImage(ctx, elementDescription);
                 if (loc != null) {
-                    // Final check right before clicking
                     if (checkUserAbort()) {
                         return "Click aborted: user moved the mouse.";
                     }
+
+                    notifier.notify("Found '" + searchText + "' via " + loc.method() + " — moving to (" + loc.screenX() + ", " + loc.screenY() + ")");
                     String clickResult = systemControl.mouseClick(loc.screenX(), loc.screenY(), "left");
+                    notifier.notify("Clicked '" + searchText + "' — verifying...");
+
+                    // Post-click verification
+                    try { Thread.sleep(1500); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+                    ScreenshotContext verifyCtx = captureScreen();
+                    if (verifyCtx != null) {
+                        ElementLocation recheck = locateOnImage(verifyCtx, elementDescription);
+                        if (recheck != null
+                                && Math.abs(recheck.screenX() - loc.screenX()) < 20
+                                && Math.abs(recheck.screenY() - loc.screenY()) < 20) {
+                            notifier.notify("'" + searchText + "' still visible — retrying click...");
+                            System.out.println("[click] Post-click verify: element still at same position — retrying");
+                            clickResult = systemControl.mouseClick(loc.screenX(), loc.screenY(), "left");
+                            notifier.notify("Retried click on '" + searchText + "'");
+                        } else {
+                            notifier.notify("Click verified — '" + searchText + "' responded");
+                        }
+                    }
                     return loc.summary(elementDescription) + ". " + clickResult;
                 }
 
                 if (attempt == 5) {
+                    notifier.notify("Could not find '" + searchText + "' after 5 attempts");
                     return "Could not find '" + elementDescription + "' on screen after 5 attempts. "
                             + screenshotUrl(ctx.imagePath());
                 }

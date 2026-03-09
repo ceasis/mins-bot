@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 
 import com.minsbot.agent.tools.AudioListeningTools;
+import com.minsbot.agent.tools.ScreenClickTools;
 import com.minsbot.agent.tools.ScreenWatchingTools;
 
 import java.util.List;
@@ -26,14 +27,17 @@ public class ChatController {
     private final TranscriptService transcriptService;
     private final ScreenWatchingTools screenWatchingTools;
     private final AudioListeningTools audioListeningTools;
+    private final ScreenClickTools screenClickTools;
 
     public ChatController(ChatService chatService, TranscriptService transcriptService,
                           ScreenWatchingTools screenWatchingTools,
-                          AudioListeningTools audioListeningTools) {
+                          AudioListeningTools audioListeningTools,
+                          ScreenClickTools screenClickTools) {
         this.chatService = chatService;
         this.transcriptService = transcriptService;
         this.screenWatchingTools = screenWatchingTools;
         this.audioListeningTools = audioListeningTools;
+        this.screenClickTools = screenClickTools;
     }
 
     @GetMapping(value = "/version", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -200,5 +204,91 @@ public class ChatController {
         } catch (Exception e) {
             return Map.of("status", "error", "message", "Failed: " + e.getMessage());
         }
+    }
+
+    @GetMapping("/mouse")
+    public Map<String, Object> getMousePosition() {
+        java.awt.Point p = java.awt.MouseInfo.getPointerInfo().getLocation();
+        return Map.of("x", p.x, "y", p.y);
+    }
+
+    @GetMapping("/screen-info")
+    public Map<String, Object> getScreenInfo() {
+        java.awt.Dimension logical = java.awt.Toolkit.getDefaultToolkit().getScreenSize();
+        double dpiScaleX = 1.0, dpiScaleY = 1.0;
+        try {
+            java.awt.geom.AffineTransform tx = java.awt.GraphicsEnvironment
+                    .getLocalGraphicsEnvironment().getDefaultScreenDevice()
+                    .getDefaultConfiguration().getDefaultTransform();
+            dpiScaleX = tx.getScaleX();
+            dpiScaleY = tx.getScaleY();
+        } catch (Exception ignored) {}
+        // Capture a test screenshot to check actual image size
+        int imgW = 0, imgH = 0;
+        try {
+            java.awt.Rectangle rect = new java.awt.Rectangle(logical);
+            java.awt.image.BufferedImage img = new java.awt.Robot().createScreenCapture(rect);
+            imgW = img.getWidth();
+            imgH = img.getHeight();
+        } catch (Exception ignored) {}
+        return Map.of(
+            "logicalWidth", logical.width, "logicalHeight", logical.height,
+            "dpiScaleX", dpiScaleX, "dpiScaleY", dpiScaleY,
+            "capturedImgWidth", imgW, "capturedImgHeight", imgH,
+            "physicalWidth", (int)(logical.width * dpiScaleX),
+            "physicalHeight", (int)(logical.height * dpiScaleY)
+        );
+    }
+
+    @PostMapping(value = "/calibrate/screenshot", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> calibrateScreenshot() {
+        screenClickTools.setSkipHideWindow(true);
+        try {
+            String path = screenClickTools.takeCalibrationScreenshot();
+            if (path != null) {
+                return Map.of("success", true, "screenshotPath", path);
+            }
+            return Map.of("success", false, "message", "Failed to capture screenshot");
+        } finally {
+            screenClickTools.setSkipHideWindow(false);
+        }
+    }
+
+    @GetMapping(value = "/engine-priority", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> getEnginePriority() {
+        return Map.of("priority", screenClickTools.getEnginePriority());
+    }
+
+    @SuppressWarnings("unchecked")
+    @PostMapping(value = "/engine-priority", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> setEnginePriority(@RequestBody Map<String, Object> body) {
+        List<String> priority = (List<String>) body.get("priority");
+        screenClickTools.setEnginePriority(priority);
+        return Map.of("success", true, "priority", screenClickTools.getEnginePriority());
+    }
+
+    @SuppressWarnings("unchecked")
+    @PostMapping(value = "/calibrate", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> calibrate(@RequestBody Map<String, Object> body) {
+        List<Map<String, Object>> items = (List<Map<String, Object>>) body.get("items");
+        if (items == null || items.isEmpty()) {
+            return Map.of("success", false, "message", "No items provided");
+        }
+        List<String> engines = body.containsKey("engines") ? (List<String>) body.get("engines") : null;
+        screenClickTools.setSkipHideWindow(true);
+        try {
+            return screenClickTools.runCalibration(items, engines);
+        } finally {
+            screenClickTools.setSkipHideWindow(false);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    @PostMapping(value = "/calibrate/compare", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> calibrateCompare(@RequestBody Map<String, Object> body) {
+        String screenshotPath = (String) body.get("screenshotPath");
+        List<Map<String, Object>> comparisons = (List<Map<String, Object>>) body.get("comparisons");
+        int threshold = body.containsKey("threshold") ? ((Number) body.get("threshold")).intValue() : 5;
+        return screenClickTools.generateCalibrationComparison(screenshotPath, comparisons, threshold);
     }
 }

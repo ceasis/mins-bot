@@ -111,6 +111,15 @@ public class GeminiVisionService {
                     if (parts.length == 2) {
                         int x = Integer.parseInt(parts[0].trim());
                         int y = Integer.parseInt(parts[1].trim());
+                        // Gemini models often return coordinates in 0-1000 normalized scale
+                        // instead of actual pixel coordinates. Detect and rescale.
+                        if (x <= 1000 && y <= 1000 && (imageWidth > 1000 || imageHeight > 1000)) {
+                            int scaledX = (int) Math.round(x * imageWidth / 1000.0);
+                            int scaledY = (int) Math.round(y * imageHeight / 1000.0);
+                            log.info("[Gemini] findElement — rescaled normalized ({},{}) → ({},{}) for {}x{}",
+                                    x, y, scaledX, scaledY, imageWidth, imageHeight);
+                            return new int[]{scaledX, scaledY};
+                        }
                         if (x >= 0 && x <= imageWidth && y >= 0 && y <= imageHeight) {
                             log.info("[Gemini] findElement — '{}' at ({}, {})", elementDescription, x, y);
                             return new int[]{x, y};
@@ -269,6 +278,29 @@ public class GeminiVisionService {
             return result;
         } catch (Exception e) {
             log.warn("[Gemini] analyze — FAILED: {}", e.getMessage(), e);
+            return null;
+        }
+    }
+
+    /**
+     * Analyze using a specific model override (e.g. "gemini-3.1-pro-preview" for calibration).
+     */
+    public String analyze(Path imagePath, String prompt, String modelOverride) {
+        if (!isAvailable() || imagePath == null || !Files.exists(imagePath)) return null;
+        try {
+            byte[] imageBytes = Files.readAllBytes(imagePath);
+            log.info("[Gemini] analyze — image: {} ({} bytes), model: {}, prompt ({} chars)",
+                    imagePath.getFileName(), imageBytes.length, modelOverride, prompt.length());
+            String base64 = Base64.getEncoder().encodeToString(imageBytes);
+            String mediaType = imagePath.toString().toLowerCase().endsWith(".png") ? "image/png" : "image/jpeg";
+            String result = callGemini(base64, prompt, mediaType, modelOverride);
+            if (result != null && !result.isBlank()) {
+                log.info("[Gemini] analyze — SUCCESS ({} chars): {}", result.length(),
+                        result.length() > 300 ? result.substring(0, 300) + "..." : result);
+            }
+            return result;
+        } catch (Exception e) {
+            log.warn("[Gemini] analyze — FAILED (model={}): {}", modelOverride, e.getMessage());
             return null;
         }
     }

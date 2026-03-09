@@ -933,7 +933,7 @@ public class SystemControlService {
     public synchronized String startDrag(int x, int y) {
         try {
             dragRobot = new Robot();
-            dragRobot.mouseMove(x, y);
+            smoothMove(dragRobot, x, y);
             dragRobot.delay(100);
             dragRobot.mousePress(InputEvent.BUTTON1_DOWN_MASK);
             dragRobot.delay(100);
@@ -994,12 +994,27 @@ public class SystemControlService {
     }
 
     /**
+     * Smooth glide the mouse from current position to (x, y) in 30 steps over 1.5s.
+     */
+    private void smoothMove(Robot robot, int x, int y) {
+        java.awt.Point from = java.awt.MouseInfo.getPointerInfo().getLocation();
+        int steps = 30;
+        int delayMs = 1500 / steps; // 50ms per step, 1.5s total
+        for (int i = 1; i <= steps; i++) {
+            int cx = from.x + (x - from.x) * i / steps;
+            int cy = from.y + (y - from.y) * i / steps;
+            robot.mouseMove(cx, cy);
+            robot.delay(delayMs);
+        }
+    }
+
+    /**
      * Move the mouse cursor to the given screen coordinates.
      */
     public String mouseMove(int x, int y) {
         try {
             Robot robot = new Robot();
-            robot.mouseMove(x, y);
+            smoothMove(robot, x, y);
             return "Moved mouse to (" + x + ", " + y + ").";
         } catch (Exception e) {
             return "Mouse move failed: " + e.getMessage();
@@ -1013,7 +1028,7 @@ public class SystemControlService {
     public String mouseClick(int x, int y, String button) {
         try {
             Robot robot = new Robot();
-            robot.mouseMove(x, y);
+            smoothMove(robot, x, y);
             robot.delay(50);
             int mask = switch (button != null ? button.toLowerCase() : "left") {
                 case "right" -> InputEvent.BUTTON3_DOWN_MASK;
@@ -1035,7 +1050,7 @@ public class SystemControlService {
     public String mouseDoubleClick(int x, int y) {
         try {
             Robot robot = new Robot();
-            robot.mouseMove(x, y);
+            smoothMove(robot, x, y);
             robot.delay(50);
             int mask = InputEvent.BUTTON1_DOWN_MASK;
             robot.mousePress(mask);
@@ -1057,7 +1072,7 @@ public class SystemControlService {
     public String mouseDrag(int fromX, int fromY, int toX, int toY) {
         try {
             Robot robot = new Robot();
-            robot.mouseMove(fromX, fromY);
+            smoothMove(robot, fromX, fromY);
             robot.delay(100);
             robot.mousePress(InputEvent.BUTTON1_DOWN_MASK);
             robot.delay(100);

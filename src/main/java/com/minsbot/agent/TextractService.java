@@ -136,36 +136,45 @@ public class TextractService {
 
         log.info("[Textract] Searching for '{}' among {} words", search, words.size());
 
-        // Strategy 1: Exact single-word match
-        for (TextractWord w : words) {
-            if (w.text().equalsIgnoreCase(search)) {
-                double cx = w.x() + w.width() / 2.0;
-                double cy = w.y() + w.height() / 2.0;
-                log.info("[Textract] Exact match: '{}' at center({},{})", w.text(), cx, cy);
-                return new double[]{cx, cy};
-            }
-        }
-
-        // Strategy 2: Contains match (search text within a word)
-        for (TextractWord w : words) {
-            if (w.text().toLowerCase().contains(searchLower)) {
-                double cx = w.x() + w.width() / 2.0;
-                double cy = w.y() + w.height() / 2.0;
-                log.info("[Textract] Contains match: '{}' in '{}' at center({},{})", search, w.text(), cx, cy);
-                return new double[]{cx, cy};
-            }
-        }
-
-        // Strategy 3: Multi-word sliding window (for "ANIMALS.txt" across "ANIMALS" + ".txt")
+        // Strategy 1: Multi-word exact match first (e.g. "Red Hawk" across "Red" + "Hawk")
         for (int i = 0; i < words.size(); i++) {
             StringBuilder joined = new StringBuilder(words.get(i).text());
             double startX = words.get(i).x(), startY = words.get(i).y();
             double endX = words.get(i).x() + words.get(i).width();
             double endY = words.get(i).y() + words.get(i).height();
 
-            if (joined.toString().toLowerCase().contains(searchLower)) {
+            if (joined.toString().equalsIgnoreCase(search)) {
                 double cx = (startX + endX) / 2.0;
                 double cy = (startY + endY) / 2.0;
+                log.info("[Textract] Exact match: '{}' at center({},{})", joined, cx, cy);
+                return new double[]{cx, cy};
+            }
+
+            for (int j = i + 1; j < Math.min(i + 5, words.size()); j++) {
+                joined.append(" ").append(words.get(j).text());
+                endX = Math.max(endX, words.get(j).x() + words.get(j).width());
+                endY = Math.max(endY, words.get(j).y() + words.get(j).height());
+
+                if (joined.toString().equalsIgnoreCase(search)) {
+                    double cx = (startX + endX) / 2.0;
+                    double cy = (startY + endY) / 2.0;
+                    log.info("[Textract] Exact multi-word match: '{}' at center({},{})", joined, cx, cy);
+                    return new double[]{cx, cy};
+                }
+            }
+        }
+
+        // Strategy 2: Multi-word contains (search is substring of joined words)
+        for (int i = 0; i < words.size(); i++) {
+            StringBuilder joined = new StringBuilder(words.get(i).text());
+            double startX = words.get(i).x(), startY = words.get(i).y();
+            double endX = words.get(i).x() + words.get(i).width();
+            double endY = words.get(i).y() + words.get(i).height();
+
+            if (joined.toString().toLowerCase().contains(searchLower) && joined.length() <= search.length() * 2) {
+                double cx = (startX + endX) / 2.0;
+                double cy = (startY + endY) / 2.0;
+                log.info("[Textract] Contains match: '{}' at center({},{})", joined, cx, cy);
                 return new double[]{cx, cy};
             }
 
@@ -177,13 +186,13 @@ public class TextractService {
                 if (joined.toString().toLowerCase().contains(searchLower)) {
                     double cx = (startX + endX) / 2.0;
                     double cy = (startY + endY) / 2.0;
-                    log.info("[Textract] Multi-word match: '{}' at center({},{})", joined, cx, cy);
+                    log.info("[Textract] Multi-word contains: '{}' at center({},{})", joined, cx, cy);
                     return new double[]{cx, cy};
                 }
             }
         }
 
-        // Strategy 4: No-space join (handles "ANIMALS" + ".txt" → "ANIMALS.txt")
+        // Strategy 3: No-space join (handles "ANIMALS" + ".txt" → "ANIMALS.txt")
         for (int i = 0; i < words.size(); i++) {
             StringBuilder noSpace = new StringBuilder(words.get(i).text());
             double startX = words.get(i).x(), startY = words.get(i).y();

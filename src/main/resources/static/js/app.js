@@ -439,7 +439,6 @@
       });
       const data = await res.json();
       stopStatusPolling();
-      clearStatusMessages();
       hideThinking();
       appendMessage(data.reply || 'No reply.', false);
       if (data.quitCountdownSeconds) {
@@ -447,7 +446,6 @@
       }
     } catch (e) {
       stopStatusPolling();
-      clearStatusMessages();
       hideThinking();
       appendMessage('Could not reach server.', false);
     } finally {
@@ -1271,6 +1269,435 @@
       if (e.key === 'Enter') { e.preventDefault(); addDirective(); }
     });
   }
+
+  // ── Live mouse coordinates in status bar ──
+  const mouseCoordsEl = document.getElementById('mouse-coords');
+  if (mouseCoordsEl) {
+    setInterval(async () => {
+      try {
+        const res = await fetch('/api/mouse');
+        if (res.ok) {
+          const pos = await res.json();
+          mouseCoordsEl.innerHTML = 'X: ' + pos.x + ' &nbsp; Y: ' + pos.y;
+        }
+      } catch (_) {}
+    }, 100);
+  }
+
+  // ═══ Calibration tab ═══
+
+  const calArena = document.getElementById('cal-arena');
+  const startCalibrationBtn = document.getElementById('start-calibration-btn');
+  const calibrationStatus = document.getElementById('calibration-status');
+  const calResultsTable = document.getElementById('cal-results-table');
+  const calResultsBody = document.getElementById('cal-results-body');
+  const calResultsAvg = document.getElementById('cal-results-avg');
+  const calComparisonDiv = document.getElementById('cal-comparison');
+  const calComparisonImg = document.getElementById('cal-comparison-img');
+
+  // ── Engine priority list ──
+  var engineDefs = [
+    { key: 'gpt', label: 'GPT-5.4', color: '#00ff7f' },
+    { key: 'gemini', label: 'Gemini 2.5', color: '#ef4444' },
+    { key: 'docai', label: 'Document AI', color: '#ffa500' },
+    { key: 'textract', label: 'Textract', color: '#8a2be2' },
+    { key: 'rek', label: 'Rekognition', color: '#ffd700' },
+    { key: 'ocr', label: 'Windows OCR', color: '#00bfff' },
+    { key: 'gemini3', label: 'Gemini 3.1', color: '#ff69b4' },
+    { key: 'claude', label: 'Claude Opus 4.6', color: '#d97706' }
+  ];
+  var priorityList = document.getElementById('engine-priority-list');
+  var savePriorityBtn = document.getElementById('save-engine-priority');
+
+  function renderPriorityList(order) {
+    priorityList.innerHTML = '';
+    order.forEach(function (key, idx) {
+      var def = engineDefs.find(function (d) { return d.key === key; }) || { key: key, label: key, color: '#aaa' };
+      var li = document.createElement('li');
+      li.className = 'engine-priority-item';
+      li.dataset.engine = key;
+      li.draggable = true;
+      li.innerHTML = '<span class="engine-priority-rank">' + (idx + 1) + '</span>'
+        + '<span class="engine-priority-name" style="color:' + def.color + '">' + def.label + '</span>'
+        + '<span class="engine-priority-arrows">'
+        + '<button class="ep-up" title="Move up">\u25B2</button>'
+        + '<button class="ep-down" title="Move down">\u25BC</button>'
+        + '</span>';
+      // Arrow buttons
+      li.querySelector('.ep-up').addEventListener('click', function () { moveEngine(idx, -1); });
+      li.querySelector('.ep-down').addEventListener('click', function () { moveEngine(idx, 1); });
+      // Drag events
+      li.addEventListener('dragstart', function (e) { e.dataTransfer.setData('text/plain', idx); li.classList.add('dragging'); });
+      li.addEventListener('dragend', function () { li.classList.remove('dragging'); });
+      li.addEventListener('dragover', function (e) { e.preventDefault(); li.classList.add('drag-over'); });
+      li.addEventListener('dragleave', function () { li.classList.remove('drag-over'); });
+      li.addEventListener('drop', function (e) {
+        e.preventDefault();
+        li.classList.remove('drag-over');
+        var fromIdx = parseInt(e.dataTransfer.getData('text/plain'));
+        var toIdx = idx;
+        if (fromIdx !== toIdx) {
+          var current = getCurrentOrder();
+          var moved = current.splice(fromIdx, 1)[0];
+          current.splice(toIdx, 0, moved);
+          renderPriorityList(current);
+        }
+      });
+      priorityList.appendChild(li);
+    });
+  }
+
+  function getCurrentOrder() {
+    return Array.from(priorityList.querySelectorAll('.engine-priority-item')).map(function (li) { return li.dataset.engine; });
+  }
+
+  function moveEngine(idx, dir) {
+    var order = getCurrentOrder();
+    var newIdx = idx + dir;
+    if (newIdx < 0 || newIdx >= order.length) return;
+    var tmp = order[idx];
+    order[idx] = order[newIdx];
+    order[newIdx] = tmp;
+    renderPriorityList(order);
+  }
+
+  // Load priority from server
+  fetch('/api/engine-priority').then(function (r) { return r.json(); }).then(function (data) {
+    if (data.priority) renderPriorityList(data.priority);
+  }).catch(function () {
+    renderPriorityList(engineDefs.map(function (d) { return d.key; }));
+  });
+
+  savePriorityBtn.addEventListener('click', function () {
+    var order = getCurrentOrder();
+    fetch('/api/engine-priority', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ priority: order })
+    }).then(function (r) { return r.json(); }).then(function (data) {
+      savePriorityBtn.textContent = 'Saved!';
+      setTimeout(function () { savePriorityBtn.textContent = 'Save Priority'; }, 1500);
+    });
+  });
+
+  const calColors = ['Blue','Red','Green','Gold','Purple'];
+  const calAnimals = ['Wolf','Eagle','Fox','Bear','Hawk'];
+  const chessPieces = [
+    { emoji: '\u2654', name: 'King' },
+    { emoji: '\u2655', name: 'Queen' },
+    { emoji: '\u2656', name: 'Rook' },
+    { emoji: '\u2657', name: 'Bishop' },
+    { emoji: '\u2658', name: 'Knight' },
+    { emoji: '\u2659', name: 'Pawn' }
+  ];
+
+  function shuffleArray(arr) {
+    for (var i = arr.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp;
+    }
+    return arr;
+  }
+
+  function generate5Labels() {
+    var all = [];
+    for (var c = 0; c < calColors.length; c++) {
+      for (var a = 0; a < calAnimals.length; a++) {
+        all.push(calColors[c] + ' ' + calAnimals[a]);
+      }
+    }
+    return shuffleArray(all).slice(0, 5);
+  }
+
+  function generate5ChessPairs() {
+    var pairs = [];
+    var pieces = chessPieces.slice();
+    shuffleArray(pieces);
+    for (var i = 0; i < 5; i++) {
+      var target = pieces[i % pieces.length];
+      var decoyIdx = (i + 1 + Math.floor(Math.random() * (pieces.length - 1))) % pieces.length;
+      var decoy = pieces[decoyIdx];
+      if (decoy.name === target.name) decoy = pieces[(decoyIdx + 1) % pieces.length];
+      pairs.push({ target: target, decoy: decoy });
+    }
+    return pairs;
+  }
+
+  function randomPosition(arenaW, arenaH, btnW, btnH) {
+    var x = Math.floor(Math.random() * Math.max(1, arenaW - btnW));
+    var y = Math.floor(Math.random() * Math.max(1, arenaH - btnH));
+    return { x: x, y: y };
+  }
+
+  function nonOverlappingPositions(arenaW, arenaH, btnW, btnH) {
+    var pos1 = randomPosition(arenaW, arenaH, btnW, btnH);
+    var pos2;
+    for (var tries = 0; tries < 50; tries++) {
+      pos2 = randomPosition(arenaW, arenaH, btnW, btnH);
+      if (Math.abs(pos2.x - pos1.x) > btnW + 20 || Math.abs(pos2.y - pos1.y) > btnH + 20) break;
+    }
+    return [pos1, pos2];
+  }
+
+  function multiNonOverlapping(arenaW, arenaH, btnW, btnH, count) {
+    var placed = [];
+    for (var i = 0; i < count; i++) {
+      var pos, ok;
+      for (var tries = 0; tries < 100; tries++) {
+        pos = randomPosition(arenaW, arenaH, btnW, btnH);
+        ok = true;
+        for (var j = 0; j < placed.length; j++) {
+          if (Math.abs(pos.x - placed[j].x) < btnW + 10 && Math.abs(pos.y - placed[j].y) < btnH + 10) {
+            ok = false; break;
+          }
+        }
+        if (ok) break;
+      }
+      placed.push(pos);
+    }
+    return placed;
+  }
+
+  async function captureCalScreenshot() {
+    try {
+      var ssRes = await fetch('/api/calibrate/screenshot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}'
+      });
+      var ssData = await ssRes.json();
+      return ssData.success ? ssData.screenshotPath : null;
+    } catch (_) { return null; }
+  }
+
+  startCalibrationBtn.addEventListener('click', async function () {
+    startCalibrationBtn.disabled = true;
+    calResultsBody.innerHTML = '';
+    calResultsTable.hidden = true;
+    calComparisonDiv.hidden = true;
+    calArena.hidden = false;
+    calArena.innerHTML = '';
+
+    var results = [];
+    var screenshotPaths = [];
+
+    // ── Mixed: 3 text buttons + 3 chess pieces, all at once ──
+    var labels = generate5Labels().slice(0, 3);
+    var pieces = shuffleArray(chessPieces.slice()).slice(0, 3);
+    calArena.innerHTML = '';
+    var arenaRect = calArena.getBoundingClientRect();
+
+    // Measure text button size
+    var tmpBtn = document.createElement('button');
+    tmpBtn.className = 'cal-arena-btn';
+    tmpBtn.textContent = 'Green Eagle';
+    tmpBtn.style.visibility = 'hidden';
+    calArena.appendChild(tmpBtn);
+    var textW = tmpBtn.getBoundingClientRect().width + 10;
+    var textH = tmpBtn.getBoundingClientRect().height + 10;
+    calArena.removeChild(tmpBtn);
+
+    // Use the larger dimension for placement to avoid overlaps between mixed sizes
+    var cellW = Math.max(textW, 85);
+    var cellH = Math.max(textH, 93) + 18;
+    var positions = multiNonOverlapping(arenaRect.width, arenaRect.height, cellW, cellH, 6);
+
+    var allButtons = [];
+
+    // Create 3 text buttons (numbered 1-3)
+    for (var i = 0; i < labels.length; i++) {
+      var wrap = document.createElement('div');
+      wrap.className = 'cal-btn-wrap';
+      wrap.style.left = positions[i].x + 'px';
+      wrap.style.top = positions[i].y + 'px';
+      var btn = document.createElement('button');
+      btn.className = 'cal-arena-btn';
+      btn.textContent = labels[i];
+      var num = document.createElement('span');
+      num.className = 'cal-btn-num';
+      num.textContent = (i + 1);
+      wrap.appendChild(btn);
+      wrap.appendChild(num);
+      calArena.appendChild(wrap);
+      allButtons.push({ btn: btn, wrap: wrap, label: labels[i], searchLabel: null });
+    }
+
+    // Create 3 chess buttons (numbered 4-6)
+    for (var i = 0; i < pieces.length; i++) {
+      var wrap = document.createElement('div');
+      wrap.className = 'cal-btn-wrap';
+      wrap.style.left = positions[3 + i].x + 'px';
+      wrap.style.top = positions[3 + i].y + 'px';
+      var btn = document.createElement('button');
+      btn.className = 'cal-arena-btn cal-chess-btn';
+      btn.textContent = pieces[i].emoji;
+      btn.title = pieces[i].name;
+      var num = document.createElement('span');
+      num.className = 'cal-btn-num';
+      num.textContent = (4 + i);
+      wrap.appendChild(btn);
+      wrap.appendChild(num);
+      calArena.appendChild(wrap);
+      allButtons.push({ btn: btn, wrap: wrap, label: pieces[i].emoji + ' ' + pieces[i].name, searchLabel: pieces[i].name });
+    }
+
+    calibrationStatus.textContent = 'Click all 6 buttons (1-6). Taking screenshot...';
+    await new Promise(function (r) { setTimeout(r, 300); });
+    var screenshot = await captureCalScreenshot();
+
+    calibrationStatus.textContent = 'Click all 6 buttons in order (0/6)';
+    var clicked = 0;
+    await new Promise(function (resolveAll) {
+      allButtons.forEach(function (item) {
+        item.btn.addEventListener('click', function (e) {
+          var entry = { label: item.label, userX: e.screenX, userY: e.screenY, screenshotPath: screenshot };
+          if (item.searchLabel) entry.searchLabel = item.searchLabel;
+          results.push(entry);
+          item.btn.disabled = true;
+          item.wrap.style.opacity = '0.4';
+          clicked++;
+          calibrationStatus.textContent = 'Click all 6 buttons in order (' + clicked + '/6)';
+          if (clicked >= allButtons.length) resolveAll();
+        }, { once: true });
+      });
+    });
+
+    // All done
+    calibrationStatus.textContent = 'All 6 buttons clicked. Analyzing with all engines...';
+    calArena.innerHTML = '';
+
+    var items = results.map(function (r) {
+      var item = { label: r.label, screenshotPath: r.screenshotPath };
+      if (r.searchLabel) item.searchLabel = r.searchLabel;
+      return item;
+    });
+    try {
+      var selectedEngines = Array.from(document.querySelectorAll('.cal-engine-cb:checked')).map(function(cb) { return cb.value; });
+      var res = await fetch('/api/calibrate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: items, engines: selectedEngines })
+      });
+      var data = await res.json();
+      if (data.screenshotPath) screenshotPaths.push(data.screenshotPath);
+      if (data.engines) {
+        calibrationStatus.textContent = 'Engines: ' + data.engines.join(', ') + '. Processing...';
+      }
+      if (data.success && data.results) {
+        for (var ri = 0; ri < data.results.length; ri++) {
+          var r = data.results[ri];
+          var entry = results[ri];
+          if (r.geminiX != null) { entry.geminiX = r.geminiX; entry.geminiY = r.geminiY; }
+          if (r.geminiMs != null) entry.geminiMs = r.geminiMs;
+          if (r.docaiX != null) { entry.docaiX = r.docaiX; entry.docaiY = r.docaiY; }
+          if (r.docaiMs != null) entry.docaiMs = r.docaiMs;
+          if (r.textractX != null) { entry.textractX = r.textractX; entry.textractY = r.textractY; }
+          if (r.textractMs != null) entry.textractMs = r.textractMs;
+          if (r.rekX != null) { entry.rekX = r.rekX; entry.rekY = r.rekY; }
+          if (r.rekMs != null) entry.rekMs = r.rekMs;
+          if (r.ocrX != null) { entry.ocrX = r.ocrX; entry.ocrY = r.ocrY; }
+          if (r.ocrMs != null) entry.ocrMs = r.ocrMs;
+          if (r.gptX != null) { entry.gptX = r.gptX; entry.gptY = r.gptY; }
+          if (r.gptMs != null) entry.gptMs = r.gptMs;
+          if (r.gemini3X != null) { entry.gemini3X = r.gemini3X; entry.gemini3Y = r.gemini3Y; }
+          if (r.gemini3Ms != null) entry.gemini3Ms = r.gemini3Ms;
+          if (r.claudeX != null) { entry.claudeX = r.claudeX; entry.claudeY = r.claudeY; }
+          if (r.claudeMs != null) entry.claudeMs = r.claudeMs;
+        }
+      }
+    } catch (_) {}
+
+    // Done — hide arena, show results table
+    calArena.hidden = true;
+    calResultsTable.hidden = false;
+    calResultsBody.innerHTML = '';
+
+    var engineKeys = ['gemini', 'docai', 'textract', 'rek', 'ocr', 'gpt', 'gemini3', 'claude'];
+
+    function calcDist(entry, eng) {
+      var xk = eng + 'X', yk = eng + 'Y';
+      if (entry[xk] == null) return null;
+      return Math.round(Math.sqrt(Math.pow(entry[xk] - entry.userX, 2) + Math.pow(entry[yk] - entry.userY, 2)));
+    }
+
+    function distCell(dist) {
+      if (dist == null) return '<td>—</td>';
+      var cls = dist <= 5 ? 'cal-dist-good' : 'cal-dist-bad';
+      return '<td class="' + cls + '">' + dist + 'px</td>';
+    }
+
+    for (var r = 0; r < results.length; r++) {
+      var entry = results[r];
+      var html = '<td>' + (r + 1) + '</td>'
+        + '<td>' + entry.label + '</td>'
+        + '<td>' + entry.userX + ', ' + entry.userY + '</td>';
+      for (var e = 0; e < engineKeys.length; e++) {
+        var ek = engineKeys[e];
+        var xk = ek + 'X', yk = ek + 'Y', mk = ek + 'Ms';
+        html += '<td>' + (entry[xk] != null ? entry[xk] + ', ' + entry[yk] : '—') + '</td>';
+        html += distCell(calcDist(entry, ek));
+        html += '<td>' + (entry[mk] != null ? (entry[mk] / 1000).toFixed(1) + 's' : '—') + '</td>';
+      }
+      var tr = document.createElement('tr');
+      tr.innerHTML = html;
+      calResultsBody.appendChild(tr);
+    }
+
+    // Summary row
+    var avgHtml = '<td colspan="3"><strong>AVERAGE</strong></td>';
+    for (var e = 0; e < engineKeys.length; e++) {
+      var ek = engineKeys[e], mk = ek + 'Ms';
+      var total = 0, count = 0, totalMs = 0, countMs = 0;
+      for (var r = 0; r < results.length; r++) {
+        var d = calcDist(results[r], ek);
+        if (d != null) { total += d; count++; }
+        if (results[r][mk] != null) { totalMs += results[r][mk]; countMs++; }
+      }
+      var avg = count > 0 ? Math.round(total / count) : null;
+      var avgMs = countMs > 0 ? (totalMs / countMs / 1000).toFixed(1) : null;
+      avgHtml += '<td>' + (count > 0 ? count + '/' + results.length + ' found' : '—') + '</td>';
+      avgHtml += '<td><strong>' + (avg != null ? avg + 'px' : '—') + '</strong></td>';
+      avgHtml += '<td>' + (avgMs != null ? avgMs + 's avg' : '—') + '</td>';
+    }
+    calResultsAvg.innerHTML = avgHtml;
+
+    // Generate comparison image + Excel
+    var comparisons = results.map(function (r) {
+      var c = { label: r.label, userX: r.userX, userY: r.userY };
+      engineKeys.forEach(function (ek) {
+        if (r[ek + 'X'] != null) { c[ek + 'X'] = r[ek + 'X']; c[ek + 'Y'] = r[ek + 'Y']; }
+        if (r[ek + 'Ms'] != null) { c[ek + 'Ms'] = r[ek + 'Ms']; }
+      });
+      return c;
+    });
+    if (screenshotPaths.length > 0) {
+      calibrationStatus.textContent = 'Generating comparison image & Excel...';
+      try {
+        var cmpRes = await fetch('/api/calibrate/compare', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            screenshotPath: screenshotPaths[screenshotPaths.length - 1],
+            comparisons: comparisons,
+            threshold: 5
+          })
+        });
+        var cmpData = await cmpRes.json();
+        if (cmpData.image) {
+          calComparisonImg.src = cmpData.image;
+          calComparisonDiv.hidden = false;
+        }
+        var excelMsg = cmpData.excelPath ? ' Excel saved to: ' + cmpData.excelPath : '';
+        calibrationStatus.textContent = 'Done. Red=Gemini2.5, Orange=DocAI, Purple=Textract, Gold=Rek, Cyan=WinOCR, SpringGreen=GPT5.4, Pink=Gemini3.1, Amber=Claude, Green=You.' + excelMsg;
+      } catch (_) {
+        calibrationStatus.textContent = 'Calibration done (comparison image failed).';
+      }
+    } else {
+      calibrationStatus.textContent = 'Calibration done but no screenshots were captured.';
+    }
+
+    startCalibrationBtn.disabled = false;
+  });
 
   // On startup: show clear chat with greeting (same as Clear button)
   messagesEl.innerHTML = '';
