@@ -264,7 +264,42 @@ public class ChatController {
     public Map<String, Object> setEnginePriority(@RequestBody Map<String, Object> body) {
         List<String> priority = (List<String>) body.get("priority");
         screenClickTools.setEnginePriority(priority);
+        screenClickTools.saveConfigToFile();
         return Map.of("success", true, "priority", screenClickTools.getEnginePriority());
+    }
+
+    @GetMapping(value = "/calibration-engines", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> getCalibrationEngines() {
+        return Map.of("engines", screenClickTools.getCalibrationEngines());
+    }
+
+    @GetMapping(value = "/engine-enabled", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> getEngineEnabled() {
+        return Map.of("enabled", screenClickTools.getEngineEnabled());
+    }
+
+    @SuppressWarnings("unchecked")
+    @PostMapping(value = "/engine-enabled", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> setEngineEnabled(@RequestBody Map<String, Object> body) {
+        Map<String, Boolean> enabled = new java.util.HashMap<>();
+        Map<String, Object> input = (Map<String, Object>) body.get("enabled");
+        if (input != null) {
+            for (var entry : input.entrySet()) {
+                enabled.put(entry.getKey(), Boolean.valueOf(entry.getValue().toString()));
+            }
+        }
+        screenClickTools.setEngineEnabled(enabled);
+        screenClickTools.saveConfigToFile();
+        return Map.of("success", true, "enabled", screenClickTools.getEngineEnabled());
+    }
+
+    @SuppressWarnings("unchecked")
+    @PostMapping(value = "/calibration-engines", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> setCalibrationEngines(@RequestBody Map<String, Object> body) {
+        List<String> engines = (List<String>) body.get("engines");
+        screenClickTools.setCalibrationEngines(engines);
+        screenClickTools.saveConfigToFile();
+        return Map.of("success", true, "engines", screenClickTools.getCalibrationEngines());
     }
 
     @SuppressWarnings("unchecked")

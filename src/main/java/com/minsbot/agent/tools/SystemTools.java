@@ -115,14 +115,7 @@ public class SystemTools {
     public String takeScreenshot() {
         notifier.notify("Taking screenshot...");
         log.info("[takeScreenshot] Capturing screen for verification...");
-        // Hide Mins Bot window to avoid capturing it
-        try { com.minsbot.FloatingAppLauncher.hideWindow(); } catch (Exception ignored) {}
-        try { Thread.sleep(150); } catch (InterruptedException ignored) {}
-
         String result = systemControl.takeScreenshot();
-
-        // Restore window
-        try { com.minsbot.FloatingAppLauncher.showWindow(); } catch (Exception ignored) {}
 
         if (result == null || !result.startsWith("Screenshot saved:")) {
             log.warn("[takeScreenshot] Screenshot FAILED: {}", result);
@@ -615,20 +608,26 @@ public class SystemTools {
     // ═══ Mouse control tools ═══
 
     @Tool(description = "Click the mouse at screen coordinates. Use for clicking buttons, links, or any on-screen element. "
-            + "Take a screenshot first to see the screen and determine the correct coordinates.")
+            + "Take a screenshot first to see the screen and determine the correct coordinates. "
+            + "ALWAYS provide a reason describing WHAT you are clicking (e.g. 'OK button', 'search bar', 'File menu').")
     public String mouseClick(
             @ToolParam(description = "X coordinate (pixels from left edge of screen)") int x,
             @ToolParam(description = "Y coordinate (pixels from top edge of screen)") int y,
-            @ToolParam(description = "Mouse button: 'left' (default), 'right', or 'middle'") String button) {
-        notifier.notify("Clicking at (" + x + ", " + y + ")");
+            @ToolParam(description = "Mouse button: 'left' (default), 'right', or 'middle'") String button,
+            @ToolParam(description = "What you are clicking and why (e.g. 'OK button to confirm', 'search bar')") String reason) {
+        String label = (reason != null && !reason.isBlank()) ? reason : "(" + x + ", " + y + ")";
+        notifier.notify("Clicking '" + label + "' at (" + x + ", " + y + ")");
         return systemControl.mouseClick(x, y, button);
     }
 
-    @Tool(description = "Double-click the mouse at screen coordinates.")
+    @Tool(description = "Double-click the mouse at screen coordinates. "
+            + "ALWAYS provide a reason describing WHAT you are double-clicking (e.g. 'folder icon', 'file name').")
     public String mouseDoubleClick(
             @ToolParam(description = "X coordinate") int x,
-            @ToolParam(description = "Y coordinate") int y) {
-        notifier.notify("Double-clicking at (" + x + ", " + y + ")");
+            @ToolParam(description = "Y coordinate") int y,
+            @ToolParam(description = "What you are double-clicking and why (e.g. 'TEST_A folder to open it')") String reason) {
+        String label = (reason != null && !reason.isBlank()) ? reason : "(" + x + ", " + y + ")";
+        notifier.notify("Double-clicking '" + label + "' at (" + x + ", " + y + ")");
         return systemControl.mouseDoubleClick(x, y);
     }
 
@@ -808,6 +807,7 @@ public class SystemTools {
 
                 java.awt.Rectangle rect = new java.awt.Rectangle(x, y, w, h);
                 java.awt.image.BufferedImage sectionImg = robot.createScreenCapture(rect);
+                com.minsbot.agent.SystemControlService.drawCursorOnImage(sectionImg, x, y);
 
                 // Save section screenshot for OCR + navigation debug
                 Path navDir = Paths.get(System.getProperty("user.home"), "mins_bot_data", "navigation_screenshots");
@@ -1501,22 +1501,11 @@ public class SystemTools {
      * Uses the JavaFX Stage API directly — reliable for JavaFX transparent/decorated windows.
      */
     private void hideMinsBotWindow() {
-        try {
-            com.minsbot.FloatingAppLauncher.hideWindow();
-            System.out.println("[locate] Mins Bot window hidden (iconified)");
-        } catch (Exception e) {
-            System.out.println("[locate] Could not hide Mins Bot window: " + e.getMessage());
-        }
+        // No-op: keep Mins Bot visible during screenshots so user can see bot status
     }
 
-    /** Restore the Mins Bot window after element finding/actions. */
     private void showMinsBotWindow() {
-        try {
-            com.minsbot.FloatingAppLauncher.showWindow();
-            System.out.println("[locate] Mins Bot window restored");
-        } catch (Exception e) {
-            System.out.println("[locate] Could not restore Mins Bot window: " + e.getMessage());
-        }
+        // No-op: window is never hidden
     }
 
     /**
@@ -1785,11 +1774,10 @@ public class SystemTools {
     // ═══ Wait / delay ═══
 
     @Tool(description = "Wait/pause for a specified number of seconds before continuing. "
-            + "Essential for multi-step computer-use workflows: after switching browser tabs, "
-            + "opening apps, navigating to URLs, or any action that needs time to render before "
-            + "taking a screenshot or interacting. Max 30 seconds.")
+            + "ALWAYS use 1 second. Do NOT use 2 or 3 seconds — 1 second is enough for screenshots, "
+            + "page loads, tab switches, and all normal interactions. Only use >1 for app cold-starts. Max 30 seconds.")
     public String waitSeconds(
-            @ToolParam(description = "Number of seconds to wait (1-30)") int seconds) {
+            @ToolParam(description = "Number of seconds to wait — ALWAYS pass 1") int seconds) {
         int clamped = Math.max(1, Math.min(30, seconds));
         notifier.notify("Waiting " + clamped + "s...");
         try {

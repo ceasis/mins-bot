@@ -560,6 +560,9 @@ html, body {
 .engine-priority-item:active { cursor: grabbing; }
 .engine-priority-item.dragging { opacity: 0.4; }
 .engine-priority-item.drag-over { border-top: 2px solid #818cf8; margin-top: 0; }
+.engine-priority-item.engine-disabled { opacity: 0.45; }
+.engine-toggle { display: flex; align-items: center; gap: 5px; flex: 1; cursor: pointer; }
+.engine-toggle input[type="checkbox"] { width: 14px; height: 14px; cursor: pointer; accent-color: #818cf8; }
 .engine-priority-rank {
   font-size: 10px;
   color: #71717a;

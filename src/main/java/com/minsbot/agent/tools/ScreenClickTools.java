@@ -60,7 +60,10 @@ public class ScreenClickTools {
     private static final Path NAV_DIR = Paths.get(
             System.getProperty("user.home"), "mins_bot_data", "navigation_screenshots");
 
-    private volatile boolean skipHideWindow = false;
+    private static final Path CONFIG_PATH = Paths.get(
+            System.getProperty("user.home"), "mins_bot_data", "minsbot_config.txt");
+
+    private volatile boolean skipHideWindow = true;
 
     public void setSkipHideWindow(boolean skip) {
         this.skipHideWindow = skip;
@@ -73,12 +76,61 @@ public class ScreenClickTools {
             "gpt", "ocr", "textract", "gemini", "claude", "gemini3", "rek", "docai"
     ));
 
+    // Calibration engine checkboxes — which engines are selected for calibration runs
+    private volatile List<String> calibrationEngines = new ArrayList<>(List.of(
+            "gpt", "gemini3", "claude"
+    ));
+
+    // Per-engine enabled/disabled toggle — disabled engines are skipped in screenClick + navigate
+    private static final List<String> ALL_ENGINE_KEYS = List.of(
+            "gpt", "ocr", "textract", "gemini", "claude", "gemini3", "rek", "docai"
+    );
+    private volatile Map<String, Boolean> engineEnabled = new HashMap<>(Map.of(
+            "gpt", true, "ocr", true, "textract", true, "gemini", true,
+            "claude", true, "gemini3", true, "rek", true, "docai", true
+    ));
+    // Priority order per engine (1 = highest) — used to rebuild enginePriority from config
+    private volatile Map<String, Integer> enginePriorityOrder = new HashMap<>();
+
     public List<String> getEnginePriority() { return new ArrayList<>(enginePriority); }
+
+    /** Returns engine priority filtered to only enabled engines. */
+    public List<String> getActiveEnginePriority() {
+        List<String> active = new ArrayList<>();
+        for (String e : enginePriority) {
+            if (engineEnabled.getOrDefault(e, true)) active.add(e);
+        }
+        return active;
+    }
 
     public void setEnginePriority(List<String> priority) {
         if (priority != null && !priority.isEmpty()) {
             this.enginePriority = new ArrayList<>(priority);
+            // Sync priority order map
+            for (int i = 0; i < priority.size(); i++) {
+                enginePriorityOrder.put(priority.get(i), i + 1);
+            }
             log.info("[screenClick] Engine priority updated: {}", this.enginePriority);
+        }
+    }
+
+    public Map<String, Boolean> getEngineEnabled() { return new HashMap<>(engineEnabled); }
+
+    public void setEngineEnabled(Map<String, Boolean> enabled) {
+        if (enabled != null) {
+            for (var entry : enabled.entrySet()) {
+                engineEnabled.put(entry.getKey(), entry.getValue());
+            }
+            log.info("[screenClick] Engine enabled updated: {}", engineEnabled);
+        }
+    }
+
+    public List<String> getCalibrationEngines() { return new ArrayList<>(calibrationEngines); }
+
+    public void setCalibrationEngines(List<String> engines) {
+        if (engines != null) {
+            this.calibrationEngines = new ArrayList<>(engines);
+            log.info("[screenClick] Calibration engines updated: {}", this.calibrationEngines);
         }
     }
 
@@ -103,7 +155,130 @@ public class ScreenClickTools {
     }
 
     @PostConstruct
-    void clearScreenshotsOnStartup() {
+    void initOnStartup() {
+        loadConfigFromFile();
+        clearScreenshotsOnStartup();
+    }
+
+    public void reloadConfig() {
+        loadConfigFromFile();
+        log.info("[screenClick] Config reloaded — priority={}, enabled={}, calibrationEngines={}",
+                enginePriority, engineEnabled, calibrationEngines);
+    }
+
+    private void loadConfigFromFile() {
+        if (!Files.exists(CONFIG_PATH)) return;
+        try {
+            String currentSection = "";
+            for (String line : Files.readAllLines(CONFIG_PATH)) {
+                String trimmed = line.trim();
+                if (trimmed.startsWith("## ")) {
+                    currentSection = trimmed.toLowerCase();
+                    continue;
+                }
+                if (!currentSection.equals("## vision engines")) continue;
+                if (!trimmed.startsWith("- ")) continue;
+
+                String kv = trimmed.substring(2).trim();
+                int colon = kv.indexOf(':');
+                if (colon < 0) continue;
+                String key = kv.substring(0, colon).trim().toLowerCase();
+                String val = kv.substring(colon + 1).trim();
+
+                switch (key) {
+                    case "calibration_engines" -> {
+                        List<String> parsed = new ArrayList<>();
+                        for (String s : val.split(",")) {
+                            String e = s.trim();
+                            if (!e.isEmpty()) parsed.add(e);
+                        }
+                        calibrationEngines = parsed;
+                    }
+                    default -> {
+                        // Per-engine config: e.g. "gpt: true, 1" (enabled, priority 1)
+                        // or "docai: false, 8" (disabled, priority 8)
+                        if (ALL_ENGINE_KEYS.contains(key)) {
+                            String[] parts = val.split(",");
+                            boolean enabled = parts[0].trim().equalsIgnoreCase("true");
+                            engineEnabled.put(key, enabled);
+                            if (parts.length >= 2) {
+                                try {
+                                    int prio = Integer.parseInt(parts[1].trim());
+                                    enginePriorityOrder.put(key, prio);
+                                } catch (NumberFormatException ignored) {}
+                            }
+                        }
+                    }
+                }
+            }
+            // Rebuild enginePriority from priority order numbers
+            if (!enginePriorityOrder.isEmpty()) {
+                List<String> sorted = new ArrayList<>(ALL_ENGINE_KEYS);
+                sorted.sort((a, b) -> {
+                    int pa = enginePriorityOrder.getOrDefault(a, 99);
+                    int pb = enginePriorityOrder.getOrDefault(b, 99);
+                    return Integer.compare(pa, pb);
+                });
+                enginePriority = sorted;
+            }
+        } catch (IOException e) {
+            log.warn("[screenClick] Could not read config: {}", e.getMessage());
+        }
+    }
+
+    /** Save vision engine settings to the ## Vision engines section of minsbot_config.txt */
+    public void saveConfigToFile() {
+        try {
+            List<String> lines = Files.exists(CONFIG_PATH) ? new ArrayList<>(Files.readAllLines(CONFIG_PATH)) : new ArrayList<>();
+
+            // Remove existing ## Vision engines section
+            int sectionStart = -1;
+            int sectionEnd = -1;
+            for (int i = 0; i < lines.size(); i++) {
+                String trimmed = lines.get(i).trim();
+                if (trimmed.equalsIgnoreCase("## Vision engines")) {
+                    sectionStart = i;
+                } else if (sectionStart >= 0 && sectionEnd < 0 && trimmed.startsWith("## ")) {
+                    sectionEnd = i;
+                }
+            }
+            if (sectionStart >= 0) {
+                if (sectionEnd < 0) sectionEnd = lines.size();
+                lines.subList(sectionStart, sectionEnd).clear();
+                // Remove trailing blank line if present
+                if (sectionStart < lines.size() && lines.get(sectionStart).isBlank()) {
+                    lines.remove(sectionStart);
+                }
+            }
+
+            // Append new section
+            if (!lines.isEmpty() && !lines.get(lines.size() - 1).isBlank()) {
+                lines.add("");
+            }
+            lines.add("## Vision engines (enabled, priority — e.g. true, 1 = enabled + 1st priority)");
+            for (int i = 0; i < enginePriority.size(); i++) {
+                String eng = enginePriority.get(i);
+                boolean enabled = engineEnabled.getOrDefault(eng, true);
+                lines.add("- " + eng + ": " + enabled + ", " + (i + 1));
+            }
+            // Include any engines not in priority list
+            for (String eng : ALL_ENGINE_KEYS) {
+                if (!enginePriority.contains(eng)) {
+                    boolean enabled = engineEnabled.getOrDefault(eng, true);
+                    lines.add("- " + eng + ": " + enabled + ", " + (enginePriority.size() + 1));
+                }
+            }
+            lines.add("- calibration_engines: " + String.join(",", calibrationEngines));
+
+            Files.createDirectories(CONFIG_PATH.getParent());
+            Files.write(CONFIG_PATH, lines);
+            log.info("[screenClick] Config saved to {}", CONFIG_PATH);
+        } catch (IOException e) {
+            log.warn("[screenClick] Could not save config: {}", e.getMessage());
+        }
+    }
+
+    private void clearScreenshotsOnStartup() {
         try {
             if (Files.exists(NAV_DIR)) {
                 try (DirectoryStream<Path> stream = Files.newDirectoryStream(NAV_DIR)) {
@@ -123,11 +298,14 @@ public class ScreenClickTools {
     // ═══ Public tools ═══
 
     @Tool(description = "Scan the ENTIRE screen for a UI element and click it. "
-            + "Takes a full screenshot, uses GPT-5.4 Vision to find the CLICKABLE element (not labels), "
+            + "Takes a full screenshot, uses vision engines to find the CLICKABLE element (not labels), "
             + "then moves the mouse and clicks. Verifies the click worked via screen change detection. "
             + "ALWAYS call this FIRST — do NOT focus/switch/open apps before calling this. "
             + "If this returns 'NOT_FOUND', THEN switch to the correct app and call again. "
-            + "Example: screenClick('Pricing') — screenshot, Gemini finds it, clicks it.")
+            + "IMPORTANT: If you need to click multiple elements in sequence (e.g. 'click History then Shorts then Music'), "
+            + "use screenNavigate('History, Shorts, Music') instead — it has tree-based backtracking for when "
+            + "there are multiple instances of an element and clicking the wrong one leads to a dead end. "
+            + "Example: screenClick('Pricing') — screenshot, finds it, clicks it.")
     public String screenClick(
             @ToolParam(description = "The visible text or description of the element to click, e.g. 'Pricing', 'the Shorts button in the sidebar', 'Submit'")
             String targetText) {
@@ -148,7 +326,7 @@ public class ScreenClickTools {
 
                 int[] coords = null;
                 String usedEngine = null;
-                for (String eng : enginePriority) {
+                for (String eng : getActiveEnginePriority()) {
                     notifier.notify("Step 1: Asking " + engineDisplayName(eng) + " to locate '" + search + "'"
                             + (attempt > 1 ? " (attempt " + attempt + ")" : "") + "...");
                     coords = findWithEngine(eng, fullShot, search, sw, sh);
@@ -158,7 +336,11 @@ public class ScreenClickTools {
 
                 if (coords == null) {
                     notifier.notify("'" + search + "' not found by any engine");
-                    return "NOT_FOUND: '" + search + "' is not visible on screen. Switch to the correct app and try again.";
+                    return "NOT_FOUND: '" + search + "' is not visible on screen. "
+                            + "If you clicked something BEFORE this that led to the wrong page, "
+                            + "use screenNavigate('previous_click, " + search + "') to automatically "
+                            + "try all instances of the previous element with backtracking. "
+                            + "Otherwise, switch to the correct app and try again.";
                 }
 
                 int targetX = coords[0], targetY = coords[1];
@@ -166,28 +348,28 @@ public class ScreenClickTools {
                 log.info("[screenClick] Step 1 (full): '{}' at ({},{}) via {}", search, targetX, targetY, engineDisplayName(usedEngine));
                 notifier.notify("Found '" + search + "' via " + engineDisplayName(usedEngine) + " at (" + targetX + ", " + targetY + ")");
 
-                // ── Step 2: 1/4 screen zoom → verify + refine with marker ──
-                int[] step2 = zoomVerify(search, targetX, targetY, sw / 2, sh / 2, "step2_quarter");
-                if (step2 != null) {
-                    targetX = step2[0];
-                    targetY = step2[1];
-                }
-                notifier.notify("Step 2 (1/4 zoom): (" + targetX + ", " + targetY + ")");
+                // ── Step 2: 1/4 screen zoom → verify + refine with marker (disabled) ──
+                // int[] step2 = zoomVerify(search, targetX, targetY, sw / 2, sh / 2, "step2_quarter");
+                // if (step2 != null) {
+                //     targetX = step2[0];
+                //     targetY = step2[1];
+                // }
+                // notifier.notify("Step 2 (1/4 zoom): (" + targetX + ", " + targetY + ")");
 
-                // ── Step 3: 1/8 screen zoom → final precise verify ──
-                int[] step3 = zoomVerify(search, targetX, targetY, sw / 4, sh / 4, "step3_eighth");
-                if (step3 != null) {
-                    targetX = step3[0];
-                    targetY = step3[1];
-                }
-                notifier.notify("Step 3 (1/8 zoom): (" + targetX + ", " + targetY + ")");
+                // ── Step 3: 1/8 screen zoom → final precise verify (disabled) ──
+                // int[] step3 = zoomVerify(search, targetX, targetY, sw / 4, sh / 4, "step3_eighth");
+                // if (step3 != null) {
+                //     targetX = step3[0];
+                //     targetY = step3[1];
+                // }
+                // notifier.notify("Step 3 (1/8 zoom): (" + targetX + ", " + targetY + ")");
 
                 // ── Step 4: Click ──
                 notifier.notify("Clicking '" + search + "' at (" + targetX + ", " + targetY + ")...");
                 BufferedImage before = captureRegion(targetX, targetY);
                 String clickResult = systemControl.mouseClick(targetX, targetY, "left");
 
-                try { Thread.sleep(1500); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+                try { Thread.sleep(500); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
 
                 BufferedImage after = captureRegion(targetX, targetY);
                 double changePercent = compareImages(before, after);
@@ -719,10 +901,11 @@ public class ScreenClickTools {
         }
     }
 
-    @Tool(description = "Navigate a multi-step click path with backtracking. "
+    @Tool(description = "Navigate a multi-step click path with tree-based backtracking. "
             + "Give a comma-separated sequence of UI elements to click in order, e.g. 'History, Shorts, Music'. "
-            + "For each step, uses Gemini Vision to find and click the element. "
-            + "If the next target is not visible after clicking, it goes back (Alt+Left) and asks Gemini for an alternative. "
+            + "For each step, finds ALL instances of the target text using OCR + vision engines. "
+            + "If the next target is not visible after clicking one instance, it backtracks and tries the next. "
+            + "Uses a tree structure: multiple candidates at each step form branches, tried depth-first. "
             + "Example: screenNavigate('History, Shorts, Music')")
     public String screenNavigate(
             @ToolParam(description = "Comma-separated click targets in order, e.g. 'History, Shorts, Music'")
@@ -736,18 +919,22 @@ public class ScreenClickTools {
 
         if (!skipHideWindow) hideMinsBotWindow();
         try {
-            return navigateStep(steps, 0, null);
+            return navigateStep(steps, 0);
         } finally {
             if (!skipHideWindow) showMinsBotWindow();
         }
     }
 
-    // ═══ Navigate with backtracking ═══
+    // ═══ Navigate with tree-based backtracking ═══
+
+    private static final int MAX_CANDIDATES = 5;
 
     /**
-     * @param avoidDescription if non-null, tells Gemini to avoid this previously-clicked location
+     * Tree-based navigation: for each step, discover ALL candidate click locations
+     * (via OCR + vision), try each one depth-first. If a deeper step fails, backtrack
+     * to this step and try the next candidate.
      */
-    private String navigateStep(String[] steps, int stepIdx, String avoidDescription) {
+    private String navigateStep(String[] steps, int stepIdx) {
         if (stepIdx >= steps.length) {
             return "OK: Full path completed: " + String.join(" → ", steps);
         }
@@ -757,37 +944,66 @@ public class ScreenClickTools {
         notifier.notify("Step " + (stepIdx + 1) + "/" + steps.length + ": looking for '" + target + "'...");
 
         java.awt.Dimension screenSize = Toolkit.getDefaultToolkit().getScreenSize();
+        int sw = screenSize.width, sh = screenSize.height;
 
-        for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-            // Take screenshot
-            Path screenshot = captureFullScreen();
-            if (screenshot == null) return "ERROR: Failed to capture screenshot at step " + (stepIdx + 1);
+        // Take screenshot
+        Path screenshot = captureFullScreen();
+        if (screenshot == null) return "ERROR: Failed to capture screenshot at step " + (stepIdx + 1);
 
-            // Try engines in priority order
-            int[] coords = null;
-            for (String eng : enginePriority) {
-                coords = findWithEngine(eng, screenshot, target, screenSize.width, screenSize.height);
-                if (coords != null) break;
+        // Discover ALL candidate locations using OCR
+        List<int[]> candidates = new ArrayList<>();
+        List<double[]> ocrMatches = screenMemoryService.findAllTextOnScreen(screenshot, target);
+        for (double[] m : ocrMatches) {
+            candidates.add(new int[]{(int) m[0], (int) m[1]});
+        }
+
+        // Also try vision engines — may find candidates OCR missed
+        for (String eng : getActiveEnginePriority()) {
+            int[] vc = findWithEngine(eng, screenshot, target, sw, sh);
+            if (vc != null) {
+                // Only add if not near an existing candidate
+                boolean dupe = false;
+                for (int[] c : candidates) {
+                    if (Math.abs(c[0] - vc[0]) < 40 && Math.abs(c[1] - vc[1]) < 40) {
+                        dupe = true;
+                        break;
+                    }
+                }
+                if (!dupe) candidates.add(vc);
+                break; // One vision engine result is enough
             }
+        }
 
-            if (coords == null) {
-                notifier.notify("'" + target + "' not found at step " + (stepIdx + 1));
-                return "NOT_FOUND: '" + target + "' not visible at step " + (stepIdx + 1)
-                        + " of [" + String.join(" → ", steps) + "]. Switch to the correct app and try again.";
-            }
+        if (candidates.isEmpty()) {
+            notifier.notify("'" + target + "' not found at step " + (stepIdx + 1));
+            return "NOT_FOUND: '" + target + "' not visible at step " + (stepIdx + 1)
+                    + " of [" + String.join(" → ", steps) + "]. Switch to the correct app and try again.";
+        }
 
-            int foundX = coords[0], foundY = coords[1];
-            annotateScreenshot(screenshot, foundX, foundY, target);
-            int[] refined = refineWithOcr(target, foundX, foundY);
+        // Limit candidates to avoid combinatorial explosion
+        if (candidates.size() > MAX_CANDIDATES) {
+            candidates = candidates.subList(0, MAX_CANDIDATES);
+        }
+
+        log.info("[screenNavigate] Step {}: '{}' has {} candidate(s)", stepIdx + 1, target, candidates.size());
+
+        // Try each candidate — depth-first tree traversal
+        for (int ci = 0; ci < candidates.size(); ci++) {
+            int[] coords = candidates.get(ci);
+            int[] refined = refineWithOcr(target, coords[0], coords[1]);
             int clickX = refined[0], clickY = refined[1];
-            notifier.notify("Step " + (stepIdx + 1) + ": clicking '" + target + "' at (" + clickX + ", " + clickY + ")");
-            log.info("[screenNavigate] Step {}: clicking '{}' at ({},{}) attempt {}",
-                    stepIdx + 1, target, clickX, clickY, attempt);
 
-            // Capture before, click, capture after
+            notifier.notify("Step " + (stepIdx + 1) + ": trying '" + target + "' candidate "
+                    + (ci + 1) + "/" + candidates.size() + " at (" + clickX + ", " + clickY + ")");
+            log.info("[screenNavigate] Step {}: clicking '{}' candidate {}/{} at ({},{})",
+                    stepIdx + 1, target, ci + 1, candidates.size(), clickX, clickY);
+
+            annotateScreenshot(screenshot, clickX, clickY, target + " [" + (ci + 1) + "/" + candidates.size() + "]");
+
+            // Click the candidate
             BufferedImage before = captureRegion(clickX, clickY);
             systemControl.mouseClick(clickX, clickY, "left");
-            try { Thread.sleep(1500); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+            try { Thread.sleep(500); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
             BufferedImage after = captureRegion(clickX, clickY);
             double changePercent = compareImages(before, after);
 
@@ -797,8 +1013,8 @@ public class ScreenClickTools {
                     return "OK: Full path completed: " + String.join(" → ", steps)
                             + ". Last click at (" + clickX + ", " + clickY + ").";
                 }
-                // No change — retry with hint to find different element
-                notifier.notify("Last step no screen change — trying different '" + target + "'...");
+                // No screen change — this candidate didn't work, try next
+                log.info("[screenNavigate] Last step candidate {}/{} no screen change", ci + 1, candidates.size());
                 continue;
             }
 
@@ -808,37 +1024,128 @@ public class ScreenClickTools {
 
             Path afterScreenshot = captureFullScreen();
             if (afterScreenshot != null) {
-                int[] nextCoords = null;
-                for (String eng : enginePriority) {
-                    nextCoords = findWithEngine(eng, afterScreenshot, nextTarget, screenSize.width, screenSize.height);
-                    if (nextCoords != null) break;
+                // Quick check: can we find the next target?
+                boolean nextFound = false;
+                for (String eng : getActiveEnginePriority()) {
+                    if (findWithEngine(eng, afterScreenshot, nextTarget, sw, sh) != null) {
+                        nextFound = true;
+                        break;
+                    }
+                }
+                if (!nextFound) {
+                    // Also check via OCR
+                    List<double[]> nextOcr = screenMemoryService.findAllTextOnScreen(afterScreenshot, nextTarget);
+                    nextFound = !nextOcr.isEmpty();
                 }
 
-                if (nextCoords != null) {
-                    // Next target visible — recurse
-                    notifier.notify("'" + nextTarget + "' found — continuing...");
-                    String result = navigateStep(steps, stepIdx + 1, null);
+                if (nextFound) {
+                    // Next target visible — recurse deeper
+                    notifier.notify("'" + nextTarget + "' found after candidate " + (ci + 1) + " — continuing...");
+                    String result = navigateStep(steps, stepIdx + 1);
                     if (result.startsWith("OK:")) return result;
-                    // Deeper step failed — backtrack
-                    log.info("[screenNavigate] Deeper step failed, backtracking from step {}", stepIdx + 1);
+                    // Deeper step failed — need to backtrack
+                    log.info("[screenNavigate] Deeper step failed after candidate {}/{} of '{}', backtracking",
+                            ci + 1, candidates.size(), target);
                 } else {
-                    notifier.notify("'" + nextTarget + "' not found after clicking '" + target + "' — backtracking...");
-                    log.info("[screenNavigate] '{}' not found after clicking '{}'", nextTarget, target);
+                    log.info("[screenNavigate] '{}' not found after clicking '{}' candidate {}/{}",
+                            nextTarget, target, ci + 1, candidates.size());
                 }
             }
 
-            // Backtrack: go back
-            if (attempt < MAX_RETRIES) {
-                notifier.notify("Going back (Alt+Left) to try different '" + target + "'...");
-                systemControl.sendKeys("%{LEFT}");
-                try { Thread.sleep(1500); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
-                avoidDescription = "(" + clickX + ", " + clickY + ")";
+            // Backtrack: try to return to the state before we clicked this candidate
+            if (ci < candidates.size() - 1) {
+                boolean restored = backtrackToStep(steps, stepIdx, sw, sh);
+                if (!restored) {
+                    log.warn("[screenNavigate] Could not backtrack to step {} — giving up", stepIdx + 1);
+                    break;
+                }
+                // Re-capture screenshot for next candidate (screen state may have changed)
+                screenshot = captureFullScreen();
+                if (screenshot == null) break;
+
+                // Re-discover candidates from new screenshot (positions may shift)
+                candidates = new ArrayList<>();
+                ocrMatches = screenMemoryService.findAllTextOnScreen(screenshot, target);
+                for (double[] m : ocrMatches) {
+                    candidates.add(new int[]{(int) m[0], (int) m[1]});
+                }
+                if (candidates.size() > MAX_CANDIDATES) {
+                    candidates = candidates.subList(0, MAX_CANDIDATES);
+                }
+                // Remove already-tried candidates (within 40px of what we already clicked)
+                int finalClickX = clickX, finalClickY = clickY;
+                candidates.removeIf(c -> Math.abs(c[0] - finalClickX) < 40 && Math.abs(c[1] - finalClickY) < 40);
             }
         }
 
-        notifier.notify("All attempts for '" + target + "' exhausted at step " + (stepIdx + 1));
-        return "BACKTRACK_FAILED: Tried " + MAX_RETRIES + " locations for '" + target
+        notifier.notify("All candidates for '" + target + "' exhausted at step " + (stepIdx + 1));
+        return "BACKTRACK_FAILED: Tried " + candidates.size() + " locations for '" + target
                 + "' at step " + (stepIdx + 1) + " but none led to '" + steps[Math.min(stepIdx + 1, steps.length - 1)] + "'.";
+    }
+
+    /**
+     * Backtrack to a given step by re-navigating from the beginning up to (but not including) stepIdx.
+     * Strategy: try Alt+Left first (browser back), then if that doesn't work,
+     * re-click the previous steps from step 0.
+     */
+    private boolean backtrackToStep(String[] steps, int stepIdx, int sw, int sh) {
+        // Strategy 1: Alt+Left (browser back) — fast and usually works
+        notifier.notify("Backtracking (Alt+Left)...");
+        systemControl.sendKeys("%{LEFT}");
+        try { Thread.sleep(500); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+
+        // Verify: is the current step's target still visible?
+        Path screenshot = captureFullScreen();
+        if (screenshot != null) {
+            List<double[]> matches = screenMemoryService.findAllTextOnScreen(screenshot, steps[stepIdx]);
+            if (!matches.isEmpty()) {
+                log.info("[screenNavigate] Backtrack via Alt+Left succeeded — '{}' visible with {} candidates",
+                        steps[stepIdx], matches.size());
+                return true;
+            }
+        }
+
+        // Strategy 2: re-click previous steps from the beginning
+        if (stepIdx > 0) {
+            notifier.notify("Alt+Left didn't restore — re-clicking from step 1...");
+            log.info("[screenNavigate] Alt+Left failed, re-navigating steps 0..{}", stepIdx - 1);
+
+            for (int i = 0; i < stepIdx; i++) {
+                screenshot = captureFullScreen();
+                if (screenshot == null) return false;
+
+                int[] coords = null;
+                for (String eng : getActiveEnginePriority()) {
+                    coords = findWithEngine(eng, screenshot, steps[i], sw, sh);
+                    if (coords != null) break;
+                }
+                if (coords == null) {
+                    // Also try OCR
+                    double[] ocrResult = screenMemoryService.findTextOnScreen(screenshot, steps[i]);
+                    if (ocrResult != null) coords = new int[]{(int) ocrResult[0], (int) ocrResult[1]};
+                }
+                if (coords == null) {
+                    log.warn("[screenNavigate] Cannot re-find '{}' during backtrack re-navigation", steps[i]);
+                    return false;
+                }
+
+                systemControl.mouseClick(coords[0], coords[1], "left");
+                try { Thread.sleep(500); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+            }
+
+            // Verify target is visible
+            screenshot = captureFullScreen();
+            if (screenshot != null) {
+                List<double[]> matches = screenMemoryService.findAllTextOnScreen(screenshot, steps[stepIdx]);
+                if (!matches.isEmpty()) {
+                    log.info("[screenNavigate] Backtrack via re-navigation succeeded");
+                    return true;
+                }
+            }
+        }
+
+        log.warn("[screenNavigate] All backtrack strategies failed for step {}", stepIdx + 1);
+        return false;
     }
 
     // ═══ Screenshot helpers ═══
@@ -849,6 +1156,7 @@ public class ScreenClickTools {
             java.awt.Dimension screen = Toolkit.getDefaultToolkit().getScreenSize();
             Robot robot = new Robot();
             BufferedImage img = robot.createScreenCapture(new Rectangle(0, 0, screen.width, screen.height));
+            SystemControlService.drawCursorOnImage(img, 0, 0);
 
             Files.createDirectories(NAV_DIR);
             String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss-SSS"));
@@ -1224,18 +1532,10 @@ public class ScreenClickTools {
     // ═══ Window helpers ═══
 
     private void hideMinsBotWindow() {
-        try {
-            com.minsbot.FloatingAppLauncher.hideWindow();
-        } catch (Exception e) {
-            log.debug("[screenClick] Could not hide window: {}", e.getMessage());
-        }
+        // No-op: keep Mins Bot visible during screenshots
     }
 
     private void showMinsBotWindow() {
-        try {
-            com.minsbot.FloatingAppLauncher.showWindow();
-        } catch (Exception e) {
-            log.debug("[screenClick] Could not restore window: {}", e.getMessage());
-        }
+        // No-op: window is never hidden
     }
 }

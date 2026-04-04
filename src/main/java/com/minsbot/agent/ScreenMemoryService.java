@@ -530,6 +530,77 @@ public class ScreenMemoryService {
         return null;
     }
 
+    /**
+     * Find ALL instances of a text on screen using OCR.
+     * Returns a list of center coordinates for every match found.
+     * Used by navigation backtracking to discover multiple candidates.
+     */
+    public List<double[]> findAllTextOnScreen(Path imagePath, String searchText) {
+        List<double[]> results = new ArrayList<>();
+        List<OcrWord> words = runOcrWithBounds(imagePath);
+        if (words.isEmpty()) return results;
+
+        String search = searchText.trim();
+        String searchLower = search.toLowerCase();
+        String[] tokens = search.split("\\s+");
+
+        // Strategy 1: Exact single-word match
+        for (OcrWord w : words) {
+            if (w.text().equalsIgnoreCase(search)) {
+                results.add(new double[]{w.centerX(), w.centerY()});
+            }
+        }
+
+        // Strategy 2: Multi-word consecutive match
+        if (tokens.length > 1) {
+            for (int i = 0; i <= words.size() - tokens.length; i++) {
+                boolean match = true;
+                for (int j = 0; j < tokens.length; j++) {
+                    if (!words.get(i + j).text().equalsIgnoreCase(tokens[j])) {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match) {
+                    double minX = Double.MAX_VALUE, minY = Double.MAX_VALUE;
+                    double maxX = 0, maxY = 0;
+                    for (int j = 0; j < tokens.length; j++) {
+                        OcrWord w = words.get(i + j);
+                        minX = Math.min(minX, w.x());
+                        minY = Math.min(minY, w.y());
+                        maxX = Math.max(maxX, w.x() + w.width());
+                        maxY = Math.max(maxY, w.y() + w.height());
+                    }
+                    results.add(new double[]{(minX + maxX) / 2.0, (minY + maxY) / 2.0});
+                }
+            }
+        }
+
+        // Strategy 3: Substring match (only if no exact matches found)
+        if (results.isEmpty()) {
+            for (OcrWord w : words) {
+                if (w.text().toLowerCase().contains(searchLower) && w.text().length() >= searchLower.length()) {
+                    results.add(new double[]{w.centerX(), w.centerY()});
+                }
+            }
+        }
+
+        // Deduplicate near-identical coordinates (within 30px)
+        List<double[]> deduped = new ArrayList<>();
+        for (double[] r : results) {
+            boolean dupe = false;
+            for (double[] d : deduped) {
+                if (Math.abs(r[0] - d[0]) < 30 && Math.abs(r[1] - d[1]) < 30) {
+                    dupe = true;
+                    break;
+                }
+            }
+            if (!dupe) deduped.add(r);
+        }
+        log.info("[findAllText] '{}' → {} matches (deduped from {})", search, deduped.size(), results.size());
+        return deduped;
+    }
+
     // ═══ Helpers ═══
 
     private Path findLatestScreenshot() {

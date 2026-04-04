@@ -174,7 +174,9 @@ public class AppSwitchTools {
 
     private BufferedImage captureScreen(Robot robot) {
         Rectangle screenRect = new Rectangle(Toolkit.getDefaultToolkit().getScreenSize());
-        return robot.createScreenCapture(screenRect);
+        BufferedImage img = robot.createScreenCapture(screenRect);
+        com.minsbot.agent.SystemControlService.drawCursorOnImage(img, 0, 0);
+        return img;
     }
 
     private void cleanupFiles(List<Path> files) {

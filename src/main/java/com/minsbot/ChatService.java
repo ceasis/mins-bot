@@ -33,6 +33,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.function.Consumer;
 
 @Service
@@ -149,6 +150,293 @@ public class ChatService {
 
         // Seed Spring AI ChatMemory with transcript history so AI remembers previous conversations
         seedChatMemory();
+
+        // ═══ Start the main agent loop ═══
+        startMainLoop();
+    }
+
+    /**
+     * Main agent loop — runs continuously as long as the app is alive.
+     * Checks for user messages in the queue; if none, observes the screen autonomously.
+     * 100ms delay between iterations.
+     */
+    private void startMainLoop() {
+        mainLoopThread = new Thread(() -> {
+            // Wait for Spring context + JavaFX to fully initialize
+            try { Thread.sleep(8000); } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+            log.info("[MainLoop] Agent main loop started.");
+
+            while (!Thread.currentThread().isInterrupted()) {
+                try {
+                    // Check if AI client is available
+                    if (chatClient == null) {
+                        Thread.sleep(1000);
+                        continue;
+                    }
+
+                    // Poll for user message
+                    String userMessage = userMessageQueue.poll();
+
+                    if (userMessage != null) {
+                        // ── User message: process as instruction ──
+                        mainLoopBusy = true;
+                        lastActivityTime = System.currentTimeMillis();
+                        log.info("[MainLoop] Processing user message: {}",
+                                userMessage.substring(0, Math.min(userMessage.length(), 80)));
+                        processUserMessage(userMessage);
+                        mainLoopBusy = false;
+                    } else {
+                        // ── No user message: observe screen autonomously ──
+                        // Only run autonomous observation if idle long enough
+                        long idleMs = System.currentTimeMillis() - lastActivityTime;
+                        if (idleMs >= 5000 && !mainLoopBusy) {
+                            mainLoopBusy = true;
+                            runAutonomousObservation();
+                            mainLoopBusy = false;
+                        }
+                    }
+
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                } catch (Exception e) {
+                    log.error("[MainLoop] Error in main loop: {}", e.getMessage(), e);
+                    mainLoopBusy = false;
+                    try { Thread.sleep(2000); } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+            }
+            log.info("[MainLoop] Agent main loop stopped.");
+        }, "agent-main-loop");
+        mainLoopThread.setDaemon(true);
+        mainLoopThread.start();
+    }
+
+    /**
+     * Process a user message through the AI with planning, screen analysis, and tool calling.
+     */
+    private void processUserMessage(String trimmed) {
+        Consumer<String> asyncCallback = result -> {
+            transcriptService.save("BOT(agent)", result);
+            asyncMessages.push(result);
+        };
+
+        try {
+            // Planning pre-step
+            String generatedPlan = null;
+            if (planningEnabled && needsPlanning(trimmed)) {
+                try {
+                    String plan = chatClient.prompt()
+                            .system(PLANNING_PROMPT)
+                            .user(trimmed)
+                            .call()
+                            .content();
+                    if (plan != null && !plan.isBlank()
+                            && !plan.strip().equalsIgnoreCase("SKIP")) {
+                        generatedPlan = plan.strip();
+                        asyncMessages.push(generatedPlan);
+                        transcriptService.save("BOT(plan)", generatedPlan);
+
+                        try {
+                            java.nio.file.Path todoPath = java.nio.file.Paths.get(
+                                    System.getProperty("user.home"), "mins_bot_data", "todolist.txt");
+                            String timestamp = java.time.LocalDateTime.now()
+                                    .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
+                            String todoEntry = "\n--- Task: \"" + trimmed.substring(0, Math.min(trimmed.length(), 80))
+                                    + "\" | " + timestamp + " ---\n"
+                                    + generatedPlan.replace("⬜", "[PENDING]") + "\n";
+                            java.nio.file.Files.writeString(todoPath, todoEntry,
+                                    java.nio.file.StandardOpenOption.CREATE,
+                                    java.nio.file.StandardOpenOption.APPEND);
+                        } catch (Exception e) {
+                            log.debug("[MainLoop] Could not save plan to todolist.txt: {}", e.getMessage());
+                        }
+                    }
+                } catch (Exception e) {
+                    log.debug("[MainLoop] Planning call failed: {}", e.getMessage());
+                }
+            }
+
+            fileTools.setAsyncCallback(asyncCallback);
+            workingSound.start();
+
+            String systemMessage = systemCtx.buildSystemMessage();
+
+            // Resume pending tasks
+            if (generatedPlan == null && isResumeCommand(trimmed)) {
+                try {
+                    java.nio.file.Path todoPath = java.nio.file.Paths.get(
+                            System.getProperty("user.home"), "mins_bot_data", "todolist.txt");
+                    if (java.nio.file.Files.exists(todoPath)) {
+                        String todoContent = java.nio.file.Files.readString(todoPath);
+                        if (todoContent.contains("[PENDING]")) {
+                            String[] blocks = todoContent.split("--- Task:");
+                            for (int b = blocks.length - 1; b >= 0; b--) {
+                                if (blocks[b].contains("[PENDING]")) {
+                                    generatedPlan = "--- Task:" + blocks[b].trim();
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    log.debug("[MainLoop] Could not read todolist.txt: {}", e.getMessage());
+                }
+            }
+
+            // Inject plan
+            if (generatedPlan != null) {
+                systemMessage += "\n\n══ YOUR PLAN (execute ALL steps, do NOT stop mid-plan) ══\n"
+                        + generatedPlan + "\n"
+                        + "══ MANDATORY RESPONSE FORMAT:\n"
+                        + "Your FINAL response after completing all steps MUST look EXACTLY like this:\n"
+                        + "✅ 1. [what you did for step 1]\n"
+                        + "✅ 2. [what you did for step 2]\n"
+                        + "✅ 3. [what you did for step 3]\n"
+                        + "✅ 4. [verification result]\n\n"
+                        + "That's it. No extra text. No \"feel free to ask\". No \"let me know\". Just the checklist.\n"
+                        + "If a step is NOT done yet, show ⬜ and keep calling tools until it's done.\n"
+                        + "Call markStepDone(N) after each step completes.\n"
+                        + "Start executing step 1 NOW. ══\n";
+            }
+
+            // Screen analysis
+            try {
+                String screenAnalysis = screenStateService.captureAndAnalyze(trimmed);
+                if (screenAnalysis != null && !screenAnalysis.isBlank()) {
+                    systemMessage += "\n\nLIVE SCREEN ANALYSIS (captured BEFORE your actions — "
+                            + "this shows what was on screen when the user sent their message):\n"
+                            + screenAnalysis + "\n"
+                            + "\nCRITICAL: Use ONLY the names from this analysis for initial actions. "
+                            + "AFTER any action that changes the screen, take a fresh takeScreenshot().\n";
+                }
+            } catch (Exception e) {
+                log.warn("[MainLoop] Screen analysis failed: {}", e.getMessage());
+            }
+
+            // Watch mode observation
+            if (screenWatchingTools.isWatching()) {
+                String watchObs = screenWatchingTools.getLatestObservation();
+                if (watchObs != null && !watchObs.isBlank()) {
+                    systemMessage += "\n\nWATCH MODE IS ACTIVE — Latest screen observation:\n"
+                            + watchObs + "\n";
+                }
+            }
+
+            // Call AI
+            final String finalSystemMessage = systemMessage;
+            for (int attempt = 1; attempt <= 3; attempt++) {
+                // Check if a new user message arrived — interrupt current processing
+                if (!userMessageQueue.isEmpty()) {
+                    log.info("[MainLoop] New user message arrived — interrupting current AI call");
+                    workingSound.stop();
+                    return;
+                }
+                try {
+                    String reply = chatClient.prompt()
+                            .system(finalSystemMessage)
+                            .user(trimmed)
+                            .tools(toolRouter.selectTools(trimmed))
+                            .call()
+                            .content();
+
+                    workingSound.stop();
+                    if (reply != null && !reply.isBlank()) {
+                        transcriptService.save("BOT", reply);
+                        asyncMessages.push(reply);
+                        autoSpeak(reply);
+                    }
+                    return;
+                } catch (Exception e) {
+                    boolean isNetworkError = e instanceof org.springframework.web.client.ResourceAccessException
+                            || (e.getCause() != null && (e.getCause() instanceof java.net.SocketException
+                                || e.getCause() instanceof java.io.IOException));
+                    if (isNetworkError && attempt < 3) {
+                        log.warn("[MainLoop] AI call failed (attempt {}/3): {} — retrying", attempt, e.getMessage());
+                        asyncMessages.push("Connection error. Retrying... (attempt " + (attempt + 1) + "/3)");
+                        try { Thread.sleep(3000); } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            return;
+                        }
+                    } else {
+                        workingSound.stop();
+                        String errorReply = "AI error: " + e.getMessage();
+                        transcriptService.save("BOT(error)", errorReply);
+                        asyncMessages.push(errorReply);
+                        return;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            workingSound.stop();
+            log.error("[MainLoop] Unexpected error processing message: {}", e.getMessage(), e);
+            asyncMessages.push("Error: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Autonomous observation — captures screen, analyzes it, and acts on what's visible.
+     */
+    private void runAutonomousObservation() {
+        Consumer<String> asyncCallback = result -> {
+            transcriptService.save("BOT(observe)", result);
+            asyncMessages.push(result);
+        };
+        fileTools.setAsyncCallback(asyncCallback);
+
+        // Capture and analyze screen FIRST so the AI has context
+        String systemMessage = systemCtx.buildSystemMessage();
+        String screenAnalysis = null;
+        try {
+            screenAnalysis = screenStateService.captureAndAnalyze("observe screen for actionable tasks");
+        } catch (Exception e) {
+            log.warn("[MainLoop] Screen analysis failed: {}", e.getMessage());
+        }
+
+        if (screenAnalysis != null && !screenAnalysis.isBlank()) {
+            systemMessage += "\n\nLIVE SCREEN ANALYSIS (what is currently on screen):\n"
+                    + screenAnalysis + "\n";
+        }
+
+        String prompt = "AUTONOMOUS OBSERVATION — look at the LIVE SCREEN ANALYSIS above. "
+                + "IGNORE all chat history. Based on what is CURRENTLY on screen: "
+                + "1. Is there a form to fill? Fill it using TAB between fields. "
+                + "2. Are there instructions to follow? Follow them step by step. "
+                + "3. Is there a task in progress? Continue it. "
+                + "4. Is there a button to click, a field to complete, or any actionable UI element? Act on it. "
+                + "If the screen shows a normal desktop/browser with NO specific task, respond with just: IDLE";
+
+        workingSound.start();
+
+        try {
+            String reply = chatClient.prompt()
+                    .system(systemMessage)
+                    .user(prompt)
+                    .tools(toolRouter.selectTools(prompt))
+                    .call()
+                    .content();
+
+            workingSound.stop();
+
+            if (reply != null && !reply.isBlank() && !reply.trim().equalsIgnoreCase("IDLE")) {
+                transcriptService.save("BOT(observe)", reply);
+                asyncMessages.push(reply);
+                lastActivityTime = System.currentTimeMillis();
+            } else {
+                // Nothing to do — wait longer before next check (30s idle)
+                lastActivityTime = System.currentTimeMillis() + 25000;
+            }
+        } catch (Exception e) {
+            workingSound.stop();
+            log.warn("[MainLoop] Autonomous observation failed: {}", e.getMessage());
+            lastActivityTime = System.currentTimeMillis();
+        }
     }
 
     private void seedChatMemory() {
@@ -222,6 +510,13 @@ public class ChatService {
     /** True after autonomous concluded "all directives addressed"; cleared on user input. */
     private volatile boolean autonomousConcludedAllAddressed = false;
 
+    // ═══ Main agent loop ═══
+    /** Queue of user messages to be processed by the main loop thread. */
+    private final ConcurrentLinkedQueue<String> userMessageQueue = new ConcurrentLinkedQueue<>();
+    /** True while the main loop is processing an AI call. */
+    private volatile boolean mainLoopBusy = false;
+    private volatile Thread mainLoopThread = null;
+
     // Audio transcription properties (still uses raw HTTP)
     @Value("${app.openai.api-key:}")
     private String openAiApiKey;
@@ -251,11 +546,11 @@ public class ChatService {
         if (message == null) {
             message = "";
         }
-        
+
         String trimmed = message.trim();
         lastActivityTime = System.currentTimeMillis();
         lastAutonomousMessageSent = null;
-        autonomousConcludedAllAddressed = false; // allow autonomous to run again after user input
+        autonomousConcludedAllAddressed = false;
         toolNotifier.clear();
         transcriptService.save("USER", trimmed);
 
@@ -265,22 +560,19 @@ public class ChatService {
         // Stop any currently playing TTS audio so the bot can respond to new input
         ttsTools.stopPlayback();
 
-        // Quit command: reply and schedule quit in 30 sec if no response
+        // Quit command: reply synchronously
         if (isQuitCommand(trimmed)) {
             transcriptService.save("BOT", QUIT_REPLY);
             quitService.scheduleQuitIn30Sec();
             return QUIT_REPLY;
         }
 
-        // Open command center: launch the app in Chrome
+        // Open command center: reply synchronously
         if (isOpenCommandCenter(trimmed)) {
             String url = "http://localhost:" + serverPort;
             try {
-                // Try Chrome first, fall back to default browser
                 String os = System.getProperty("os.name", "").toLowerCase();
                 if (os.contains("win")) {
-                    // Try to focus an existing Chrome window with the command center URL.
-                    // If none found, open the URL in Chrome (reuses existing Chrome instance).
                     String ps = String.format(
                             "Add-Type @'\n" +
                             "using System; using System.Runtime.InteropServices;\n" +
@@ -319,202 +611,29 @@ public class ChatService {
             }
         }
 
-        Consumer<String> asyncCallback = result -> {
-            transcriptService.save("BOT(agent)", result);
-            asyncMessages.push(result);
-        };
-
-        // 1. Spring AI tool-calling path
-        if (chatClient != null) {
-            try {
-                // Planning pre-step: generate numbered plan (no tools, fast)
-                String generatedPlan = null;
-                if (planningEnabled && needsPlanning(trimmed)) {
-                    try {
-                        String plan = chatClient.prompt()
-                                .system(PLANNING_PROMPT)
-                                .user(trimmed)
-                                .call()
-                                .content();
-                        if (plan != null && !plan.isBlank()
-                                && !plan.strip().equalsIgnoreCase("SKIP")) {
-                            generatedPlan = plan.strip();
-                            asyncMessages.push(generatedPlan);
-                            transcriptService.save("BOT(plan)", generatedPlan);
-
-                            // Save plan to todolist.txt
-                            try {
-                                java.nio.file.Path todoPath = java.nio.file.Paths.get(
-                                        System.getProperty("user.home"), "mins_bot_data", "todolist.txt");
-                                String timestamp = java.time.LocalDateTime.now()
-                                        .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
-                                String todoEntry = "\n--- Task: \"" + trimmed.substring(0, Math.min(trimmed.length(), 80))
-                                        + "\" | " + timestamp + " ---\n"
-                                        + generatedPlan.replace("⬜", "[PENDING]") + "\n";
-                                java.nio.file.Files.writeString(todoPath, todoEntry,
-                                        java.nio.file.StandardOpenOption.CREATE,
-                                        java.nio.file.StandardOpenOption.APPEND);
-                                log.info("[ChatService] Plan saved to todolist.txt");
-                            } catch (Exception e) {
-                                log.debug("[ChatService] Could not save plan to todolist.txt: {}", e.getMessage());
-                            }
-                        }
-                    } catch (Exception e) {
-                        log.debug("[ChatService] Planning call failed (non-critical): {}", e.getMessage());
-                    }
-                }
-
-                fileTools.setAsyncCallback(asyncCallback);
-                workingSound.start();
-
-                // Auto-capture live screen state with Gemini reasoning
-                String systemMessage = systemCtx.buildSystemMessage();
-
-                // If no plan was generated, check if this is a "continue" message with pending tasks
-                if (generatedPlan == null && isResumeCommand(trimmed)) {
-                    try {
-                        java.nio.file.Path todoPath = java.nio.file.Paths.get(
-                                System.getProperty("user.home"), "mins_bot_data", "todolist.txt");
-                        if (java.nio.file.Files.exists(todoPath)) {
-                            String todoContent = java.nio.file.Files.readString(todoPath);
-                            if (todoContent.contains("[PENDING]")) {
-                                // Extract the last task block with pending items
-                                String[] blocks = todoContent.split("--- Task:");
-                                for (int b = blocks.length - 1; b >= 0; b--) {
-                                    if (blocks[b].contains("[PENDING]")) {
-                                        generatedPlan = "--- Task:" + blocks[b].trim();
-                                        log.info("[ChatService] Resuming pending task from todolist.txt");
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    } catch (Exception e) {
-                        log.debug("[ChatService] Could not read todolist.txt: {}", e.getMessage());
-                    }
-                }
-
-                // Inject the plan into the system message so the main model knows what to execute
-                if (generatedPlan != null) {
-                    systemMessage += "\n\n══ YOUR PLAN (execute ALL steps, do NOT stop mid-plan) ══\n"
-                            + generatedPlan + "\n"
-                            + "══ MANDATORY RESPONSE FORMAT:\n"
-                            + "Your FINAL response after completing all steps MUST look EXACTLY like this:\n"
-                            + "✅ 1. [what you did for step 1]\n"
-                            + "✅ 2. [what you did for step 2]\n"
-                            + "✅ 3. [what you did for step 3]\n"
-                            + "✅ 4. [verification result]\n\n"
-                            + "That's it. No extra text. No \"feel free to ask\". No \"let me know\". Just the checklist.\n"
-                            + "If a step is NOT done yet, show ⬜ and keep calling tools until it's done.\n"
-                            + "Call markStepDone(N) after each step completes.\n"
-                            + "Start executing step 1 NOW. ══\n";
-                }
-                try {
-                    String screenAnalysis = screenStateService.captureAndAnalyze(trimmed);
-                    if (screenAnalysis != null && !screenAnalysis.isBlank()) {
-                        systemMessage += "\n\nLIVE SCREEN ANALYSIS (captured BEFORE your actions — "
-                                + "this shows what was on screen when the user sent their message):\n"
-                                + screenAnalysis + "\n"
-                                + "\nCRITICAL: Use ONLY the names from this analysis for initial actions. "
-                                + "AFTER any action that changes the screen (openUrl, click, navigate, drag), "
-                                + "this analysis is STALE — you MUST take a fresh takeScreenshot() to see "
-                                + "the updated screen before your next action. "
-                                + "If a plan is provided above, EXECUTE it by calling findAndDragElement for EACH step. "
-                                + "Do NOT skip any steps. Do NOT claim success without calling the tools.\n";
-                        log.info("[ChatService] Injected Gemini screen analysis ({} chars)", screenAnalysis.length());
-                    }
-                } catch (Exception e) {
-                    log.warn("[ChatService] Screen analysis failed: {}", e.getMessage());
-                }
-
-                // Inject latest watch mode observation so the AI has accurate screen context
-                if (screenWatchingTools.isWatching()) {
-                    String watchObs = screenWatchingTools.getLatestObservation();
-                    if (watchObs != null && !watchObs.isBlank()) {
-                        systemMessage += "\n\nWATCH MODE IS ACTIVE — Latest screen observation:\n"
-                                + watchObs + "\n"
-                                + "Use this observation to answer the user's question. "
-                                + "Do NOT take a new screenshot — trust this observation.\n";
-                        log.info("[ChatService] Injected watch observation into context: {}", watchObs);
-                    }
-                }
-
-                final int MAX_RETRIES = 3;
-                final long RETRY_DELAY_MS = 3000;
-                Exception lastError = null;
-                final String finalSystemMessage = systemMessage;
-
-                for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-                    try {
-                        String reply = chatClient.prompt()
-                                .system(finalSystemMessage)
-                                .user(trimmed)
-                                .tools(toolRouter.selectTools(trimmed))
-                                .call()
-                                .content();
-
-                        workingSound.stop();
-
-                        if (reply != null && !reply.isBlank()) {
-                            transcriptService.save("BOT", reply);
-                            autoSpeak(reply);
-                            return reply;
-                        }
-                        break; // empty reply, fall through to fallback
-                    } catch (Exception e) {
-                        lastError = e;
-                        boolean isNetworkError = e instanceof org.springframework.web.client.ResourceAccessException
-                                || (e.getCause() != null && (e.getCause() instanceof java.net.SocketException
-                                    || e.getCause() instanceof java.io.IOException));
-
-                        if (isNetworkError && attempt < MAX_RETRIES) {
-                            log.warn("[ChatService] AI call failed (attempt {}/{}): {} — retrying in {}s",
-                                    attempt, MAX_RETRIES, e.getMessage(), RETRY_DELAY_MS / 1000);
-                            asyncMessages.push("Connection error. Retrying... (attempt " + (attempt + 1) + "/" + MAX_RETRIES + ")");
-                            try { Thread.sleep(RETRY_DELAY_MS); } catch (InterruptedException ie) {
-                                Thread.currentThread().interrupt();
-                                break;
-                            }
-                        } else {
-                            workingSound.stop();
-                            log.error("[ChatService] Spring AI error (attempt {}/{}): {}", attempt, MAX_RETRIES, e.getMessage(), e);
-                            String errorReply = "AI error: " + e.getMessage();
-                            if (attempt > 1) errorReply = "AI error after " + attempt + " attempts: " + e.getMessage();
-                            transcriptService.save("BOT(error)", errorReply);
-                            return errorReply;
-                        }
-                    }
-                }
-
-                workingSound.stop();
-            } catch (Exception e) {
-                workingSound.stop();
-                log.error("[ChatService] Unexpected error: {}", e.getMessage(), e);
-                String errorReply = "AI error: " + e.getMessage();
-                transcriptService.save("BOT(error)", errorReply);
-                return errorReply;
-            }
-        }
-
-        // 2. Fallback: regex-based command matching (works without API key)
-        String agentReply = pcAgent.tryExecute(trimmed, asyncCallback);
-        if (agentReply != null) {
-            transcriptService.save("BOT", agentReply);
-            autoSpeak(agentReply);
-            return agentReply;
-        }
-
-        // 3. No AI configured and no regex match
+        // No AI configured — regex fallback (sync)
         if (chatClient == null) {
-            String noAiReply = "ChatClient is null. AI is not connected. Set your OpenAI API key in application-secrets.properties (project root) or set the OPENAI_API_KEY environment variable, then restart.";
+            Consumer<String> asyncCallback = result -> {
+                transcriptService.save("BOT(agent)", result);
+                asyncMessages.push(result);
+            };
+            String agentReply = pcAgent.tryExecute(trimmed, asyncCallback);
+            if (agentReply != null) {
+                transcriptService.save("BOT", agentReply);
+                return agentReply;
+            }
+            String noAiReply = "AI not connected. Set your API key in application-secrets.properties and restart.";
             transcriptService.save("BOT", noAiReply);
             return noAiReply;
         }
 
-        // 4. AI returned empty — shouldn't normally happen
-        String fallback = "I'm not sure how to respond to that. Could you rephrase?";
-        transcriptService.save("BOT", fallback);
-        return fallback;
+        // ═══ Queue message for the main loop thread ═══
+        userMessageQueue.add(trimmed);
+        log.info("[ChatService] Queued user message for main loop: {}",
+                trimmed.substring(0, Math.min(trimmed.length(), 80)));
+
+        // Return empty — the main loop will push the actual response via asyncMessages
+        return "";
     }
 
     /** Auto-speak the reply if TTS auto_speak is enabled. Non-blocking (runs on background thread).
@@ -703,7 +822,7 @@ public class ChatService {
 
     @Scheduled(fixedDelayString = "${app.autonomous.check-interval-ms:15000}")
     public void checkAutonomousWork() {
-        if (!autonomousEnabled || chatClient == null || autonomousRunning) return;
+        if (!autonomousEnabled || chatClient == null || autonomousRunning || mainLoopBusy) return;
 
         String directives = DirectivesTools.loadDirectivesForPrompt();
         if (directives == null || directives.isBlank()) return;

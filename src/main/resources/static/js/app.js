@@ -440,7 +440,8 @@
       const data = await res.json();
       stopStatusPolling();
       hideThinking();
-      appendMessage(data.reply || 'No reply.', false);
+      if (data.reply) appendMessage(data.reply, false);
+      // Empty reply means main loop is processing — response will arrive via async polling
       if (data.quitCountdownSeconds) {
         startQuitCountdown(data.quitCountdownSeconds);
       }
@@ -1309,20 +1310,37 @@
   var priorityList = document.getElementById('engine-priority-list');
   var savePriorityBtn = document.getElementById('save-engine-priority');
 
+  // Engine enabled state (loaded from server)
+  var engineEnabledState = {};
+
   function renderPriorityList(order) {
     priorityList.innerHTML = '';
     order.forEach(function (key, idx) {
       var def = engineDefs.find(function (d) { return d.key === key; }) || { key: key, label: key, color: '#aaa' };
+      var isEnabled = engineEnabledState[key] !== false; // default true
       var li = document.createElement('li');
-      li.className = 'engine-priority-item';
+      li.className = 'engine-priority-item' + (isEnabled ? '' : ' engine-disabled');
       li.dataset.engine = key;
       li.draggable = true;
       li.innerHTML = '<span class="engine-priority-rank">' + (idx + 1) + '</span>'
-        + '<span class="engine-priority-name" style="color:' + def.color + '">' + def.label + '</span>'
+        + '<label class="engine-toggle" title="Enable/disable"><input type="checkbox" class="engine-enabled-cb" data-engine="' + key + '"'
+        + (isEnabled ? ' checked' : '') + '>'
+        + '<span class="engine-priority-name" style="color:' + (isEnabled ? def.color : '#555') + '">' + def.label + '</span></label>'
         + '<span class="engine-priority-arrows">'
         + '<button class="ep-up" title="Move up">\u25B2</button>'
         + '<button class="ep-down" title="Move down">\u25BC</button>'
         + '</span>';
+      // Toggle enabled
+      li.querySelector('.engine-enabled-cb').addEventListener('change', function (e) {
+        engineEnabledState[key] = e.target.checked;
+        renderPriorityList(getCurrentOrder());
+        // Auto-save
+        fetch('/api/engine-enabled', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: engineEnabledState })
+        });
+      });
       // Arrow buttons
       li.querySelector('.ep-up').addEventListener('click', function () { moveEngine(idx, -1); });
       li.querySelector('.ep-down').addEventListener('click', function () { moveEngine(idx, 1); });
@@ -1361,11 +1379,14 @@
     renderPriorityList(order);
   }
 
-  // Load priority from server
-  fetch('/api/engine-priority').then(function (r) { return r.json(); }).then(function (data) {
-    if (data.priority) renderPriorityList(data.priority);
-  }).catch(function () {
-    renderPriorityList(engineDefs.map(function (d) { return d.key; }));
+  // Load engine enabled state + priority from server
+  Promise.all([
+    fetch('/api/engine-enabled').then(function (r) { return r.json(); }).catch(function () { return {}; }),
+    fetch('/api/engine-priority').then(function (r) { return r.json(); }).catch(function () { return {}; })
+  ]).then(function (results) {
+    if (results[0].enabled) engineEnabledState = results[0].enabled;
+    var order = results[1].priority || engineDefs.map(function (d) { return d.key; });
+    renderPriorityList(order);
   });
 
   savePriorityBtn.addEventListener('click', function () {
@@ -1377,6 +1398,27 @@
     }).then(function (r) { return r.json(); }).then(function (data) {
       savePriorityBtn.textContent = 'Saved!';
       setTimeout(function () { savePriorityBtn.textContent = 'Save Priority'; }, 1500);
+    });
+  });
+
+  // ── Load saved calibration engine checkboxes ──
+  fetch('/api/calibration-engines').then(function (r) { return r.json(); }).then(function (data) {
+    if (data.engines) {
+      document.querySelectorAll('.cal-engine-cb').forEach(function (cb) {
+        cb.checked = data.engines.indexOf(cb.value) >= 0;
+      });
+    }
+  }).catch(function () {});
+
+  // Save calibration engine checkboxes when toggled
+  document.querySelectorAll('.cal-engine-cb').forEach(function (cb) {
+    cb.addEventListener('change', function () {
+      var selected = Array.from(document.querySelectorAll('.cal-engine-cb:checked')).map(function (c) { return c.value; });
+      fetch('/api/calibration-engines', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ engines: selected })
+      });
     });
   });
 

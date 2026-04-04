@@ -1,6 +1,7 @@
 package com.minsbot.agent;
 
 import com.minsbot.FloatingAppLauncher;
+import com.minsbot.agent.tools.ScreenClickTools;
 import com.minsbot.agent.tools.TtsTools;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -48,6 +49,7 @@ public class ConfigScanService {
     private final WebcamMemoryService webcamMemory;
     private final TtsTools ttsTools;
     private final PlaylistService playlistService;
+    private final ScreenClickTools screenClickTools;
 
     /** Last-modified timestamp for each file, used to detect changes. */
     private final Map<String, FileTime> lastModified = new LinkedHashMap<>();
@@ -58,7 +60,8 @@ public class ConfigScanService {
                              AudioMemoryService audioMemory,
                              WebcamMemoryService webcamMemory,
                              TtsTools ttsTools,
-                             PlaylistService playlistService) {
+                             PlaylistService playlistService,
+                             ScreenClickTools screenClickTools) {
         this.workingSound = workingSound;
         this.idleDetection = idleDetection;
         this.screenMemory = screenMemory;
@@ -66,6 +69,7 @@ public class ConfigScanService {
         this.webcamMemory = webcamMemory;
         this.ttsTools = ttsTools;
         this.playlistService = playlistService;
+        this.screenClickTools = screenClickTools;
     }
 
     @PostConstruct
@@ -112,6 +116,7 @@ public class ConfigScanService {
                 webcamMemory.reloadConfig();
                 ttsTools.reloadConfig();
                 playlistService.reloadConfig();
+                screenClickTools.reloadConfig();
                 FloatingAppLauncher.refreshBotName();
             }
             // personal_config.txt, cron_config.txt, system_config.txt:

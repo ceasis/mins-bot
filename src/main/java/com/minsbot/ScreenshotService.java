@@ -108,21 +108,7 @@ public class ScreenshotService {
             Rectangle screenRect = new Rectangle(Toolkit.getDefaultToolkit().getScreenSize());
             BufferedImage image = robot.createScreenCapture(screenRect);
 
-            // Draw mouse cursor onto the screenshot
-            try {
-                Point mousePos = MouseInfo.getPointerInfo().getLocation();
-                Graphics2D g = image.createGraphics();
-                g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                int mx = mousePos.x, my = mousePos.y;
-                int[] cx = {mx, mx, mx + 10, mx + 6, mx + 8, mx + 5, mx + 5};
-                int[] cy = {my, my + 17, my + 12, my + 12, my + 20, my + 15, my + 13};
-                g.setColor(Color.WHITE);
-                g.fillPolygon(cx, cy, cx.length);
-                g.setColor(Color.BLACK);
-                g.setStroke(new BasicStroke(1.2f));
-                g.drawPolygon(cx, cy, cx.length);
-                g.dispose();
-            } catch (Exception ignored) { /* mouse position unavailable */ }
+            com.minsbot.agent.SystemControlService.drawCursorOnImage(image, 0, 0);
 
             LocalDateTime now = LocalDateTime.now();
             Path dayDir = screenshotDir

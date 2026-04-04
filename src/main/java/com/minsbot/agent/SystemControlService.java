@@ -477,22 +477,7 @@ public class SystemControlService {
                     java.awt.Toolkit.getDefaultToolkit().getScreenSize());
             java.awt.image.BufferedImage image = new java.awt.Robot().createScreenCapture(screenRect);
 
-            // Draw mouse cursor onto the screenshot
-            try {
-                java.awt.Point mousePos = java.awt.MouseInfo.getPointerInfo().getLocation();
-                java.awt.Graphics2D g = image.createGraphics();
-                g.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
-                int mx = mousePos.x, my = mousePos.y;
-                // Draw arrow cursor shape (white fill, black outline)
-                int[] cx = {mx, mx, mx + 10, mx + 6, mx + 8, mx + 5, mx + 5};
-                int[] cy = {my, my + 17, my + 12, my + 12, my + 20, my + 15, my + 13};
-                g.setColor(java.awt.Color.WHITE);
-                g.fillPolygon(cx, cy, cx.length);
-                g.setColor(java.awt.Color.BLACK);
-                g.setStroke(new java.awt.BasicStroke(1.2f));
-                g.drawPolygon(cx, cy, cx.length);
-                g.dispose();
-            } catch (Exception ignored) { /* mouse position unavailable — skip cursor */ }
+            drawCursorOnImage(image, 0, 0);
 
             java.time.LocalDateTime now = java.time.LocalDateTime.now();
             java.nio.file.Path dir = java.nio.file.Paths.get(
@@ -1770,4 +1755,31 @@ public class SystemControlService {
     }
 
     private record ProcessInfo(String name, long pid) {}
+
+    /**
+     * Draw the mouse cursor onto a screenshot image.
+     * @param image the screenshot to draw on
+     * @param offsetX x offset of the capture region (0 for full screen)
+     * @param offsetY y offset of the capture region (0 for full screen)
+     */
+    public static void drawCursorOnImage(java.awt.image.BufferedImage image, int offsetX, int offsetY) {
+        try {
+            java.awt.Point mousePos = java.awt.MouseInfo.getPointerInfo().getLocation();
+            int mx = mousePos.x - offsetX;
+            int my = mousePos.y - offsetY;
+            // Only draw if cursor is within the captured region
+            if (mx < 0 || my < 0 || mx >= image.getWidth() || my >= image.getHeight()) return;
+            java.awt.Graphics2D g = image.createGraphics();
+            g.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+            // Draw arrow cursor shape (white fill, black outline)
+            int[] cx = {mx, mx, mx + 10, mx + 6, mx + 8, mx + 5, mx + 5};
+            int[] cy = {my, my + 17, my + 12, my + 12, my + 20, my + 15, my + 13};
+            g.setColor(java.awt.Color.WHITE);
+            g.fillPolygon(cx, cy, cx.length);
+            g.setColor(java.awt.Color.BLACK);
+            g.setStroke(new java.awt.BasicStroke(1.2f));
+            g.drawPolygon(cx, cy, cx.length);
+            g.dispose();
+        } catch (Exception ignored) { /* mouse position unavailable — skip cursor */ }
+    }
 }

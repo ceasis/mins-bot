@@ -67,6 +67,7 @@ public class DirectiveDataTools {
 
             Rectangle screenRect = new Rectangle(Toolkit.getDefaultToolkit().getScreenSize());
             BufferedImage image = new Robot().createScreenCapture(screenRect);
+            com.minsbot.agent.SystemControlService.drawCursorOnImage(image, 0, 0);
 
             String filename = LocalDateTime.now().format(TS_FMT) + "_screenshot.png";
             Path file = dir.resolve(filename);
