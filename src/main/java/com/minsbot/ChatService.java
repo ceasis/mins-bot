@@ -33,13 +33,44 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Pattern;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.function.Consumer;
 
 @Service
 public class ChatService {
     private static final Logger log = LoggerFactory.getLogger(ChatService.class);
     private static final String AUDIO_RESULT_PREFIX = "__AUDIO_RESULT__";
+
+    /** Identity / small-talk — skip task planning and live-screen prep. */
+    private static final Pattern SIMPLE_CONVERSATIONAL = Pattern.compile(
+            "(?i)^(hi|hello|hey|howdy|yo|sup|morning|afternoon|evening)\\b[!.?\\s]*$"
+                    + "|^(thanks?|thank you|thx|ty)\\b[!.?\\s]*$"
+                    + "|^(ok|okay|cool|nice|great|got it|sounds good)\\b[!.?\\s]*$"
+                    + "|^(bye|goodbye|cya|see ya|see you)\\b[!.?\\s]*$"
+                    + "|\\b(what'?s|what is|whats)\\s+your\\s+name\\b"
+                    + "|\\bwho\\s+are\\s+you\\b"
+                    + "|\\bwhat\\s+should\\s+i\\s+call\\s+you\\b"
+                    + "|\\bhow\\s+are\\s+you\\b"
+                    + "|\\bwhat\\s+can\\s+you\\s+do\\b"
+                    + "|\\bwhat\\s+do\\s+you\\s+do\\b"
+                    + "|\\btell\\s+me\\s+about\\s+yourself\\b");
+
+    /**
+     * If the message is long or mentions UI/automation, live screen context helps.
+     * Short chat-only questions skip capture when {@code app.chat.live-screen-on-message} is on.
+     */
+    private static final Pattern SCREEN_OR_AUTOMATION_HINT = Pattern.compile(
+            "(?i)\\b(screen|screenshot|desktop|window|browser|chrome|firefox|edge|safari|monitor|display|what'?s? on my\\s+screen"
+                    + "|my\\s+screen|this\\s+(window|tab|page|app)|cdp|devtools"
+                    + "|click|double[- ]?click|right[- ]?click|cursor|mouse|keyboard|type\\b|keypress|shortcut"
+                    + "|\\bopen\\b|\\blaunch\\b|\\bstart\\b|\\brun\\b|\\bclose\\b|\\bminimize\\b|\\bmaximize\\b"
+                    + "|scroll|select\\b|drag|paste|clipboard|save\\b|download|upload|install|uninstall"
+                    + "|folder|directory|file\\b|path\\b|drive\\b|notepad|powershell|cmd\\b|terminal|excel|word|outlook"
+                    + "|https?://|localhost:\\d+|\\bjira\\b|\\bslack\\b|\\bteams\\b)\\b");
 
     private static final String PLANNING_PROMPT = """
             You are a task planner for a PC assistant bot. Analyze the user's request and output a \
@@ -71,6 +102,31 @@ public class ChatService {
 
             User: "what time is it?"
             SKIP
+            """;
+
+    /**
+     * Planner for background agents (search / files / HTTP fetch / Playwright only). Does not touch main chat UI or todolist.
+     */
+    private static final String AGENT_PLANNING_PROMPT = """
+            You are a task planner for a BACKGROUND AGENT with LIMITED tools only:
+            web search (searchWeb), file read/write/list, Excel/Word/PDF tools, HTTP page fetch (readWebPage-style), \
+            and headless Playwright (browsePage, images, links — no visible browser, no CDP, no screen control).
+
+            Output ONLY a numbered checklist. No greetings. Use this format:
+              ⬜ 1. First step
+              ⬜ 2. Next step
+              ⬜ 3. Verify — [e.g. re-read file, fetch URL again, or searchWeb to confirm]
+
+            Rules:
+            - LAST step must be Verify — using only allowed tools (never "take screenshot" or "click on screen").
+            - Max 6 steps; keep each under 12 words.
+            - For trivial missions (single search or single file read), respond with: SKIP
+
+            Example:
+            User: Summarize top news on topic X from the web
+            ⬜ 1. searchWeb for topic X news
+            ⬜ 2. readWebPage or browsePage top result URL
+            ⬜ 3. Verify — searchWeb again with narrower query if empty
             """;
 
     /** Shown when user says "quit"; also used by ChatController to add quitCountdownSeconds to response. */
@@ -228,45 +284,34 @@ public class ChatService {
         };
 
         try {
-            // Planning pre-step
-            String generatedPlan = null;
-            if (planningEnabled && needsPlanning(trimmed)) {
-                try {
-                    String plan = chatClient.prompt()
-                            .system(PLANNING_PROMPT)
-                            .user(trimmed)
-                            .call()
-                            .content();
-                    if (plan != null && !plan.isBlank()
-                            && !plan.strip().equalsIgnoreCase("SKIP")) {
-                        generatedPlan = plan.strip();
-                        asyncMessages.push(generatedPlan);
-                        transcriptService.save("BOT(plan)", generatedPlan);
-
-                        try {
-                            java.nio.file.Path todoPath = java.nio.file.Paths.get(
-                                    System.getProperty("user.home"), "mins_bot_data", "todolist.txt");
-                            String timestamp = java.time.LocalDateTime.now()
-                                    .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
-                            String todoEntry = "\n--- Task: \"" + trimmed.substring(0, Math.min(trimmed.length(), 80))
-                                    + "\" | " + timestamp + " ---\n"
-                                    + generatedPlan.replace("⬜", "[PENDING]") + "\n";
-                            java.nio.file.Files.writeString(todoPath, todoEntry,
-                                    java.nio.file.StandardOpenOption.CREATE,
-                                    java.nio.file.StandardOpenOption.APPEND);
-                        } catch (Exception e) {
-                            log.debug("[MainLoop] Could not save plan to todolist.txt: {}", e.getMessage());
-                        }
-                    }
-                } catch (Exception e) {
-                    log.debug("[MainLoop] Planning call failed: {}", e.getMessage());
-                }
-            }
-
             fileTools.setAsyncCallback(asyncCallback);
+
+            boolean willPlan = planningEnabled && needsPlanning(trimmed);
+            boolean willScreen = liveScreenOnMessage && needsLiveScreenForMessage(trimmed);
+            if (willPlan || willScreen) {
+                asyncMessages.push(prepAcknowledgement(willPlan, willScreen));
+            }
             workingSound.start();
 
-            String systemMessage = systemCtx.buildSystemMessage();
+            CompletableFuture<String> planFuture = willPlan
+                    ? CompletableFuture.supplyAsync(() -> executePlanningForMessage(trimmed), chatPrepExecutor)
+                    : CompletableFuture.completedFuture(null);
+
+            CompletableFuture<String> screenFuture = willScreen
+                    ? CompletableFuture.supplyAsync(() -> {
+                        try {
+                            return screenStateService.captureAndAnalyze(trimmed);
+                        } catch (Exception e) {
+                            log.warn("[MainLoop] Screen analysis failed: {}", e.getMessage());
+                            return null;
+                        }
+                    }, chatPrepExecutor)
+                    : CompletableFuture.completedFuture(null);
+
+            String generatedPlan = planFuture.join();
+            String screenAnalysis = screenFuture.join();
+
+            String systemMessage = systemCtx.buildSystemMessage(trimmed);
 
             // Resume pending tasks
             if (generatedPlan == null && isResumeCommand(trimmed)) {
@@ -306,18 +351,12 @@ public class ChatService {
                         + "Start executing step 1 NOW. ══\n";
             }
 
-            // Screen analysis
-            try {
-                String screenAnalysis = screenStateService.captureAndAnalyze(trimmed);
-                if (screenAnalysis != null && !screenAnalysis.isBlank()) {
-                    systemMessage += "\n\nLIVE SCREEN ANALYSIS (captured BEFORE your actions — "
-                            + "this shows what was on screen when the user sent their message):\n"
-                            + screenAnalysis + "\n"
-                            + "\nCRITICAL: Use ONLY the names from this analysis for initial actions. "
-                            + "AFTER any action that changes the screen, take a fresh takeScreenshot().\n";
-                }
-            } catch (Exception e) {
-                log.warn("[MainLoop] Screen analysis failed: {}", e.getMessage());
+            if (screenAnalysis != null && !screenAnalysis.isBlank()) {
+                systemMessage += "\n\nLIVE SCREEN ANALYSIS (captured BEFORE your actions — "
+                        + "this shows what was on screen when the user sent their message):\n"
+                        + screenAnalysis + "\n"
+                        + "\nCRITICAL: Use ONLY the names from this analysis for initial actions. "
+                        + "AFTER any action that changes the screen, take a fresh takeScreenshot().\n";
             }
 
             // Watch mode observation
@@ -494,6 +533,10 @@ public class ChatService {
     @Value("${app.planning.enabled:true}")
     private boolean planningEnabled;
 
+    /** When false, skip screenshot+vision before each chat reply (faster; bot can still takeScreenshot when needed). */
+    @Value("${app.chat.live-screen-on-message:true}")
+    private boolean liveScreenOnMessage;
+
     // ═══ Autonomous mode ═══
     @Value("${app.autonomous.enabled:false}")
     private boolean autonomousEnabled;
@@ -511,6 +554,13 @@ public class ChatService {
     private volatile boolean autonomousConcludedAllAddressed = false;
 
     // ═══ Main agent loop ═══
+    /** Runs planning LLM and screen capture in parallel so prep does not run strictly back-to-back. */
+    private final ExecutorService chatPrepExecutor = Executors.newFixedThreadPool(2, r -> {
+        Thread t = new Thread(r, "chat-prep");
+        t.setDaemon(true);
+        return t;
+    });
+
     /** Queue of user messages to be processed by the main loop thread. */
     private final ConcurrentLinkedQueue<String> userMessageQueue = new ConcurrentLinkedQueue<>();
     /** True while the main loop is processing an AI call. */
@@ -682,14 +732,112 @@ public class ChatService {
                 || lower.equals("close mins bot") || lower.equals("exit mins bot");
     }
 
-    /** Returns true if the message warrants a planning pre-step. Only skips very short greetings. */
+    private static String prepAcknowledgement(boolean willPlan, boolean willScreen) {
+        if (willPlan && willScreen) {
+            return "One moment — drafting a quick plan and capturing your screen…";
+        }
+        if (willPlan) {
+            return "One moment — drafting a quick plan…";
+        }
+        return "One moment — capturing your screen…";
+    }
+
+    /**
+     * Planning-only LLM call; pushes plan to UI and todolist when non-SKIP. Runs on chat-prep pool.
+     */
+    private String executePlanningForMessage(String trimmed) {
+        try {
+            String plan = chatClient.prompt()
+                    .system(PLANNING_PROMPT)
+                    .user(trimmed)
+                    .call()
+                    .content();
+            if (plan == null || plan.isBlank() || plan.strip().equalsIgnoreCase("SKIP")) {
+                return null;
+            }
+            String generatedPlan = plan.strip();
+            asyncMessages.push(generatedPlan);
+            transcriptService.save("BOT(plan)", generatedPlan);
+
+            try {
+                java.nio.file.Path todoPath = java.nio.file.Paths.get(
+                        System.getProperty("user.home"), "mins_bot_data", "todolist.txt");
+                String timestamp = java.time.LocalDateTime.now()
+                        .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
+                String todoEntry = "\n--- Task: \"" + trimmed.substring(0, Math.min(trimmed.length(), 80))
+                        + "\" | " + timestamp + " ---\n"
+                        + generatedPlan.replace("⬜", "[PENDING]") + "\n";
+                java.nio.file.Files.writeString(todoPath, todoEntry,
+                        java.nio.file.StandardOpenOption.CREATE,
+                        java.nio.file.StandardOpenOption.APPEND);
+            } catch (Exception e) {
+                log.debug("[MainLoop] Could not save plan to todolist.txt: {}", e.getMessage());
+            }
+            return generatedPlan;
+        } catch (Exception e) {
+            log.debug("[MainLoop] Planning call failed: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Background-agent planner: isolated {@link ChatMemory} id, no async UI or todolist.
+     *
+     * @return trimmed plan text, or {@code null} for SKIP / empty / error
+     */
+    public String generateBackgroundAgentPlan(String mission, String agentJobId) {
+        if (chatClient == null || mission == null || mission.isBlank()) {
+            return null;
+        }
+        try {
+            String cid = "agent-plan-" + (agentJobId != null && !agentJobId.isBlank() ? agentJobId : "x");
+            String plan = chatClient.prompt()
+                    .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, cid))
+                    .system(AGENT_PLANNING_PROMPT)
+                    .user(mission.trim())
+                    .call()
+                    .content();
+            if (plan == null || plan.isBlank()) {
+                return null;
+            }
+            String s = plan.strip();
+            if (s.equalsIgnoreCase("SKIP")) {
+                return null;
+            }
+            return s;
+        } catch (Exception e) {
+            log.debug("[AgentPlan] Planning call failed: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /** Returns true if the message warrants a planning pre-step. Skips greetings and light Q&A. */
     private boolean needsPlanning(String message) {
         if (message == null || message.isBlank()) return false;
-        // Skip only very short messages (1-2 words: "hi", "thanks", "ok")
         int wordCount = message.trim().split("\\s+").length;
         if (wordCount <= 2) return false;
-        // Let the planner decide — it returns SKIP for simple questions
+        if (isSimpleConversationalQuery(message)) return false;
+        if (SystemContextProvider.isMessageAboutMinsbotSelfConfig(message)) return false;
         return true;
+    }
+
+    /**
+     * Live screen before reply — only when the user likely needs desktop/browser context
+     * or the request is long enough that extra context may help.
+     */
+    private boolean needsLiveScreenForMessage(String message) {
+        if (message == null || message.isBlank()) return false;
+        if (isSimpleConversationalQuery(message)) return false;
+        if (SystemContextProvider.isMessageAboutMinsbotSelfConfig(message)) return false;
+        int wordCount = message.trim().split("\\s+").length;
+        if (wordCount <= 2) return false;
+        if (wordCount >= 16) return true;
+        return SCREEN_OR_AUTOMATION_HINT.matcher(message).find();
+    }
+
+    private static boolean isSimpleConversationalQuery(String message) {
+        String t = message.trim();
+        return SIMPLE_CONVERSATIONAL.matcher(t).find();
     }
 
     /** Returns true if the message is a resume/continue command. */

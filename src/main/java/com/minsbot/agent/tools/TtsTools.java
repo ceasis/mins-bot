@@ -2,6 +2,8 @@ package com.minsbot.agent.tools;
 
 import com.minsbot.ElevenLabsConfig;
 import com.minsbot.ElevenLabsVoiceService;
+import com.minsbot.FishAudioConfig;
+import com.minsbot.FishAudioVoiceService;
 import com.minsbot.agent.OpenAiTtsService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,6 +43,8 @@ public class TtsTools {
     private final ElevenLabsVoiceService elevenLabs;
     private final OpenAiTtsService openAiTts;
     private final ElevenLabsConfig.ElevenLabsProperties elevenLabsProps;
+    private final FishAudioVoiceService fishAudio;
+    private final FishAudioConfig.FishAudioProperties fishAudioProps;
 
     /** In-memory cache: sanitized text key → WAV bytes. */
     private final ConcurrentHashMap<String, byte[]> audioCache = new ConcurrentHashMap<>();
@@ -70,11 +74,14 @@ public class TtsTools {
     private volatile String ttsEngine = "auto";
 
     public TtsTools(ToolExecutionNotifier notifier, ElevenLabsVoiceService elevenLabs,
-                    OpenAiTtsService openAiTts, ElevenLabsConfig.ElevenLabsProperties elevenLabsProps) {
+                    OpenAiTtsService openAiTts, ElevenLabsConfig.ElevenLabsProperties elevenLabsProps,
+                    FishAudioVoiceService fishAudio, FishAudioConfig.FishAudioProperties fishAudioProps) {
         this.notifier = notifier;
         this.elevenLabs = elevenLabs;
         this.openAiTts = openAiTts;
         this.elevenLabsProps = elevenLabsProps;
+        this.fishAudio = fishAudio;
+        this.fishAudioProps = fishAudioProps;
     }
 
     @PostConstruct
@@ -109,13 +116,24 @@ public class TtsTools {
             }
             if (loaded > 0) log.info("Loaded {} cached TTS audio files from {}", loaded, cacheDir);
         }
-        log.info("[TTS] Ready — engine={}, autoSpeak={}, openAi={}, elevenLabs={}, voice={}",
-                ttsEngine, autoSpeak, openAiTts.isAvailable(), elevenLabs.isEnabled(), openAiTts.getVoice());
+        log.info("[TTS] Ready — engine={}, autoSpeak={}, openAi={}, elevenLabs={}, fishAudio={}, voice={}",
+                ttsEngine, autoSpeak, openAiTts.isAvailable(), elevenLabs.isEnabled(), fishAudio.isEnabled(), openAiTts.getVoice());
     }
 
     // ═══ Config ═══
 
+    public String getTtsEngine() { return ttsEngine; }
+
     public boolean isAutoSpeak() { return autoSpeak; }
+
+    /**
+     * Turn automatic speech for chat replies on/off (persists {@code auto_speak} under ## Voice in minsbot_config.txt).
+     */
+    public void setAutoSpeak(boolean enabled) {
+        autoSpeak = enabled;
+        persistAutoSpeakToConfig(enabled);
+        log.info("[TTS] Auto-speak {}", enabled ? "ON" : "OFF");
+    }
 
     /**
      * Stop any currently playing TTS audio immediately.
@@ -165,7 +183,7 @@ public class TtsTools {
                 switch (key) {
                     case "auto_speak" -> autoSpeak = val.equals("true");
                     case "tts_engine" -> {
-                        if (val.equals("elevenlabs") || val.equals("openai") || val.equals("auto")) {
+                        if (val.equals("elevenlabs") || val.equals("openai") || val.equals("fishaudio") || val.equals("auto")) {
                             ttsEngine = val;
                         }
                     }
@@ -209,6 +227,131 @@ public class TtsTools {
         }
         sb.append("\nTo use a specific mic, set 'mic_device' in minsbot_config.txt under ## Voice.");
         return sb.toString();
+    }
+
+    @Tool(description = "Switch between Fish Audio and ElevenLabs as the active cloud TTS provider. "
+            + "Use when the user asks to use Fish vs ElevenLabs, toggle voice providers, or 'switch TTS to fish/elevenlabs'. "
+            + "Saves to minsbot_config.txt under ## Voice. For OpenAI-only or automatic engine order, use switchTtsEngine.")
+    public String switchCloudTtsProvider(
+            @ToolParam(description = "fish / fishaudio / 'fish audio' for Fish Audio; eleven / elevenlabs / 'eleven labs' for ElevenLabs") String provider) {
+        if (provider == null || provider.isBlank()) {
+            return "Say which provider: Fish Audio (fish) or ElevenLabs (eleven / elevenlabs).";
+        }
+        String eng = normalizeCloudTtsProvider(provider);
+        if (eng == null) {
+            return "Unknown provider '" + provider.trim() + "'. Use 'fish' for Fish Audio or 'eleven' / 'elevenlabs' for ElevenLabs.";
+        }
+        notifier.notify("Switching TTS to " + eng);
+        return applyTtsEngineSwitch(eng);
+    }
+
+    @Tool(description = "Switch the active TTS (text-to-speech) engine. Use when the user says 'switch audio to ...', "
+            + "'use fish audio', 'change voice to elevenlabs', 'switch tts to openai', etc. "
+            + "Valid engines: 'fishaudio', 'elevenlabs', 'openai', 'auto'. "
+            + "This changes the engine immediately AND saves it to minsbot_config.txt so it persists across restarts.")
+    public String switchTtsEngine(
+            @ToolParam(description = "Engine name: fishaudio, elevenlabs, openai, or auto") String engine) {
+        if (engine == null || engine.isBlank()) return "Please specify an engine: fishaudio, elevenlabs, openai, or auto.";
+        String eng = engine.trim().toLowerCase()
+                .replace("fish audio", "fishaudio")
+                .replace("fish_audio", "fishaudio")
+                .replace("eleven labs", "elevenlabs")
+                .replace("eleven_labs", "elevenlabs")
+                .replace("openai tts", "openai");
+        if (!eng.equals("fishaudio") && !eng.equals("elevenlabs") && !eng.equals("openai") && !eng.equals("auto")) {
+            return "Unknown engine '" + engine + "'. Valid options: fishaudio, elevenlabs, openai, auto.";
+        }
+        notifier.notify("Switching TTS to " + eng);
+        return applyTtsEngineSwitch(eng);
+    }
+
+    /**
+     * Maps user phrasing to {@code fishaudio} or {@code elevenlabs}, or null if not recognized.
+     */
+    private static String normalizeCloudTtsProvider(String provider) {
+        String s = provider.trim().toLowerCase()
+                .replace("fish audio", "fishaudio")
+                .replace("fish_audio", "fishaudio")
+                .replace("eleven labs", "elevenlabs")
+                .replace("eleven_labs", "elevenlabs");
+        if (s.equals("fish") || s.equals("fishaudio")) return "fishaudio";
+        if (s.equals("eleven") || s.equals("elevenlabs")) return "elevenlabs";
+        return null;
+    }
+
+    /** Apply engine id (fishaudio, elevenlabs, openai, auto): warnings, state, persist, log. */
+    private String applyTtsEngineSwitch(String eng) {
+        String warning = "";
+        if ("fishaudio".equals(eng) && !fishAudio.isEnabled()) {
+            warning = " (Warning: Fish Audio API key not configured — it may not work until you set fish.audio.api.key)";
+        } else if ("elevenlabs".equals(eng) && !elevenLabs.isEnabled()) {
+            warning = " (Warning: ElevenLabs not fully configured — check API key and voice ID)";
+        } else if ("openai".equals(eng) && !openAiTts.isAvailable()) {
+            warning = " (Warning: OpenAI TTS not available — check API key)";
+        }
+
+        String oldEngine = ttsEngine;
+        ttsEngine = eng;
+        persistTtsEngineToConfig(eng);
+        log.info("[TTS] Engine switched: {} → {}", oldEngine, eng);
+
+        String label = switch (eng) {
+            case "fishaudio" -> "Fish Audio";
+            case "elevenlabs" -> "ElevenLabs";
+            case "openai" -> "OpenAI TTS";
+            default -> "Auto (best available)";
+        };
+        return "TTS engine switched to " + label + "." + warning;
+    }
+
+    @Tool(description = "Show current TTS status: which engine is active, which engines are available, and current settings. "
+            + "Use when the user asks 'what voice are you using?', 'which tts?', 'voice status', etc.")
+    public String getTtsStatus() {
+        notifier.notify("Checking TTS status");
+        StringBuilder sb = new StringBuilder("TTS Status:\n");
+        sb.append("- Active engine: ").append(ttsEngine).append("\n");
+        sb.append("- Auto-speak: ").append(autoSpeak ? "ON" : "OFF").append("\n\n");
+        sb.append("Available engines:\n");
+        sb.append("  1. Fish Audio: ").append(fishAudio.isEnabled() ? "READY" : "not configured").append("\n");
+        sb.append("  2. ElevenLabs: ").append(elevenLabs.isEnabled() ? "READY" : "not configured").append("\n");
+        sb.append("  3. OpenAI TTS: ").append(openAiTts.isAvailable() ? "READY" : "not configured").append("\n\n");
+        sb.append("To switch Fish ↔ ElevenLabs: switchCloudTtsProvider. For OpenAI or auto: switchTtsEngine.");
+        return sb.toString();
+    }
+
+    /**
+     * Persist the tts_engine value to ~/mins_bot_data/minsbot_config.txt under ## Voice.
+     */
+    private void persistTtsEngineToConfig(String engine) {
+        try {
+            if (!Files.exists(CONFIG_PATH)) return;
+            String content = Files.readString(CONFIG_PATH);
+            // Replace the tts_engine line under ## Voice
+            String updated = content.replaceAll(
+                    "(?m)(^- tts_engine:).*$",
+                    "$1 " + engine);
+            if (!updated.equals(content)) {
+                Files.writeString(CONFIG_PATH, updated);
+                log.debug("[TTS] Persisted tts_engine={} to config", engine);
+            }
+        } catch (IOException e) {
+            log.warn("[TTS] Failed to persist engine to config: {}", e.getMessage());
+        }
+    }
+
+    private void persistAutoSpeakToConfig(boolean enabled) {
+        try {
+            if (!Files.exists(CONFIG_PATH)) return;
+            String content = Files.readString(CONFIG_PATH);
+            String val = enabled ? "true" : "false";
+            String updated = content.replaceAll("(?m)(^- auto_speak:).*$", "$1 " + val);
+            if (!updated.equals(content)) {
+                Files.writeString(CONFIG_PATH, updated);
+                log.debug("[TTS] Persisted auto_speak={} to config", val);
+            }
+        } catch (IOException e) {
+            log.warn("[TTS] Failed to persist auto_speak to config: {}", e.getMessage());
+        }
     }
 
     // ═══ Auto-speak (called by ChatService after every reply) ═══
@@ -258,11 +401,25 @@ public class TtsTools {
                 ? elevenLabsProps.getFemaleVoiceId()
                 : elevenLabsProps.getMaleVoiceId();
 
+        String genderSegment = text + "_" + gender;
+
         // Try ElevenLabs with the gendered voice
         if (elevenLabs.isEnabled() && voiceId != null && !voiceId.isBlank()) {
             log.info("[TTS] Speaking with {} voice (voiceId={})", gender, voiceId);
             InputStream stream = elevenLabs.textToSpeechStream(text, voiceId);
-            if (streamAndPlay(stream, cacheKey(text + "_" + gender), text, "ElevenLabs-" + gender)) {
+            if (streamAndPlay(stream, cacheKeyForProvider(genderSegment, "elevenlabs"), text, "ElevenLabs-" + gender)) {
+                return;
+            }
+        }
+
+        // Try Fish Audio with gendered voice
+        String fishRefId = "female".equalsIgnoreCase(gender)
+                ? fishAudioProps.getFemaleReferenceId()
+                : fishAudioProps.getMaleReferenceId();
+        if (fishAudio.isEnabled() && fishRefId != null && !fishRefId.isBlank()) {
+            log.info("[TTS] Speaking with {} voice via FishAudio (ref={})", gender, fishRefId);
+            InputStream fishStream = fishAudio.textToSpeechStream(text, fishRefId);
+            if (streamAndPlay(fishStream, cacheKeyForProvider(genderSegment, "fishaudio"), text, "FishAudio-" + gender)) {
                 return;
             }
         }
@@ -272,7 +429,7 @@ public class TtsTools {
             String origVoice = openAiTts.getVoice();
             try {
                 openAiTts.setVoice("female".equalsIgnoreCase(gender) ? "nova" : "onyx");
-                if (tryStreamOpenAi(text, cacheKey(text + "_" + gender))) return;
+                if (tryStreamOpenAi(text, cacheKeyForProvider(genderSegment, "openai"))) return;
             } finally {
                 openAiTts.setVoice(origVoice);
             }
@@ -285,31 +442,35 @@ public class TtsTools {
 
     private String doSpeak(String text) {
         stopRequested = false; // reset for this new speak call
-        String key = cacheKey(text);
-
-        // Try cache first (instant playback)
-        if (audioCache.containsKey(key) || Files.exists(cacheDir.resolve(key + ".wav"))) {
-            playAudio(key);
-            return "Spoke (cached): \"" + truncate(text) + "\"";
-        }
-
-        // Stream and play based on tts_engine preference
         String engine = ttsEngine;
-        log.info("[TTS] doSpeak engine={}, elevenLabs.enabled={}, openAi.available={}",
-                engine, elevenLabs.isEnabled(), openAiTts.isAvailable());
+        log.info("[TTS] doSpeak engine={}, fish.enabled={}, elevenLabs.enabled={}, openAi.available={}",
+                engine, fishAudio.isEnabled(), elevenLabs.isEnabled(), openAiTts.isAvailable());
+
+        String cachedMsg = "Spoke (cached): \"" + truncate(text) + "\"";
+        String spokeMsg = "Spoke: \"" + truncate(text) + "\"";
 
         if ("elevenlabs".equals(engine)) {
-            // ElevenLabs first, OpenAI fallback
-            if (tryStreamElevenLabs(text, key)) return "Spoke: \"" + truncate(text) + "\"";
-            if (tryStreamOpenAi(text, key))     return "Spoke: \"" + truncate(text) + "\"";
+            if (tryPlayCachedProvider(text, "elevenlabs")) return cachedMsg;
+            if (tryStreamElevenLabs(text, cacheKeyForProvider(text, "elevenlabs"))) return spokeMsg;
+            if (tryStreamFishAudio(text, cacheKeyForProvider(text, "fishaudio"))) return spokeMsg;
+            if (tryStreamOpenAi(text, cacheKeyForProvider(text, "openai"))) return spokeMsg;
+        } else if ("fishaudio".equals(engine)) {
+            if (tryPlayCachedProvider(text, "fishaudio")) return cachedMsg;
+            if (tryStreamFishAudio(text, cacheKeyForProvider(text, "fishaudio"))) return spokeMsg;
+            log.info("[TTS] Fish Audio failed or empty — falling back to ElevenLabs / OpenAI");
+            if (tryStreamElevenLabs(text, cacheKeyForProvider(text, "elevenlabs"))) return spokeMsg;
+            if (tryStreamOpenAi(text, cacheKeyForProvider(text, "openai"))) return spokeMsg;
         } else if ("openai".equals(engine)) {
-            // OpenAI first, ElevenLabs fallback
-            if (tryStreamOpenAi(text, key))     return "Spoke: \"" + truncate(text) + "\"";
-            if (tryStreamElevenLabs(text, key)) return "Spoke: \"" + truncate(text) + "\"";
+            if (tryPlayCachedProvider(text, "openai")) return cachedMsg;
+            if (tryStreamOpenAi(text, cacheKeyForProvider(text, "openai"))) return spokeMsg;
+            if (tryStreamFishAudio(text, cacheKeyForProvider(text, "fishaudio"))) return spokeMsg;
+            if (tryStreamElevenLabs(text, cacheKeyForProvider(text, "elevenlabs"))) return spokeMsg;
         } else {
-            // "auto" — try whichever is available (ElevenLabs first for quality)
-            if (elevenLabs.isEnabled() && tryStreamElevenLabs(text, key)) return "Spoke: \"" + truncate(text) + "\"";
-            if (openAiTts.isAvailable() && tryStreamOpenAi(text, key))   return "Spoke: \"" + truncate(text) + "\"";
+            // "auto" — cache lookup matches generation order (Fish → ElevenLabs → OpenAI)
+            if (tryPlayCachedAutoOrder(text)) return cachedMsg;
+            if (fishAudio.isEnabled() && tryStreamFishAudio(text, cacheKeyForProvider(text, "fishaudio"))) return spokeMsg;
+            if (elevenLabs.isEnabled() && tryStreamElevenLabs(text, cacheKeyForProvider(text, "elevenlabs"))) return spokeMsg;
+            if (openAiTts.isAvailable() && tryStreamOpenAi(text, cacheKeyForProvider(text, "openai"))) return spokeMsg;
         }
 
         log.warn("[TTS] All cloud TTS engines failed — no audio produced");
@@ -327,6 +488,17 @@ public class TtsTools {
         log.info("[TTS] Trying ElevenLabs stream (voice={})...", elevenLabs.getVoiceId());
         boolean ok = streamAndPlay(elevenLabs.textToSpeechStream(text), key, text, "ElevenLabs");
         if (!ok) log.warn("[TTS] ElevenLabs stream returned no data");
+        return ok;
+    }
+
+    private boolean tryStreamFishAudio(String text, String key) {
+        if (!fishAudio.isEnabled()) {
+            log.debug("[TTS] FishAudio skipped — not enabled");
+            return false;
+        }
+        log.info("[TTS] Trying FishAudio stream (ref={})...", fishAudio.getReferenceId());
+        boolean ok = streamAndPlay(fishAudio.textToSpeechStream(text), key, text, "FishAudio");
+        if (!ok) log.warn("[TTS] FishAudio stream returned no data");
         return ok;
     }
 
@@ -420,29 +592,30 @@ public class TtsTools {
 
     public boolean generateAndCache(String text) {
         if (text == null || text.isBlank()) return false;
-        String key = cacheKey(text);
-        if (audioCache.containsKey(key)) return true;
+        if (audioCache.containsKey(cacheKeyForProvider(text, "openai"))
+                || audioCache.containsKey(cacheKeyForProvider(text, "fishaudio"))
+                || audioCache.containsKey(cacheKeyForProvider(text, "elevenlabs"))) {
+            return true;
+        }
 
         if (openAiTts.isAvailable()) {
             byte[] audio = generateOpenAiTts(text);
-            if (audio != null) { saveToCache(key, audio); return true; }
+            if (audio != null) { saveToCache(cacheKeyForProvider(text, "openai"), audio); return true; }
+        }
+        if (fishAudio.isEnabled()) {
+            byte[] audio = generateFishAudio(text);
+            if (audio != null) { saveToCache(cacheKeyForProvider(text, "fishaudio"), audio); return true; }
         }
         if (elevenLabs.isEnabled()) {
             byte[] audio = generateElevenLabs(text);
-            if (audio != null) { saveToCache(key, audio); return true; }
+            if (audio != null) { saveToCache(cacheKeyForProvider(text, "elevenlabs"), audio); return true; }
         }
         return false;
     }
 
     public boolean playFromCache(String text) {
         if (text == null || text.isBlank()) return false;
-        String key = cacheKey(text);
-        Path wavFile = cacheDir.resolve(key + ".wav");
-        if (Files.exists(wavFile)) {
-            playAudio(key);
-            return true;
-        }
-        return false;
+        return tryPlayCachedAutoOrder(text);
     }
 
     // ═══ Cache operations ═══
@@ -464,6 +637,33 @@ public class TtsTools {
         if (sanitized.length() > 50) sanitized = sanitized.substring(0, 50);
         if (sanitized.isEmpty()) sanitized = "tts_" + text.hashCode();
         return sanitized;
+    }
+
+    /**
+     * Separate cache entries per TTS provider so switching Fish ↔ ElevenLabs does not replay
+     * the wrong engine's WAV (keys were previously text-only).
+     *
+     * @param providerTag {@code fishaudio}, {@code elevenlabs}, or {@code openai}
+     */
+    private String cacheKeyForProvider(String text, String providerTag) {
+        return cacheKey(text + "_" + providerTag);
+    }
+
+    private boolean tryPlayCachedProvider(String text, String providerTag) {
+        String k = cacheKeyForProvider(text, providerTag);
+        if (audioCache.containsKey(k) || Files.exists(cacheDir.resolve(k + ".wav"))) {
+            playAudio(k);
+            return true;
+        }
+        return false;
+    }
+
+    /** Same priority as {@code auto} generation: Fish, then ElevenLabs, then OpenAI. */
+    private boolean tryPlayCachedAutoOrder(String text) {
+        if (tryPlayCachedProvider(text, "fishaudio")) return true;
+        if (tryPlayCachedProvider(text, "elevenlabs")) return true;
+        if (tryPlayCachedProvider(text, "openai")) return true;
+        return false;
     }
 
     // ═══ Audio generation ═══
@@ -527,6 +727,21 @@ public class TtsTools {
     private static void writeInt16LE(byte[] buf, int offset, short value) {
         buf[offset]     = (byte) (value & 0xFF);
         buf[offset + 1] = (byte) ((value >> 8) & 0xFF);
+    }
+
+    private byte[] generateFishAudio(String text) {
+        try {
+            byte[] audio = fishAudio.textToSpeech(text);
+            if (audio != null && audio.length > 0) {
+                // Fish Audio PCM: wrap as WAV (24kHz 16-bit mono)
+                byte[] wav = wrapPcmAsWav(audio, 24000, 1, 16);
+                log.info("[TTS] FishAudio generated {} bytes WAV", wav.length);
+                return wav;
+            }
+        } catch (Exception e) {
+            log.warn("[TTS] FishAudio failed: {}", e.getMessage());
+        }
+        return null;
     }
 
     private byte[] generateElevenLabs(String text) {

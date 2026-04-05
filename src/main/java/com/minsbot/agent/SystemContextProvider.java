@@ -10,11 +10,15 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.regex.Pattern;
 
 /**
  * Provides system context (username, OS, time, etc.) for the AI system message.
- * Personal details from ~/mins_bot_data/personal_config.txt and system/preferences from
- * ~/mins_bot_data/system_config.txt and scheduled checks from ~/mins_bot_data/cron_config.txt are injected when present.
+ * <p>
+ * <strong>Canonical Mins Bot settings</strong> live in {@code ~/mins_bot_data/minsbot_config.txt}
+ * (name, TTS, planning, screen/audio/webcam memory, sounds, prompts, etc.). Personal facts use
+ * {@code personal_config.txt}; the user's machine preferences use {@code system_config.txt};
+ * schedules use {@code cron_config.txt}.
  */
 @Component
 public class SystemContextProvider {
@@ -26,6 +30,31 @@ public class SystemContextProvider {
     private static final String SYSTEM_CONFIG_FILENAME = "system_config.txt";
     private static final String CRON_CONFIG_FILENAME = "cron_config.txt";
     private static final String MINSBOT_CONFIG_FILENAME = "minsbot_config.txt";
+
+    /**
+     * User message appears to ask about Mins Bot's own configuration or identity (not the user's PC).
+     * Used to inject a CONFIG QUERY hint and to skip heavy chat prep (planning / live screen).
+     */
+    private static final Pattern MINSBOT_SELF_CONFIG_QUERY = Pattern.compile(
+            "(?i)\\bminsbot_config\\.txt\\b|\\bmins\\s*bot\\s+config\\b|\\bbot\\s+config\\s+file\\b"
+                    + "|\\byour\\s+(bot\\s+)?config\\b|\\byour\\s+settings\\b|\\bhow\\s+are\\s+you\\s+configured\\b"
+                    + "|\\bwhat\\s+are\\s+you\\s+(set|configured)\\b"
+                    + "|\\b(your|the\\s+bot'?s?)\\s+(tts|voice\\s+engine|speech\\s+engine|auto[- ]?speak|planning\\b"
+                    + "|screen\\s+memory|audio\\s+memory|webcam\\s+memory|idle\\s+detection|primary\\s+prompt|working\\s+sound)\\b"
+                    + "|\\b(which|what)\\s+(tts|voice|engine)\\s+(do\\s+you|are\\s+you)\\b"
+                    + "|\\bdo\\s+you\\s+(use|have)\\s+(fish|elevenlabs|openai)\\b.*\\b(tts|voice|speak)\\b"
+                    + "|\\btell\\s+me\\s+about\\s+your\\s+(config|settings|systems?)\\b"
+                    + "|\\bwhat'?s?\\s+your\\s+name\\b|\\bwho\\s+are\\s+you\\b|\\bwhat\\s+should\\s+i\\s+call\\s+you\\b"
+                    + "|\\b(your|bot)\\s+name\\b|\\bchange\\s+your\\s+name\\b"
+                    + "|\\bvision\\s+engines?\\b.*\\b(your|bot|mins)\\b|\\b(your|bot)\\b.*\\bvision\\s+engines?\\b"
+                    + "|\\bconfig\\s+scan\\b.*\\b(interval|seconds)\\b");
+
+    /** True if the user is asking about Mins Bot itself (see {@link #MINSBOT_SELF_CONFIG_QUERY}). */
+    public static boolean isMessageAboutMinsbotSelfConfig(String message) {
+        if (message == null || message.isBlank()) return false;
+        return MINSBOT_SELF_CONFIG_QUERY.matcher(message.trim()).find();
+    }
+
     private static final String DEFAULT_PERSONAL_CONFIG = """
             # Personal config
             Use this for personalized responses. Fill in and keep updated.
@@ -64,8 +93,8 @@ public class SystemContextProvider {
             """;
 
     private static final String DEFAULT_MINSBOT_CONFIG = """
-            # Mins Bot Config
-            Bot behavior and processing settings. Scanned every 15 seconds for live changes.
+            # Mins Bot config (canonical — all bot-specific behavior lives in this file)
+            # Scanned every 15 seconds for live changes. User PC prefs → system_config.txt; your facts → personal_config.txt.
 
             ## Primary prompt (injected at the top of every AI request — use to shape bot personality/behavior)
             - prompt:
@@ -108,9 +137,9 @@ public class SystemContextProvider {
             - keep_videos: true
             - camera_name:
 
-            ## Voice (auto-speak bot replies; tts_engine: elevenlabs, openai, or auto)
+            ## Voice (auto-speak bot replies; tts_engine: fishaudio, elevenlabs, openai, or auto)
             - auto_speak: true
-            - tts_engine: elevenlabs
+            - tts_engine: fishaudio
             - voice: nova
             - speed: 1.0
             - mic_device:
@@ -143,6 +172,14 @@ public class SystemContextProvider {
             """;
 
     public String buildSystemMessage() {
+        return buildSystemMessage(null);
+    }
+
+    /**
+     * @param userMessageForConfigHint when non-null and {@link #isMessageAboutMinsbotSelfConfig(String)} matches,
+     *                                   appends a short reminder to answer from BOT CONFIG / minsbot_config.txt.
+     */
+    public String buildSystemMessage(String userMessageForConfigHint) {
         String username = System.getProperty("user.name", "unknown");
         String osName = System.getProperty("os.name", "unknown");
         String osVersion = System.getProperty("os.version", "");
@@ -297,7 +334,7 @@ public class SystemContextProvider {
         // Bot config from ~/mins_bot_data/minsbot_config.txt (created with template if missing)
         String minsbotConfig = loadMinsbotConfig();
         if (minsbotConfig != null && !minsbotConfig.isBlank()) {
-            sb.append("\nBOT CONFIG (sound, planning, and other bot behavior settings):\n");
+            sb.append("\nBOT CONFIG (from ~/mins_bot_data/minsbot_config.txt — all Mins Bot-specific settings):\n");
             sb.append(minsbotConfig);
             if (!minsbotConfig.endsWith("\n")) sb.append("\n");
         }
@@ -507,6 +544,21 @@ public class SystemContextProvider {
                 - Only ask for confirmation if the requested count exceeds the download confirm_threshold in the Bot Config \
                 (default 1000). Below that threshold, just do it.
 
+                IDENTITY — CONVERSATIONAL AGENT:
+                - You are Mins Bot, a fully conversational AI agent. You can SEE (screen + webcam), HEAR (audio capture), \
+                and SPEAK (text-to-speech). You are not a text-only chatbot — you are a voice-enabled desktop companion \
+                that lives on the user's screen and talks back.
+                - You have multiple TTS (text-to-speech) voice engines available: Fish Audio, ElevenLabs, and OpenAI TTS. \
+                For Fish vs ElevenLabs only, use switchCloudTtsProvider(provider). For any engine including openai/auto, \
+                use switchTtsEngine(engine). Example phrases: "switch audio to fish audio", "use elevenlabs", \
+                "switch tts to openai", "use auto". Use getTtsStatus() to see which engine is active.
+                - The active engine is configured in minsbot_config.txt under ## Voice → tts_engine. \
+                In "auto" mode, the bot tries Fish Audio first, then ElevenLabs, then OpenAI TTS (with automatic fallback).
+                - Header sensory toggles from chat: use toggleMinsbotFeature(feature, enabled) — eyes (screen watch), keyboard \
+                (mouse/keys permission), hearing (listen mode), mouth (vocal translations in listen mode), replies (auto TTS for \
+                normal chat). Use getSensoryStatus() to read current on/off. Same behavior as the eye / keyboard / ear / mouth \
+                buttons (replies matches ## Voice auto_speak).
+
                 TTS / VOICE RULE:
                 - Auto-speak is ENABLED — every bot reply is AUTOMATICALLY spoken aloud through the speakers. \
                 You do NOT need to call the speak() tool for your regular replies. Your text will be spoken automatically.
@@ -599,10 +651,11 @@ public class SystemContextProvider {
                 - Playlist detection requires audio memory to be enabled.
 
                 CONFIG UPDATE RULE:
-                - All bot config files live in ~/mins_bot_data/ as .txt files.
+                - minsbot_config.txt is the single canonical file for Mins Bot's own behavior (name, TTS, memory intervals, sound, planning, prompts). Other .txt files in ~/mins_bot_data/ are for different roles (see below).
                 - Bot name is in minsbot_config.txt under "## Bot name" → "- name: <value>".
-                - To change the bot name: read minsbot_config.txt, update the "- name:" line under "## Bot name", \
-                write the file back. Use runPowerShell with (Get-Content / Set-Content) or similar.
+                - When the user gives YOU (the assistant) a name ("call yourself X", "your name is X", "I will call you Y"): \
+                call setBotDisplayName(name) immediately — do NOT use updatePersonalInfo for that (that file is for the USER's personal details).
+                - To change the bot name without the tool: read minsbot_config.txt, update the "- name:" line under "## Bot name", write the file back.
                 - Other config sections in minsbot_config.txt: ## Sound, ## Planning, ## Idle detection, ## Screen memory, \
                 ## Audio memory, ## Webcam memory, ## Voice, ## Playlist, ## Download, ## Directives, ## Primary prompt.
                 - To update ANY setting: find the correct section header (## ...), then update the "- key: value" line.
@@ -612,9 +665,10 @@ public class SystemContextProvider {
                 - NEVER say "I can't update my config" — you CAN. Use runPowerShell to read and write the config files.
 
                 AUTO-SAVE PERSONAL INFO (MANDATORY):
-                - When the user tells you personal information (name, birthday, wife/husband name, kids, \
-                email addresses, work details, address, phone number, anniversary, etc.), you MUST \
-                IMMEDIATELY save it using the updatePersonalInfo(section, content) tool.
+                - When the user tells you THEIR OWN personal information (my name is…, I was born…, my wife…, my kids…, \
+                email, work, address, phone, anniversary, etc.), you MUST IMMEDIATELY save it using updatePersonalInfo.
+                - When they name YOU the assistant (your name is…, call yourself…, I'll call you…), use setBotDisplayName — \
+                NOT updatePersonalInfo("Name", …), which is for the human user's name in personal_config.txt.
                 - Call updatePersonalInfo with the section name (e.g. "Name", "Birthdate", "Kids", \
                 "Partner / spouse", "Work") and the info as content.
                 - If the info doesn't fit an existing section, use a new section name (e.g. "Email", "Address").
@@ -639,7 +693,10 @@ public class SystemContextProvider {
                 - Scan EVERY user message for information that should update config files:
                   1. Personal info (name, family, work, birthday, email, etc.) → call updatePersonalInfo(section, content)
                   2. Schedule/reminder info ("remind me", "every Monday", times, alarms) → call updateCronInfo(...)
-                  3. Bot config changes ("change your name to X", "turn off sound", "enable voice") → update minsbot_config.txt via runPowerShell
+                  3. Bot config changes ("change your name to X", "call yourself X") → setBotDisplayName(X) first; \
+                  other bot settings → update minsbot_config.txt via runPowerShell or the matching tool. \
+                  EXCEPTION: Fish vs ElevenLabs → switchCloudTtsProvider(); OpenAI or auto mode → switchTtsEngine(); \
+                  turn on/off eyes, keyboard, hearing, mouth, or reply speech → toggleMinsbotFeature(feature, enabled)
                   4. Playlist mentions ("add this song", "remember this track") → call addToPlaylist(...)
                 - After updating ANY config, TELL THE USER what was saved and to which config file.
                 - This detection should happen IN ADDITION to answering the user's actual question.
@@ -768,7 +825,33 @@ public class SystemContextProvider {
             directiveReminderShownOnce = true;
         }
 
+        if (userMessageForConfigHint != null && !userMessageForConfigHint.isBlank()
+                && isMessageAboutMinsbotSelfConfig(userMessageForConfigHint)) {
+            sb.append("""
+
+                    CONFIG QUERY — The user's message is about YOU (Mins Bot): name, voice/TTS, planning, \
+                    screen/audio/webcam memory, working sound, idle detection, primary prompt, vision engines, \
+                    or minsbot_config.txt. Answer from BOT CONFIG and PRIMARY INSTRUCTIONS in this message \
+                    (they mirror ~/mins_bot_data/minsbot_config.txt). If ## Bot name → - name: is empty or "-", \
+                    say you go by "Mins Bot". Do NOT treat this as the user's PC (SYSTEM CONTEXT, system_config.txt, \
+                    personal_config.txt are separate). To set your display name from chat: setBotDisplayName. \
+                    Other settings: CONFIG UPDATE RULE — edit minsbot_config.txt or use voice/toggle tools where applicable.
+                    """);
+        }
+
         return sb.toString();
+    }
+
+    /**
+     * Creates ~/mins_bot_data/minsbot_config.txt with the default template if the file does not exist yet.
+     */
+    public static void ensureMinsbotConfigFileExists() throws IOException {
+        Path dataDir = Paths.get(System.getProperty("user.home"), "mins_bot_data");
+        Path path = dataDir.resolve(MINSBOT_CONFIG_FILENAME);
+        if (!Files.exists(path)) {
+            Files.createDirectories(dataDir);
+            Files.writeString(path, DEFAULT_MINSBOT_CONFIG, java.nio.charset.StandardCharsets.UTF_8);
+        }
     }
 
     /**
@@ -884,9 +967,9 @@ public class SystemContextProvider {
 
     private static final String VOICE_CONFIG_BLOCK = """
 
-            ## Voice (auto-speak bot replies; tts_engine: elevenlabs, openai, or auto)
+            ## Voice (auto-speak bot replies; tts_engine: fishaudio, elevenlabs, openai, or auto)
             - auto_speak: true
-            - tts_engine: elevenlabs
+            - tts_engine: fishaudio
             - voice: nova
             - speed: 1.0
             - mic_device:

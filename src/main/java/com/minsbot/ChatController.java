@@ -12,6 +12,7 @@ import java.nio.file.Paths;
 import com.minsbot.agent.tools.AudioListeningTools;
 import com.minsbot.agent.tools.ScreenClickTools;
 import com.minsbot.agent.tools.ScreenWatchingTools;
+import com.minsbot.agent.tools.TtsTools;
 
 import java.util.List;
 import java.util.Map;
@@ -28,16 +29,19 @@ public class ChatController {
     private final ScreenWatchingTools screenWatchingTools;
     private final AudioListeningTools audioListeningTools;
     private final ScreenClickTools screenClickTools;
+    private final TtsTools ttsTools;
 
     public ChatController(ChatService chatService, TranscriptService transcriptService,
                           ScreenWatchingTools screenWatchingTools,
                           AudioListeningTools audioListeningTools,
-                          ScreenClickTools screenClickTools) {
+                          ScreenClickTools screenClickTools,
+                          TtsTools ttsTools) {
         this.chatService = chatService;
         this.transcriptService = transcriptService;
         this.screenWatchingTools = screenWatchingTools;
         this.audioListeningTools = audioListeningTools;
         this.screenClickTools = screenClickTools;
+        this.ttsTools = ttsTools;
     }
 
     @GetMapping(value = "/version", produces = MediaType.APPLICATION_JSON_VALUE)

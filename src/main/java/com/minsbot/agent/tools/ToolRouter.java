@@ -38,6 +38,7 @@ public class ToolRouter {
     private final ClipboardTools clipboardTools;
     private final TodoListTools todoListTools;
     private final PersonalConfigTools personalConfigTools;
+    private final MinsbotConfigTools minsbotConfigTools;
 
     private final PlaywrightTools playwrightTools;
     private final DownloadTools downloadTools;
@@ -85,6 +86,7 @@ public class ToolRouter {
     private final ScreenRecordTools screenRecordTools;
     private final ScreenWatchingTools screenWatchingTools;
     private final AudioListeningTools audioListeningTools;
+    private final SensoryToggleTools sensoryToggleTools;
     private final TravelSearchTools travelSearchTools;
     private final WordDocTools wordDocTools;
     private final GlobalHotkeyService globalHotkeyService;
@@ -117,6 +119,7 @@ public class ToolRouter {
             ClipboardTools clipboardTools,
             TodoListTools todoListTools,
             PersonalConfigTools personalConfigTools,
+            MinsbotConfigTools minsbotConfigTools,
             PlaywrightTools playwrightTools,
             DownloadTools downloadTools,
             WebScraperTools webScraperTools,
@@ -155,6 +158,7 @@ public class ToolRouter {
             ScreenRecordTools screenRecordTools,
             ScreenWatchingTools screenWatchingTools,
             AudioListeningTools audioListeningTools,
+            SensoryToggleTools sensoryToggleTools,
             TravelSearchTools travelSearchTools,
             WordDocTools wordDocTools,
             GlobalHotkeyService globalHotkeyService,
@@ -170,6 +174,7 @@ public class ToolRouter {
         this.clipboardTools = clipboardTools;
         this.todoListTools = todoListTools;
         this.personalConfigTools = personalConfigTools;
+        this.minsbotConfigTools = minsbotConfigTools;
         this.playwrightTools = playwrightTools;
         this.downloadTools = downloadTools;
         this.webScraperTools = webScraperTools;
@@ -208,6 +213,7 @@ public class ToolRouter {
         this.screenRecordTools = screenRecordTools;
         this.screenWatchingTools = screenWatchingTools;
         this.audioListeningTools = audioListeningTools;
+        this.sensoryToggleTools = sensoryToggleTools;
         this.travelSearchTools = travelSearchTools;
         this.wordDocTools = wordDocTools;
         this.globalHotkeyService = globalHotkeyService;
@@ -237,6 +243,25 @@ public class ToolRouter {
 
     public Object[] selectTools(String message) {
         return doSelect(message, coreTools, categories, defaultTools);
+    }
+
+    /**
+     * Fixed tool set for parallel background agents (Agents tab): web search, files, HTTP/HTML fetch,
+     * and headless Playwright (separate browser contexts — not the user's Chrome/CDP).
+     * Excludes screen control, CDP, shell, email, etc.
+     */
+    public Object[] selectToolsForBackgroundAgent() {
+        Set<Object> beans = new LinkedHashSet<>();
+        beans.add(webSearchTools);
+        beans.add(webScraperTools);
+        beans.add(fileTools);
+        beans.add(fileSystemTools);
+        beans.add(excelTools);
+        beans.add(wordDocTools);
+        beans.add(pdfTools);
+        beans.add(playwrightTools);
+        beans.add(downloadTools);
+        return beans.toArray();
     }
 
     public Object[] selectToolsForAutonomous(String message) {
@@ -303,7 +328,7 @@ public class ToolRouter {
     private void countToolsOnAllBeans() {
         Object[] allBeans = {
                 directivesTools, directiveDataTools,
-                chatHistoryTool, taskStatusTool, clipboardTools, todoListTools, personalConfigTools,
+                chatHistoryTool, taskStatusTool, clipboardTools, todoListTools, personalConfigTools, minsbotConfigTools,
                 playwrightTools, downloadTools, webScraperTools, webSearchTools, browserTools, chromeCdpTools,
                 fileTools, fileSystemTools, excelTools, systemTools,
                 imageTools, pdfTools, ttsTools,
@@ -314,6 +339,7 @@ public class ToolRouter {
                 exportTools, sitesConfigTools, cronConfigTools,
                 screenMemoryTools, audioMemoryTools, playlistTools,
                 softwareTools, networkTools, printerTools, screenRecordTools, screenWatchingTools, audioListeningTools,
+                sensoryToggleTools,
                 travelSearchTools, wordDocTools, appSwitchTools, globalHotkeyService, pluginLoaderService, systemTrayService
         };
         for (Object bean : allBeans) {
@@ -362,7 +388,7 @@ public class ToolRouter {
         return List.of(
                 directivesTools, directiveDataTools,
                 chatHistoryTool, taskStatusTool, clipboardTools, todoListTools,
-                personalConfigTools, webSearchTools);
+                personalConfigTools, minsbotConfigTools, webSearchTools, sensoryToggleTools);
     }
 
     private Map<String, List<Object>> buildCategories() {
@@ -390,7 +416,7 @@ public class ToolRouter {
         map.put("screen_memory", List.of(screenMemoryTools));
         map.put("audio_memory", List.of(audioMemoryTools, playlistTools));
         map.put("playlist",     List.of(playlistTools));
-        map.put("screen_watching", List.of(screenWatchingTools, audioListeningTools));
+        map.put("screen_watching", List.of(screenWatchingTools, audioListeningTools, sensoryToggleTools));
         map.put("travel",        List.of(travelSearchTools, webSearchTools, wordDocTools, pdfTools));
 
         return Collections.unmodifiableMap(map);
@@ -410,7 +436,7 @@ public class ToolRouter {
         return List.of(
                 directivesTools, directiveDataTools,
                 chatHistoryTool, taskStatusTool, clipboardTools, todoListTools,
-                personalConfigTools, webSearchTools);
+                personalConfigTools, webSearchTools, sensoryToggleTools);
     }
 
     private Map<String, List<Object>> buildAutonomousCategories() {

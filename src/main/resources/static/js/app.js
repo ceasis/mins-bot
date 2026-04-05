@@ -1,4 +1,13 @@
 (function () {
+  (function initEmbeddedShellTabs() {
+    var qs = new URLSearchParams(window.location.search);
+    var forceFull = qs.get('full') === '1';
+    var forceMinimal = qs.get('minimal') === '1';
+    var hasJavaBridge = typeof window.java !== 'undefined' && window.java;
+    var embedded = (hasJavaBridge && !forceFull) || forceMinimal;
+    if (embedded) document.body.classList.add('embedded-minsbot');
+  })();
+
   const root = document.getElementById('root');
   const messagesEl = document.getElementById('messages');
   const inputEl = document.getElementById('input');
@@ -941,12 +950,124 @@
       document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
       if (tab.dataset.tab === 'browser') startBrowserPolling();
       else stopBrowserPolling();
+      if (tab.dataset.tab === 'agents') startAgentsPolling();
+      else stopAgentsPolling();
       if (tab.dataset.tab === 'skills') { loadSkillsList(); loadPublishedList(); }
       if (tab.dataset.tab === 'schedules') loadSchedules();
       if (tab.dataset.tab === 'todos') loadTodos();
       if (tab.dataset.tab === 'directives') loadDirectives();
+      if (tab.dataset.tab === 'setup') loadSetupTab();
+      if (tab.dataset.tab === 'integrations') refreshGoogleIntegrationsPanel();
     });
   });
+
+  function refreshGoogleIntegrationsPanel() {
+    var hintEl = document.getElementById('integrations-redirect-hint');
+    fetch('/api/integrations/google/status').then(function (r) { return r.json(); }).then(function (data) {
+      if (hintEl && data.redirectUriHint) {
+        hintEl.textContent = 'Authorized redirect URI (Google Cloud Console → OAuth client): ' + data.redirectUriHint;
+        hintEl.hidden = false;
+      }
+      var configured = !!data.configured;
+      var map = data.integrations || {};
+      document.querySelectorAll('#tab-integrations .integration-card[data-oauth-provider="google"][data-integration]').forEach(function (card) {
+        var id = card.getAttribute('data-integration');
+        var info = map[id] || {};
+        var connected = !!info.connected;
+        var badge = card.querySelector('[data-role="badge"]');
+        var hint = card.querySelector('[data-role="hint"]');
+        var btnC = card.querySelector('.integration-oauth-connect');
+        var btnD = card.querySelector('.integration-oauth-disconnect');
+        if (badge) {
+          badge.textContent = connected ? 'Connected' : (configured ? 'Not connected' : 'Setup required');
+          badge.classList.toggle('is-connected', connected);
+        }
+        if (hint) {
+          hint.textContent = configured
+            ? (connected ? 'Signed in for this integration.' : 'Click Sign in to grant API scopes for this service only.')
+            : 'Add Google OAuth in Setup: spring.security.oauth2.client.registration.google client ID & secret (same as TelliChat), or app.integrations.google.* as fallback.';
+        }
+        if (btnC) {
+          btnC.disabled = connected;
+          btnC.hidden = connected;
+        }
+        if (btnD) {
+          btnD.hidden = !connected;
+        }
+      });
+    }).catch(function () {
+      if (hintEl) hintEl.hidden = true;
+    });
+  }
+
+  (function wireGoogleIntegrationsTab() {
+    var tabPanel = document.getElementById('tab-integrations');
+    if (!tabPanel) return;
+    tabPanel.addEventListener('click', function (ev) {
+      var t = ev.target;
+      if (!t || !t.closest) return;
+      var connect = t.closest('.integration-oauth-connect');
+      if (connect && !connect.disabled) {
+        var id = connect.getAttribute('data-integration');
+        if (id) window.location.href = '/api/integrations/google/authorize?integration=' + encodeURIComponent(id);
+        return;
+      }
+      var disc = t.closest('.integration-oauth-disconnect');
+      if (disc && !disc.hidden) {
+        var id2 = disc.getAttribute('data-integration');
+        if (id2) {
+          fetch('/api/integrations/google/disconnect', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ integration: id2 })
+          }).then(function () { refreshGoogleIntegrationsPanel(); }).catch(function () { refreshGoogleIntegrationsPanel(); });
+        }
+      }
+    });
+  })();
+
+  (function handleGoogleOAuthReturn() {
+    var qs = new URLSearchParams(window.location.search);
+    var go = qs.get('google_oauth');
+    if (!go) return;
+    var reason = qs.get('reason') || '';
+    var integration = qs.get('integration') || '';
+    var path = window.location.pathname || '/';
+    var full = qs.get('full');
+    var newSearch = full ? '?full=' + encodeURIComponent(full) : '';
+    history.replaceState({}, '', path + newSearch);
+    setTimeout(function () {
+      var tab = document.querySelector('.tab[data-tab="integrations"]');
+      if (tab) tab.click();
+      var banner = document.getElementById('integrations-oauth-banner');
+      if (banner) {
+        banner.hidden = false;
+        if (go === 'ok') {
+          banner.className = 'integrations-oauth-banner is-success';
+          banner.textContent = integration
+            ? ('Connected: ' + integration + '.')
+            : 'Google sign-in completed.';
+        } else if (go === 'info') {
+          banner.className = 'integrations-oauth-banner is-info';
+          banner.textContent = reason === 'already_connected'
+            ? 'That integration is already connected.'
+            : 'Done.';
+        } else {
+          banner.className = 'integrations-oauth-banner is-error';
+          var msgs = {
+            not_configured: 'Add OAuth client ID and secret in Setup.',
+            invalid_integration: 'Invalid integration.',
+            bad_state: 'Sign-in expired; try Sign in again.',
+            missing_params: 'OAuth callback incomplete.',
+            token_exchange: 'Could not complete sign-in.',
+            access_denied: 'Access was denied.'
+          };
+          banner.textContent = msgs[reason] || ('Sign-in failed: ' + reason);
+        }
+      }
+      refreshGoogleIntegrationsPanel();
+    }, 0);
+  })();
 
   function startBrowserPolling() {
     if (browserPollTimer) return;
@@ -956,6 +1077,111 @@
 
   function stopBrowserPolling() {
     if (browserPollTimer) { clearInterval(browserPollTimer); browserPollTimer = null; }
+  }
+
+  var agentsPollTimer = null;
+
+  function stopAgentsPolling() {
+    if (agentsPollTimer) { clearInterval(agentsPollTimer); agentsPollTimer = null; }
+  }
+
+  function startAgentsPolling() {
+    stopAgentsPolling();
+    refreshAgentsList();
+    agentsPollTimer = setInterval(refreshAgentsList, 1500);
+  }
+
+  function refreshAgentsList() {
+    var listEl = document.getElementById('agents-list');
+    var capEl = document.getElementById('agents-capacity');
+    fetch('/api/agents').then(function (r) { return r.json(); }).then(function (data) {
+      if (capEl) {
+        capEl.textContent = 'Parallel slots in use: ' + (data.running != null ? data.running : 0)
+          + ' / ' + (data.maxConcurrent != null ? data.maxConcurrent : '?');
+      }
+      if (!listEl) return;
+      var agents = data.agents || [];
+      if (agents.length === 0) {
+        listEl.innerHTML = '<p class="tab-empty">No agents yet. Start one above.</p>';
+        return;
+      }
+      var html = '';
+      agents.forEach(function (a) {
+        var st = a.status || 'UNKNOWN';
+        var logLines = a.log || [];
+        var logJoin = Array.isArray(logLines) ? logLines.join('\n') : '';
+        var pct = Number(a.progressPercent);
+        if (!Number.isFinite(pct)) pct = 0;
+        pct = Math.max(0, Math.min(100, pct));
+        var fillMod = '';
+        if (st === 'COMPLETED') fillMod = ' agent-progress-fill-done';
+        else if (st === 'FAILED') fillMod = ' agent-progress-fill-failed';
+        else if (st === 'CANCELLED') fillMod = ' agent-progress-fill-cancelled';
+        html += '<div class="agent-card">';
+        html += '<div class="agent-card-header"><span class="agent-card-id">' + escapeHtml(a.id) + '</span>';
+        html += '<span class="agent-status agent-status-' + escapeHtml(st) + '">' + escapeHtml(st) + '</span></div>';
+        html += '<div class="agent-mission">' + escapeHtml(a.mission || '') + '</div>';
+        html += '<div class="agent-progress-track" role="progressbar" aria-valuenow="' + pct + '" aria-valuemin="0" aria-valuemax="100">';
+        html += '<div class="agent-progress-fill' + fillMod + '" style="width:' + pct + '%"></div></div>';
+        if (a.plan) {
+          html += '<div class="agent-plan"><div class="agent-plan-label">Plan</div>';
+          html += '<pre class="agent-plan-body">' + escapeHtml(a.plan) + '</pre></div>';
+        }
+        html += '<div class="agent-progress">' + escapeHtml(a.progress || '') + '</div>';
+        if (logJoin) html += '<div class="agent-log">' + escapeHtml(logJoin) + '</div>';
+        if (a.error) html += '<div class="agent-progress" style="color:#fca5a5">' + escapeHtml(a.error) + '</div>';
+        if (a.result) html += '<div class="agent-result">' + escapeHtml(a.result) + '</div>';
+        html += '<div class="agent-actions">';
+        if (st === 'QUEUED' || st === 'RUNNING') {
+          html += '<button type="button" class="agent-btn agent-btn-danger" data-agent-cancel="' + escapeHtml(a.id) + '">Cancel</button>';
+        }
+        html += '<button type="button" class="agent-btn" data-agent-remove="' + escapeHtml(a.id) + '">Dismiss</button>';
+        html += '</div></div>';
+      });
+      listEl.innerHTML = html;
+      listEl.querySelectorAll('[data-agent-cancel]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var id = btn.getAttribute('data-agent-cancel');
+          fetch('/api/agents/' + encodeURIComponent(id) + '/cancel', { method: 'POST' }).then(function () { refreshAgentsList(); });
+        });
+      });
+      listEl.querySelectorAll('[data-agent-remove]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var id = btn.getAttribute('data-agent-remove');
+          fetch('/api/agents/' + encodeURIComponent(id), { method: 'DELETE' }).then(function () { refreshAgentsList(); });
+        });
+      });
+    }).catch(function () {
+      if (listEl) listEl.innerHTML = '<p class="tab-empty">Could not load agents.</p>';
+    });
+  }
+
+  var agentsStartBtn = document.getElementById('agents-start-btn');
+  var agentsMissionInput = document.getElementById('agents-mission-input');
+  var agentsStartStatus = document.getElementById('agents-start-status');
+  if (agentsStartBtn && agentsMissionInput) {
+    agentsStartBtn.addEventListener('click', function () {
+      var mission = agentsMissionInput.value != null ? agentsMissionInput.value.trim() : '';
+      if (agentsStartStatus) agentsStartStatus.textContent = '';
+      if (!mission) {
+        if (agentsStartStatus) agentsStartStatus.textContent = 'Enter a mission first.';
+        return;
+      }
+      fetch('/api/agents/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mission: mission })
+      }).then(function (r) {
+        if (!r.ok) return r.text().then(function (t) { throw new Error(t || r.status); });
+        return r.json();
+      }).then(function () {
+        agentsMissionInput.value = '';
+        if (agentsStartStatus) agentsStartStatus.textContent = '';
+        refreshAgentsList();
+      }).catch(function (e) {
+        if (agentsStartStatus) agentsStartStatus.textContent = String(e.message || e);
+      });
+    });
   }
 
   async function refreshBrowserView() {
@@ -1062,8 +1288,100 @@
 
   function escapeHtml(s) {
     var d = document.createElement('div');
-    d.textContent = s;
+    d.textContent = s == null ? '' : s;
     return d.innerHTML;
+  }
+
+  function loadSetupTab() {
+    var formEl = document.getElementById('setup-form');
+    var pathEl = document.getElementById('setup-file-path');
+    var statusEl = document.getElementById('setup-status');
+    if (!formEl) return;
+    if (statusEl) statusEl.textContent = '';
+    fetch('/api/setup/secrets').then(function (r) {
+      if (!r.ok) {
+        return r.text().then(function (t) {
+          throw new Error(t || (r.status === 403 ? 'Setup is only available on this machine.' : 'Failed to load setup'));
+        });
+      }
+      return r.json();
+    }).then(function (data) {
+      if (pathEl) pathEl.textContent = data.secretsFile ? 'File: ' + data.secretsFile : '';
+      var html = '';
+      (data.groups || []).forEach(function (g) {
+        html += '<div class="setup-group"><h3 class="setup-group-title">' + escapeHtml(g.title) + '</h3>';
+        (g.fields || []).forEach(function (f) {
+          var safeKey = String(f.key).replace(/[^a-zA-Z0-9]/g, '_');
+          var id = 'setup-f-' + safeKey;
+          var hint = f.configured
+            ? '<span class="setup-flag setup-flag-on">saved — enter a new value to replace</span>'
+            : '<span class="setup-flag setup-flag-off">not set</span>';
+          var forget = f.configured
+            ? '<button type="button" class="setup-forget" data-key="' + escapeHtml(f.key) + '">Forget</button>'
+            : '';
+          html += '<div class="setup-field">';
+          html += '<div class="setup-field-head"><label class="setup-label-text" for="' + id + '">' + escapeHtml(f.label) + '</label>' + forget + '</div>';
+          html += '<div class="setup-field-meta">' + hint + '</div>';
+          var inputType = f.mask ? 'password' : 'text';
+          html += '<input class="tab-input setup-input" id="' + id + '" data-prop-key="' + escapeHtml(f.key) + '" type="' + inputType + '" autocomplete="off" spellcheck="false" placeholder="">';
+          html += '</div>';
+        });
+        html += '</div>';
+      });
+      formEl.innerHTML = html;
+      formEl.querySelectorAll('.setup-forget').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var key = btn.getAttribute('data-key');
+          if (!key || !window.confirm('Remove this value from the secrets file?')) return;
+          fetch('/api/setup/secrets', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ set: {}, unset: [key] })
+          }).then(function (r) {
+            if (!r.ok) return r.text().then(function (t) { throw new Error(t || String(r.status)); });
+            return r.json();
+          }).then(function () {
+            if (statusEl) statusEl.textContent = 'Removed. Restart the app if services still use the old value.';
+            loadSetupTab();
+          }).catch(function (e) {
+            if (statusEl) statusEl.textContent = String(e.message || e);
+          });
+        });
+      });
+    }).catch(function (e) {
+      formEl.innerHTML = '<p class="tab-empty">' + escapeHtml(String(e.message || e)) + '</p>';
+    });
+  }
+
+  var setupSaveBtn = document.getElementById('setup-save-btn');
+  if (setupSaveBtn) {
+    setupSaveBtn.addEventListener('click', function () {
+      var statusEl = document.getElementById('setup-status');
+      var inputs = document.querySelectorAll('#setup-form .setup-input');
+      var set = {};
+      inputs.forEach(function (inp) {
+        var k = inp.getAttribute('data-prop-key');
+        var v = inp.value != null ? inp.value.trim() : '';
+        if (k && v) set[k] = v;
+      });
+      if (Object.keys(set).length === 0) {
+        if (statusEl) statusEl.textContent = 'Nothing to save (all fields are empty).';
+        return;
+      }
+      fetch('/api/setup/secrets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ set: set, unset: [] })
+      }).then(function (r) {
+        if (!r.ok) return r.text().then(function (t) { throw new Error(t || String(r.status)); });
+        return r.json();
+      }).then(function (data) {
+        if (statusEl) statusEl.textContent = (data && data.message) ? data.message : 'Saved.';
+        loadSetupTab();
+      }).catch(function (e) {
+        if (statusEl) statusEl.textContent = String(e.message || e);
+      });
+    });
   }
 
   window._skillAction = function (action, name) {

@@ -1,9 +1,13 @@
 package com.minsbot.agent.tools;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -14,69 +18,102 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Text-based web search tools. Returns readable search results (titles, snippets, links)
- * for research, fact-finding, price lookups, flight/hotel searches, etc.
- * Uses DuckDuckGo HTML search (no API key required).
+ * Web search for the {@code searchWeb} tool: Serper, SerpAPI, or free DuckDuckGo / Google HTML fallback.
  */
 @Component
 public class WebSearchTools {
 
     private static final Logger log = LoggerFactory.getLogger(WebSearchTools.class);
 
+    private static final String SERPER_URL = "https://google.serper.dev/search";
+    private static final String SERPAPI_URL = "https://serpapi.com/search.json";
+
     private final ToolExecutionNotifier notifier;
+    private final String providerRaw;
+    private final String serperApiKey;
+    private final String serpApiKey;
+
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(15))
             .followRedirects(HttpClient.Redirect.NORMAL)
             .build();
 
-    public WebSearchTools(ToolExecutionNotifier notifier) {
+    private final ObjectMapper jsonMapper = new ObjectMapper();
+
+    public WebSearchTools(
+            ToolExecutionNotifier notifier,
+            @Value("${app.web-search.provider:auto}") String providerRaw,
+            @Value("${app.web-search.serper-api-key:}") String serperApiKey,
+            @Value("${app.web-search.serpapi-api-key:}") String serpApiKey) {
         this.notifier = notifier;
+        this.providerRaw = providerRaw != null ? providerRaw : "auto";
+        this.serperApiKey = serperApiKey != null ? serperApiKey : "";
+        this.serpApiKey = serpApiKey != null ? serpApiKey : "";
     }
 
-    @Tool(description = "Search the web and return text results (titles, snippets, links). " +
-            "Use this for ANY research task: looking up facts, prices, flights, hotels, products, " +
-            "news, reviews, recipes, how-to guides, etc. Returns readable text, NOT images. " +
-            "For image downloads use searchAndDownloadImages instead.")
+    @PostConstruct
+    void logProvider() {
+        String p = providerRaw.trim().toLowerCase();
+        boolean hasSerper = !serperApiKey.isBlank();
+        boolean hasSerp = !serpApiKey.isBlank();
+        log.info("[WebSearch] provider={}, serperKey={}, serpapiKey={}",
+                p, hasSerper, hasSerp);
+    }
+
+    @Tool(description = "Search the web and return text results (titles, snippets, links). "
+            + "Use for facts, news, prices, how-tos, etc. When Serper or SerpAPI keys are configured (app.web-search.*), "
+            + "Google-quality results are used; otherwise DuckDuckGo HTML. "
+            + "For image downloads use searchAndDownloadImages instead.")
     public String searchWeb(
-            @ToolParam(description = "The search query, e.g. 'flights from Manila to Taiwan April 2026'") String query) {
+            @ToolParam(description = "Search query, e.g. 'weather Tokyo April 2026'") String query) {
         notifier.notify("Searching: " + query);
         try {
-            // Try DuckDuckGo HTML search first
-            String results = searchDuckDuckGo(query);
-            if (results != null && !results.isBlank()) {
-                log.info("[WebSearch] DDG returned results for: {}", query);
-                return results;
+            String p = providerRaw.trim().toLowerCase();
+
+            if ("serper".equals(p)) {
+                String r = searchSerper(query);
+                return r != null ? r : fallbackDuckAndGoogle(query);
+            }
+            if ("serpapi".equals(p)) {
+                String r = searchSerpApi(query);
+                return r != null ? r : fallbackDuckAndGoogle(query);
+            }
+            if ("ddg".equals(p)) {
+                return fallbackDuckAndGoogle(query);
             }
 
-            // Fallback: try Google search scraping
-            results = searchGoogleScrape(query);
-            if (results != null && !results.isBlank()) {
-                log.info("[WebSearch] Google scrape returned results for: {}", query);
-                return results;
+            // auto (default): Serper → SerpAPI → DDG → Google scrape
+            if (!serperApiKey.isBlank()) {
+                String r = searchSerper(query);
+                if (r != null) return r;
             }
-
-            return "No results found for: " + query;
+            if (!serpApiKey.isBlank()) {
+                String r = searchSerpApi(query);
+                if (r != null) return r;
+            }
+            return fallbackDuckAndGoogle(query);
         } catch (Exception e) {
             log.warn("[WebSearch] Failed for '{}': {}", query, e.getMessage());
             return "Search failed: " + e.getMessage();
         }
     }
 
-    @Tool(description = "Fetch a specific web page and return its readable text content. " +
-            "Use this after searchWeb to read the full content of a specific result page.")
+    @Tool(description = "Fetch a specific web page and return its readable text content. "
+            + "Use this after searchWeb to read the full content of a specific result page.")
     public String readWebPage(
-            @ToolParam(description = "The full URL to read, e.g. 'https://example.com/article'") String url) {
+            @ToolParam(description = "Full URL, e.g. 'https://example.com/article'") String url) {
         notifier.notify("Reading: " + url);
         try {
             String html = fetchHtml(url);
             if (html == null || html.isBlank()) return "Could not fetch page.";
 
-            // Strip scripts, styles, then HTML tags
             String text = html.replaceAll("(?is)<script[^>]*>.*?</script>", " ");
             text = text.replaceAll("(?is)<style[^>]*>.*?</style>", " ");
             text = text.replaceAll("(?is)<nav[^>]*>.*?</nav>", " ");
@@ -97,7 +134,125 @@ public class WebSearchTools {
         }
     }
 
-    // ═══ DuckDuckGo HTML search ═══
+    // ═══ Serper (Google JSON API) ═══
+
+    private String searchSerper(String query) {
+        if (serperApiKey.isBlank()) return null;
+        try {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("q", query);
+            body.put("num", 10);
+            String jsonBody = jsonMapper.writeValueAsString(body);
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(SERPER_URL))
+                    .header("X-API-KEY", serperApiKey.trim())
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
+                    .timeout(Duration.ofSeconds(20))
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) {
+                log.warn("[WebSearch] Serper HTTP {}", response.statusCode());
+                return null;
+            }
+            JsonNode root = jsonMapper.readTree(response.body());
+            if (root.has("message") && root.get("message").isTextual()) {
+                log.warn("[WebSearch] Serper error: {}", root.get("message").asText());
+                return null;
+            }
+            JsonNode organic = root.get("organic");
+            if (organic == null || !organic.isArray() || organic.isEmpty()) {
+                return null;
+            }
+            List<SearchResult> results = new ArrayList<>();
+            for (JsonNode item : organic) {
+                if (results.size() >= 10) break;
+                String title = textOrEmpty(item.get("title"));
+                String link = textOrEmpty(item.get("link"));
+                String snippet = textOrEmpty(item.get("snippet"));
+                if (!title.isBlank() && !link.isBlank()) {
+                    results.add(new SearchResult(title, snippet, link));
+                }
+            }
+            if (results.isEmpty()) return null;
+            log.info("[WebSearch] Serper returned {} results", results.size());
+            return formatResults(results, query, "Serper");
+        } catch (Exception e) {
+            log.warn("[WebSearch] Serper failed: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    // ═══ SerpAPI ═══
+
+    private String searchSerpApi(String query) {
+        if (serpApiKey.isBlank()) return null;
+        try {
+            String q = URLEncoder.encode(query, StandardCharsets.UTF_8);
+            String key = URLEncoder.encode(serpApiKey.trim(), StandardCharsets.UTF_8);
+            String url = SERPAPI_URL + "?engine=google&q=" + q + "&num=10&api_key=" + key;
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("Accept", "application/json")
+                    .GET()
+                    .timeout(Duration.ofSeconds(25))
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) {
+                log.warn("[WebSearch] SerpAPI HTTP {}", response.statusCode());
+                return null;
+            }
+            JsonNode root = jsonMapper.readTree(response.body());
+            if (root.has("error")) {
+                log.warn("[WebSearch] SerpAPI error: {}", root.get("error").asText(""));
+                return null;
+            }
+            JsonNode organic = root.get("organic_results");
+            if (organic == null || !organic.isArray() || organic.isEmpty()) {
+                return null;
+            }
+            List<SearchResult> results = new ArrayList<>();
+            for (JsonNode item : organic) {
+                if (results.size() >= 10) break;
+                String title = textOrEmpty(item.get("title"));
+                String link = textOrEmpty(item.get("link"));
+                String snippet = textOrEmpty(item.get("snippet"));
+                if (!title.isBlank() && !link.isBlank()) {
+                    results.add(new SearchResult(title, snippet, link));
+                }
+            }
+            if (results.isEmpty()) return null;
+            log.info("[WebSearch] SerpAPI returned {} results", results.size());
+            return formatResults(results, query, "SerpAPI");
+        } catch (Exception e) {
+            log.warn("[WebSearch] SerpAPI failed: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private static String textOrEmpty(JsonNode n) {
+        return n == null || !n.isTextual() ? "" : n.asText("").trim();
+    }
+
+    // ═══ DuckDuckGo + Google scrape ═══
+
+    private String fallbackDuckAndGoogle(String query) {
+        String results = searchDuckDuckGo(query);
+        if (results != null && !results.isBlank()) {
+            log.info("[WebSearch] DDG returned results for: {}", query);
+            return results;
+        }
+        results = searchGoogleScrape(query);
+        if (results != null && !results.isBlank()) {
+            log.info("[WebSearch] Google scrape returned results for: {}", query);
+            return results;
+        }
+        return "No results found for: " + query;
+    }
 
     private String searchDuckDuckGo(String query) {
         try {
@@ -106,8 +261,8 @@ public class WebSearchTools {
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(url))
-                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-                            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                            + "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
                     .header("Accept", "text/html,application/xhtml+xml")
                     .header("Accept-Language", "en-US,en;q=0.9")
                     .GET()
@@ -119,23 +274,18 @@ public class WebSearchTools {
                 log.warn("[WebSearch] DDG returned status {}", response.statusCode());
                 return null;
             }
-
-            String html = response.body();
-            return parseDdgResults(html, query);
+            return parseDdgResults(response.body(), query);
         } catch (Exception e) {
             log.warn("[WebSearch] DDG search failed: {}", e.getMessage());
             return null;
         }
     }
 
-    /** Parse DuckDuckGo HTML search results page. */
     private String parseDdgResults(String html, String query) {
         List<SearchResult> results = new ArrayList<>();
-
-        // DDG result blocks: <div class="result ..."> containing <a class="result__a"> and <a class="result__snippet">
         Pattern resultBlock = Pattern.compile(
-                "<a[^>]+class=\"result__a\"[^>]*href=\"([^\"]+)\"[^>]*>(.*?)</a>.*?" +
-                        "class=\"result__snippet\"[^>]*>(.*?)</",
+                "<a[^>]+class=\"result__a\"[^>]*href=\"([^\"]+)\"[^>]*>(.*?)</a>.*?"
+                        + "class=\"result__snippet\"[^>]*>(.*?)</",
                 Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
 
         Matcher m = resultBlock.matcher(html);
@@ -144,14 +294,13 @@ public class WebSearchTools {
             String title = stripTags(m.group(2)).trim();
             String snippet = stripTags(m.group(3)).trim();
 
-            // DDG wraps links through a redirect — extract the actual URL
             if (link.contains("uddg=")) {
                 try {
                     String decoded = java.net.URLDecoder.decode(
                             link.substring(link.indexOf("uddg=") + 5), StandardCharsets.UTF_8);
                     if (decoded.contains("&")) decoded = decoded.substring(0, decoded.indexOf("&"));
                     link = decoded;
-                } catch (Exception ignored) {}
+                } catch (Exception ignored) { /* keep link */ }
             }
 
             if (!title.isBlank() && !link.isBlank()) {
@@ -160,11 +309,8 @@ public class WebSearchTools {
         }
 
         if (results.isEmpty()) return null;
-
-        return formatResults(results, query);
+        return formatResults(results, query, "DuckDuckGo");
     }
-
-    // ═══ Google search fallback (scraping) ═══
 
     private String searchGoogleScrape(String query) {
         try {
@@ -173,8 +319,8 @@ public class WebSearchTools {
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(url))
-                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-                            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                            + "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
                     .header("Accept", "text/html,application/xhtml+xml")
                     .header("Accept-Language", "en-US,en;q=0.9")
                     .GET()
@@ -191,11 +337,8 @@ public class WebSearchTools {
         }
     }
 
-    /** Parse Google search result snippets from the HTML. */
     private String parseGoogleResults(String html, String query) {
         List<SearchResult> results = new ArrayList<>();
-
-        // Google wraps results in <a href="/url?q=..."> or <a href="https://...">
         Pattern linkPattern = Pattern.compile(
                 "<a[^>]+href=\"/url\\?q=([^\"&]+)\"[^>]*>(.*?)</a>",
                 Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
@@ -206,27 +349,23 @@ public class WebSearchTools {
             String titleHtml = m.group(2).trim();
             String title = stripTags(titleHtml).trim();
 
-            // Skip Google internal links
-            if (link.startsWith("/") || link.contains("google.com") ||
-                    link.contains("accounts.google") || title.isBlank()) continue;
+            if (link.startsWith("/") || link.contains("google.com")
+                    || link.contains("accounts.google") || title.isBlank()) continue;
 
             try {
                 link = java.net.URLDecoder.decode(link, StandardCharsets.UTF_8);
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) { /* keep */ }
 
             results.add(new SearchResult(title, "", link));
         }
 
         if (results.isEmpty()) return null;
-
-        return formatResults(results, query);
+        return formatResults(results, query, "Google (HTML)");
     }
 
-    // ═══ Helpers ═══
-
-    private String formatResults(List<SearchResult> results, String query) {
+    private String formatResults(List<SearchResult> results, String query, String source) {
         StringBuilder sb = new StringBuilder();
-        sb.append("Search results for: ").append(query).append("\n\n");
+        sb.append("Search results for: ").append(query).append(" (via ").append(source).append(")\n\n");
 
         for (int i = 0; i < results.size(); i++) {
             SearchResult r = results.get(i);
@@ -252,8 +391,8 @@ public class WebSearchTools {
     private String fetchHtml(String url) throws Exception {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-                        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                        + "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
                 .header("Accept", "text/html,application/xhtml+xml")
                 .GET()
                 .timeout(Duration.ofSeconds(15))
