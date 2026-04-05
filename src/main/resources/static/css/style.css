@@ -1971,6 +1971,26 @@ body.embedded-minsbot .tab-bar .tab.tab-extra {
   filter: brightness(1.15);
 }
 
+.btn-stop {
+  background: #dc2626;
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  padding: 9px;
+}
+
+.btn-stop .icon {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+
+.btn-stop:hover {
+  background: #ef4444;
+}
+
 .btn-voice {
   background: rgba(63, 63, 70, 0.9);
   color: #a1a1aa;
@@ -2084,4 +2104,237 @@ body.embedded-minsbot .tab-bar .tab.tab-extra {
 .status-bar #mouse-coords {
   font-family: 'Consolas', 'Courier New', monospace;
   letter-spacing: 0.5px;
+}
+
+/* ═══ TTS Settings Tab ═══ */
+
+.tts-settings-inner {
+  padding: 10px 12px 16px;
+}
+
+.tts-section {
+  margin-bottom: 14px;
+}
+
+.tts-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.75);
+  margin: 0 0 8px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.tts-hint {
+  font-weight: 400;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+/* Auto-speak toggle */
+.tts-autospeak-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #d4d4d8;
+  padding: 6px 0;
+}
+
+.tts-cb {
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+  accent-color: #818cf8;
+}
+
+/* Priority list */
+.tts-priority-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 6px 0;
+}
+
+.tts-priority-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 7px 8px;
+  margin-bottom: 5px;
+  cursor: grab;
+  background: rgba(0, 0, 0, 0.2);
+  transition: opacity 0.15s, border-color 0.15s;
+  font-size: 12px;
+  color: #d4d4d8;
+  user-select: none;
+}
+
+.tts-priority-item:active { cursor: grabbing; }
+.tts-priority-item.dragging { opacity: 0.4; }
+.tts-priority-item.drag-over { border-top: 2px solid #818cf8; margin-top: 0; }
+.tts-priority-item.tts-engine-disabled { opacity: 0.45; }
+
+.tts-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+  cursor: pointer;
+}
+
+.tts-toggle input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  accent-color: #818cf8;
+}
+
+.tts-priority-rank {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 10px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.5);
+  flex-shrink: 0;
+}
+
+.tts-priority-icon {
+  font-size: 14px;
+}
+
+.tts-priority-name {
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.tts-avail-badge {
+  font-size: 9px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+}
+
+.tts-avail-ready {
+  background: rgba(34, 197, 94, 0.2);
+  color: #86efac;
+}
+
+.tts-avail-none {
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+}
+
+.tts-priority-arrows {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex-shrink: 0;
+}
+
+.tts-priority-arrows button {
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 8px;
+  border-radius: 3px;
+  padding: 0 4px;
+  cursor: pointer;
+  line-height: 14px;
+}
+
+.tts-priority-arrows button:hover {
+  background: #3f3f46;
+  color: #fff;
+}
+
+.tts-drag-handle {
+  color: rgba(255, 255, 255, 0.2);
+  font-size: 12px;
+  letter-spacing: 2px;
+  cursor: grab;
+  flex-shrink: 0;
+}
+
+/* Voice config panels */
+.tts-voice-panels {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.tts-voice-panel {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.tts-voice-panel-title {
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.tts-voice-field {
+  margin-bottom: 6px;
+}
+
+.tts-voice-field label {
+  display: block;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-bottom: 3px;
+}
+
+.tts-field-hint {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.tts-voice-save {
+  margin-top: 4px;
+  font-size: 11px;
+  padding: 3px 12px;
+}
+
+/* Test section */
+.tts-test-section {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.tts-test-section .tab-input {
+  flex: 1;
+}
+
+.tts-test-btn {
+  padding: 5px 14px;
+  font-size: 11px;
+  white-space: nowrap;
+  background: rgba(99, 102, 241, 0.2);
+  border-color: rgba(99, 102, 241, 0.3);
+  color: #a5b4fc;
+}
+
+.tts-test-btn:hover {
+  background: rgba(99, 102, 241, 0.35);
+}
+
+.tts-test-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }

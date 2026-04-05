@@ -257,8 +257,15 @@ public class ChatService {
 
                     Thread.sleep(100);
                 } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
+                    if (stopRequested) {
+                        // Stop button interrupted the sleep — clear flag and continue loop
+                        stopRequested = false;
+                        Thread.interrupted(); // clear interrupted status
+                        mainLoopBusy = false;
+                    } else {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
                 } catch (Exception e) {
                     log.error("[MainLoop] Error in main loop: {}", e.getMessage(), e);
                     mainLoopBusy = false;
@@ -278,6 +285,8 @@ public class ChatService {
      * Process a user message through the AI with planning, screen analysis, and tool calling.
      */
     private void processUserMessage(String trimmed) {
+        stopRequested = false; // reset at start of each message
+
         Consumer<String> asyncCallback = result -> {
             transcriptService.save("BOT(agent)", result);
             asyncMessages.push(result);
@@ -371,10 +380,16 @@ public class ChatService {
             // Call AI
             final String finalSystemMessage = systemMessage;
             for (int attempt = 1; attempt <= 3; attempt++) {
-                // Check if a new user message arrived — interrupt current processing
+                // Check if a new user message arrived or stop was requested
                 if (!userMessageQueue.isEmpty()) {
                     log.info("[MainLoop] New user message arrived — interrupting current AI call");
                     workingSound.stop();
+                    return;
+                }
+                if (stopRequested) {
+                    log.info("[MainLoop] Stop requested — aborting AI call");
+                    workingSound.stop();
+                    asyncMessages.push("Stopped.");
                     return;
                 }
                 try {
@@ -385,6 +400,13 @@ public class ChatService {
                             .call()
                             .content();
 
+                    if (stopRequested) {
+                        log.info("[MainLoop] Stop requested after AI call — discarding reply");
+                        workingSound.stop();
+                        asyncMessages.push("Stopped.");
+                        return;
+                    }
+
                     workingSound.stop();
                     if (reply != null && !reply.isBlank()) {
                         transcriptService.save("BOT", reply);
@@ -393,6 +415,12 @@ public class ChatService {
                     }
                     return;
                 } catch (Exception e) {
+                    if (stopRequested) {
+                        log.info("[MainLoop] Stop requested (interrupted AI call)");
+                        workingSound.stop();
+                        asyncMessages.push("Stopped.");
+                        return;
+                    }
                     boolean isNetworkError = e instanceof org.springframework.web.client.ResourceAccessException
                             || (e.getCause() != null && (e.getCause() instanceof java.net.SocketException
                                 || e.getCause() instanceof java.io.IOException));
@@ -567,6 +595,26 @@ public class ChatService {
     private volatile boolean mainLoopBusy = false;
     private volatile Thread mainLoopThread = null;
 
+    /** Set by the stop button — the main loop checks this to abort the current AI call. */
+    private volatile boolean stopRequested = false;
+
+    /**
+     * Request the bot to stop whatever it's currently doing.
+     * Interrupts the main loop thread, stops TTS and working sound, pushes a "Stopped." message.
+     */
+    public void requestStop() {
+        if (!mainLoopBusy) return;
+        stopRequested = true;
+        ttsTools.stopPlayback();
+        workingSound.stop();
+        Thread t = mainLoopThread;
+        if (t != null) t.interrupt();
+        log.info("[ChatService] Stop requested by user");
+    }
+
+    /** True if the main loop is currently processing. */
+    public boolean isBusy() { return mainLoopBusy; }
+
     // Audio transcription properties (still uses raw HTTP)
     @Value("${app.openai.api-key:}")
     private String openAiApiKey;
@@ -737,7 +785,7 @@ public class ChatService {
             return "One moment — drafting a quick plan and capturing your screen…";
         }
         if (willPlan) {
-            return "One moment — drafting a quick plan…";
+            return "One moment — let me check…";
         }
         return "One moment — capturing your screen…";
     }

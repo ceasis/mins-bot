@@ -12,6 +12,7 @@
   const messagesEl = document.getElementById('messages');
   const inputEl = document.getElementById('input');
   const sendBtn = document.getElementById('send-btn');
+  const stopBtn = document.getElementById('stop-btn');
   const voiceBtn = document.getElementById('voice-btn');
   const voiceStatus = document.getElementById('voice-status');
   const clearBtn = document.getElementById('clear-btn');
@@ -343,6 +344,8 @@
       headerThinkingEl.hidden = false;
       headerThinkingEl.removeAttribute('aria-hidden');
     }
+    sendBtn.hidden = true;
+    stopBtn.hidden = false;
     var el = document.createElement('div');
     el.className = 'thinking';
     el.id = 'thinking-indicator';
@@ -360,6 +363,8 @@
       headerThinkingEl.hidden = true;
       headerThinkingEl.setAttribute('aria-hidden', 'true');
     }
+    stopBtn.hidden = true;
+    sendBtn.hidden = false;
     var el = document.getElementById('thinking-indicator');
     if (el) el.remove();
   }
@@ -450,6 +455,17 @@
       stopStatusPolling();
       hideThinking();
       if (data.reply) appendMessage(data.reply, false);
+      // After the first bot reply, check if TTS had a Fish Audio fallback (once)
+      if (!window._ttsStartupChecked) {
+        window._ttsStartupChecked = true;
+        setTimeout(async function () {
+          try {
+            var r = await fetch('/api/tts/startup-notice');
+            var d = await r.json();
+            if (d.notice) appendMessage(d.notice, false);
+          } catch (e) { /* ignore */ }
+        }, 5000);
+      }
       // Empty reply means main loop is processing — response will arrive via async polling
       if (data.quitCountdownSeconds) {
         startQuitCountdown(data.quitCountdownSeconds);
@@ -466,6 +482,15 @@
   sendBtn.addEventListener('click', function () {
     sendMessage(inputEl.value);
     focusInputSoon();
+  });
+
+  stopBtn.addEventListener('click', async function () {
+    try {
+      await fetch('/api/chat/stop', { method: 'POST' });
+    } catch (e) { /* ignore */ }
+    stopStatusPolling();
+    hideThinking();
+    sendingMessage = false;
   });
 
   // Arrow up/down — cycle through input history
@@ -957,6 +982,7 @@
       if (tab.dataset.tab === 'todos') loadTodos();
       if (tab.dataset.tab === 'directives') loadDirectives();
       if (tab.dataset.tab === 'setup') loadSetupTab();
+      if (tab.dataset.tab === 'voice') loadTtsSettings();
       if (tab.dataset.tab === 'integrations') refreshGoogleIntegrationsPanel();
     });
   });
@@ -2058,6 +2084,247 @@
 
     startCalibrationBtn.disabled = false;
   });
+
+  // ═══ TTS Settings Tab ═══
+
+  var ttsDefs = [
+    { key: 'fishaudio', label: 'Fish Audio', color: '#06b6d4', icon: '🐟' },
+    { key: 'elevenlabs', label: 'ElevenLabs', color: '#8b5cf6', icon: '🔊' },
+    { key: 'openai', label: 'OpenAI TTS', color: '#10b981', icon: '🤖' }
+  ];
+
+  var openaiVoices = ['alloy', 'ash', 'ballad', 'coral', 'echo', 'fable', 'nova', 'onyx', 'sage', 'shimmer'];
+
+  var ttsConfig = null;
+  var ttsPriorityList = document.getElementById('tts-priority-list');
+
+  function loadTtsSettings() {
+    fetch('/api/tts/config').then(function (r) { return r.json(); }).then(function (data) {
+      ttsConfig = data;
+      renderTtsPriority(data.priority || ['fishaudio', 'elevenlabs', 'openai']);
+      renderTtsVoicePanels(data);
+
+      var cb = document.getElementById('tts-autospeak-cb');
+      if (cb) cb.checked = data.autoSpeak !== false;
+    }).catch(function () {
+      renderTtsPriority(['fishaudio', 'elevenlabs', 'openai']);
+    });
+  }
+
+  function renderTtsPriority(order) {
+    if (!ttsPriorityList) return;
+    ttsPriorityList.innerHTML = '';
+    order.forEach(function (key, idx) {
+      var def = ttsDefs.find(function (d) { return d.key === key; }) || { key: key, label: key, color: '#aaa', icon: '' };
+      var isEnabled = ttsConfig && ttsConfig.enabled ? ttsConfig.enabled[key] !== false : true;
+      var isAvailable = ttsConfig && ttsConfig.available ? ttsConfig.available[key] : false;
+
+      var li = document.createElement('li');
+      li.className = 'tts-priority-item' + (isEnabled ? '' : ' tts-engine-disabled');
+      li.dataset.engine = key;
+      li.draggable = true;
+
+      li.innerHTML = '<span class="tts-priority-rank">' + (idx + 1) + '</span>'
+        + '<label class="tts-toggle"><input type="checkbox" class="tts-enabled-cb" data-engine="' + key + '"'
+        + (isEnabled ? ' checked' : '') + '>'
+        + '<span class="tts-priority-icon">' + def.icon + '</span>'
+        + '<span class="tts-priority-name" style="color:' + (isEnabled ? def.color : '#555') + '">' + def.label + '</span></label>'
+        + '<span class="tts-avail-badge ' + (isAvailable ? 'tts-avail-ready' : 'tts-avail-none') + '">'
+        + (isAvailable ? 'Ready' : 'No key') + '</span>'
+        + '<span class="tts-priority-arrows">'
+        + '<button class="tp-up" title="Move up">&#9650;</button>'
+        + '<button class="tp-down" title="Move down">&#9660;</button>'
+        + '</span>'
+        + '<span class="tts-drag-handle" title="Drag to reorder">&#8942;&#8942;</span>';
+
+      // Enable/disable toggle
+      li.querySelector('.tts-enabled-cb').addEventListener('change', function (e) {
+        if (ttsConfig && ttsConfig.enabled) ttsConfig.enabled[key] = e.target.checked;
+        fetch('/api/tts/enabled', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: ttsConfig ? ttsConfig.enabled : {} })
+        });
+        renderTtsPriority(getTtsPriorityOrder());
+      });
+
+      // Arrow buttons
+      li.querySelector('.tp-up').addEventListener('click', function () { moveTtsEngine(idx, -1); });
+      li.querySelector('.tp-down').addEventListener('click', function () { moveTtsEngine(idx, 1); });
+
+      // Drag events
+      li.addEventListener('dragstart', function (e) { e.dataTransfer.setData('text/plain', idx); li.classList.add('dragging'); });
+      li.addEventListener('dragend', function () { li.classList.remove('dragging'); });
+      li.addEventListener('dragover', function (e) { e.preventDefault(); li.classList.add('drag-over'); });
+      li.addEventListener('dragleave', function () { li.classList.remove('drag-over'); });
+      li.addEventListener('drop', function (e) {
+        e.preventDefault();
+        li.classList.remove('drag-over');
+        var fromIdx = parseInt(e.dataTransfer.getData('text/plain'));
+        var toIdx = idx;
+        if (fromIdx !== toIdx) {
+          var current = getTtsPriorityOrder();
+          var moved = current.splice(fromIdx, 1)[0];
+          current.splice(toIdx, 0, moved);
+          renderTtsPriority(current);
+          saveTtsPriority(current);
+        }
+      });
+
+      ttsPriorityList.appendChild(li);
+    });
+  }
+
+  function getTtsPriorityOrder() {
+    return Array.from(ttsPriorityList.querySelectorAll('.tts-priority-item')).map(function (li) { return li.dataset.engine; });
+  }
+
+  function moveTtsEngine(idx, dir) {
+    var order = getTtsPriorityOrder();
+    var newIdx = idx + dir;
+    if (newIdx < 0 || newIdx >= order.length) return;
+    var tmp = order[idx];
+    order[idx] = order[newIdx];
+    order[newIdx] = tmp;
+    renderTtsPriority(order);
+    saveTtsPriority(order);
+  }
+
+  function saveTtsPriority(order) {
+    fetch('/api/tts/priority', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ priority: order })
+    });
+  }
+
+  function renderTtsVoicePanels(data) {
+    var container = document.getElementById('tts-voice-panels');
+    if (!container) return;
+    container.innerHTML = '';
+
+    var voices = data.voices || {};
+
+    // Fish Audio panel
+    var fishVoice = voices.fishaudio || {};
+    container.innerHTML += '<div class="tts-voice-panel">'
+      + '<div class="tts-voice-panel-title" style="color:#06b6d4">🐟 Fish Audio</div>'
+      + '<div class="tts-voice-field">'
+      + '<label>Reference ID <span class="tts-field-hint">(from fish.audio)</span></label>'
+      + '<input type="text" id="tts-fish-ref" class="tab-input" placeholder="e.g. a0e9...' + '" value="' + (fishVoice.referenceId || '') + '">'
+      + '</div>'
+      + '<div class="tts-voice-field">'
+      + '<label>Model</label>'
+      + '<select id="tts-fish-model" class="tab-input">'
+      + '<option value="s1"' + (fishVoice.model === 's1' ? ' selected' : '') + '>S1</option>'
+      + '<option value="s2-pro"' + (fishVoice.model === 's2-pro' || !fishVoice.model ? ' selected' : '') + '>S2 Pro</option>'
+      + '</select>'
+      + '</div>'
+      + '<button class="action-btn tts-voice-save" data-engine="fishaudio">Save</button>'
+      + '</div>';
+
+    // ElevenLabs panel
+    var elevenVoice = voices.elevenlabs || {};
+    container.innerHTML += '<div class="tts-voice-panel">'
+      + '<div class="tts-voice-panel-title" style="color:#8b5cf6">🔊 ElevenLabs</div>'
+      + '<div class="tts-voice-field">'
+      + '<label>Voice ID <span class="tts-field-hint">(from elevenlabs.io)</span></label>'
+      + '<input type="text" id="tts-eleven-vid" class="tab-input" placeholder="e.g. EXAVITQu4vr4xnSDxMaL" value="' + (elevenVoice.voiceId || '') + '">'
+      + '</div>'
+      + '<div class="tts-voice-field">'
+      + '<label>Model</label>'
+      + '<input type="text" id="tts-eleven-model" class="tab-input" value="' + (elevenVoice.modelId || 'eleven_multilingual_v2') + '">'
+      + '</div>'
+      + '<button class="action-btn tts-voice-save" data-engine="elevenlabs">Save</button>'
+      + '</div>';
+
+    // OpenAI panel
+    var openaiVoice = voices.openai || {};
+    var voiceOptions = openaiVoices.map(function (v) {
+      return '<option value="' + v + '"' + (openaiVoice.voice === v ? ' selected' : '') + '>' + v.charAt(0).toUpperCase() + v.slice(1) + '</option>';
+    }).join('');
+    container.innerHTML += '<div class="tts-voice-panel">'
+      + '<div class="tts-voice-panel-title" style="color:#10b981">🤖 OpenAI TTS</div>'
+      + '<div class="tts-voice-field">'
+      + '<label>Voice</label>'
+      + '<select id="tts-openai-voice" class="tab-input">' + voiceOptions + '</select>'
+      + '</div>'
+      + '<div class="tts-voice-field">'
+      + '<label>Speed <span class="tts-field-hint">(0.25 – 4.0)</span></label>'
+      + '<input type="number" id="tts-openai-speed" class="tab-input" min="0.25" max="4" step="0.05" value="' + (openaiVoice.speed || 1.0) + '">'
+      + '</div>'
+      + '<button class="action-btn tts-voice-save" data-engine="openai">Save</button>'
+      + '</div>';
+
+    // Attach save handlers
+    container.querySelectorAll('.tts-voice-save').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var engine = btn.dataset.engine;
+        var payload = { engine: engine };
+        if (engine === 'fishaudio') {
+          payload.referenceId = document.getElementById('tts-fish-ref').value.trim();
+        } else if (engine === 'elevenlabs') {
+          payload.voiceId = document.getElementById('tts-eleven-vid').value.trim();
+        } else if (engine === 'openai') {
+          payload.voice = document.getElementById('tts-openai-voice').value;
+          payload.speed = document.getElementById('tts-openai-speed').value;
+        }
+        fetch('/api/tts/voice', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }).then(function () {
+          btn.textContent = 'Saved!';
+          setTimeout(function () { btn.textContent = 'Save'; }, 1500);
+        });
+      });
+    });
+  }
+
+  // Auto-speak toggle
+  var autoSpeakCb = document.getElementById('tts-autospeak-cb');
+  if (autoSpeakCb) {
+    autoSpeakCb.addEventListener('change', function () {
+      fetch('/api/tts/auto-speak', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: autoSpeakCb.checked })
+      });
+    });
+  }
+
+  // Test voice button
+  var ttsTestBtn = document.getElementById('tts-test-btn');
+  if (ttsTestBtn) {
+    ttsTestBtn.addEventListener('click', function () {
+      var text = document.getElementById('tts-test-text').value.trim();
+      if (!text) return;
+      ttsTestBtn.textContent = 'Playing...';
+      ttsTestBtn.disabled = true;
+      // Use the first enabled engine in priority order
+      var order = getTtsPriorityOrder();
+      var engine = 'fishaudio';
+      for (var i = 0; i < order.length; i++) {
+        if (ttsConfig && ttsConfig.enabled && ttsConfig.enabled[order[i]] !== false) {
+          engine = order[i];
+          break;
+        }
+      }
+      fetch('/api/tts/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ engine: engine, text: text })
+      }).then(function (r) { return r.json(); }).then(function (data) {
+        ttsTestBtn.textContent = data.success ? 'Test Voice' : 'Failed';
+        ttsTestBtn.disabled = false;
+        if (!data.success) setTimeout(function () { ttsTestBtn.textContent = 'Test Voice'; }, 2000);
+      }).catch(function () {
+        ttsTestBtn.textContent = 'Error';
+        ttsTestBtn.disabled = false;
+        setTimeout(function () { ttsTestBtn.textContent = 'Test Voice'; }, 2000);
+      });
+    });
+  }
 
   // On startup: show clear chat with greeting (same as Clear button)
   messagesEl.innerHTML = '';

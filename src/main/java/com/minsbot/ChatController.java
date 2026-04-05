@@ -83,6 +83,13 @@ public class ChatController {
         return Map.of("status", "ok");
     }
 
+    /** Stop the bot's current processing. */
+    @PostMapping(value = "/chat/stop", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> stopProcessing() {
+        chatService.requestStop();
+        return Map.of("stopped", true);
+    }
+
     /** Poll for tool execution status updates while a request is in-flight. */
     @GetMapping(value = "/chat/status", produces = MediaType.APPLICATION_JSON_VALUE)
     public Map<String, Object> pollToolStatus() {

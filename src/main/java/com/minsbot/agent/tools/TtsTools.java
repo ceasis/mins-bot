@@ -17,7 +17,9 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.*;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -68,10 +70,29 @@ public class TtsTools {
     /** True if audio is currently playing (streaming or cached clip). */
     public boolean isSpeaking() { return activeLine != null || activeClip != null; }
 
+    /** Tracks whether the first TTS attempt has been made (for startup fallback notice). */
+    private volatile boolean startupTtsChecked = false;
+    /** Set once if Fish Audio fails on the very first TTS attempt and we fall back. */
+    private volatile String startupFallbackNotice = null;
+
+    /** Returns (and clears) the startup fallback notice, or null if none. */
+    public String getAndClearStartupNotice() {
+        String notice = startupFallbackNotice;
+        startupFallbackNotice = null;
+        return notice;
+    }
+
     // Config (mutable, reloaded at runtime)
     private volatile boolean autoSpeak = true;
     /** TTS engine preference: "elevenlabs", "openai", or "auto" (try both). */
     private volatile String ttsEngine = "auto";
+
+    /** Ordered TTS priority (first = try first). Default: fishaudio, elevenlabs, openai. */
+    private final CopyOnWriteArrayList<String> ttsPriority =
+            new CopyOnWriteArrayList<>(List.of("fishaudio", "elevenlabs", "openai"));
+    /** Per-engine enabled state (UI toggle). Default all true. */
+    private final ConcurrentHashMap<String, Boolean> engineEnabled = new ConcurrentHashMap<>(Map.of(
+            "fishaudio", true, "elevenlabs", true, "openai", true));
 
     public TtsTools(ToolExecutionNotifier notifier, ElevenLabsVoiceService elevenLabs,
                     OpenAiTtsService openAiTts, ElevenLabsConfig.ElevenLabsProperties elevenLabsProps,
@@ -161,6 +182,69 @@ public class TtsTools {
                 ttsEngine, autoSpeak, openAiTts.getVoice(), openAiTts.getSpeed());
     }
 
+    // ═══ Priority & per-engine enabled (for TTS Settings UI) ═══
+
+    public List<String> getTtsPriority() { return List.copyOf(ttsPriority); }
+
+    public void setTtsPriority(List<String> order) {
+        ttsPriority.clear();
+        ttsPriority.addAll(order);
+        // First enabled engine becomes the active tts_engine
+        for (String eng : order) {
+            if (engineEnabled.getOrDefault(eng, true)) {
+                ttsEngine = eng;
+                break;
+            }
+        }
+        persistConfigValue("tts_priority", String.join(",", order));
+        persistTtsEngineToConfig(ttsEngine);
+        log.info("[TTS] Priority updated: {} — active engine: {}", order, ttsEngine);
+    }
+
+    public boolean isEngineEnabled(String engine) {
+        return engineEnabled.getOrDefault(engine, true);
+    }
+
+    public void setEngineEnabled(String engine, boolean enabled) {
+        engineEnabled.put(engine, enabled);
+        persistConfigValue(engine + "_enabled", String.valueOf(enabled));
+        // If active engine was disabled, switch to next enabled
+        if (!enabled && engine.equals(ttsEngine)) {
+            for (String eng : ttsPriority) {
+                if (engineEnabled.getOrDefault(eng, true)) {
+                    ttsEngine = eng;
+                    persistTtsEngineToConfig(eng);
+                    log.info("[TTS] Active engine switched to {} (previous was disabled)", eng);
+                    break;
+                }
+            }
+        }
+    }
+
+    /** Switch engine without persisting (used for test playback). */
+    public void setTtsEngineQuiet(String engine) { this.ttsEngine = engine; }
+
+    /** Persist an arbitrary key under ## Voice in minsbot_config.txt. */
+    public void persistConfigValue(String key, String value) {
+        try {
+            if (!Files.exists(CONFIG_PATH)) return;
+            String content = Files.readString(CONFIG_PATH);
+            String pattern = "(?m)(^- " + key + ":).*$";
+            if (content.matches("(?s).*^- " + key + ":.*$.*")) {
+                String updated = content.replaceAll(pattern, "$1 " + value);
+                if (!updated.equals(content)) Files.writeString(CONFIG_PATH, updated);
+            } else {
+                // Insert new key at end of ## Voice section
+                String updated = content.replaceFirst(
+                        "(?m)(## Voice[^\n]*\n(?:- [^\n]*\n)*)",
+                        "$1- " + key + ": " + value + "\n");
+                if (!updated.equals(content)) Files.writeString(CONFIG_PATH, updated);
+            }
+        } catch (IOException e) {
+            log.warn("[TTS] Failed to persist {}={}: {}", key, value, e.getMessage());
+        }
+    }
+
     private void loadConfigFromFile() {
         if (!Files.exists(CONFIG_PATH)) return;
         try {
@@ -194,6 +278,25 @@ public class TtsTools {
                     case "speed" -> {
                         try { openAiTts.setSpeed(Double.parseDouble(val)); }
                         catch (NumberFormatException ignored) {}
+                    }
+                    case "tts_priority" -> {
+                        String raw = kv.substring(colon + 1).trim();
+                        if (!raw.isBlank()) {
+                            List<String> order = Arrays.asList(raw.split("\\s*,\\s*"));
+                            ttsPriority.clear();
+                            ttsPriority.addAll(order);
+                        }
+                    }
+                    case "fishaudio_enabled" -> engineEnabled.put("fishaudio", val.equals("true"));
+                    case "elevenlabs_enabled" -> engineEnabled.put("elevenlabs", val.equals("true"));
+                    case "openai_enabled" -> engineEnabled.put("openai", val.equals("true"));
+                    case "fishaudio_ref" -> {
+                        String v = kv.substring(colon + 1).trim();
+                        if (!v.isBlank()) fishAudioProps.setReferenceId(v);
+                    }
+                    case "elevenlabs_vid" -> {
+                        String v = kv.substring(colon + 1).trim();
+                        if (!v.isBlank()) elevenLabsProps.setVoiceId(v);
                     }
                 }
             }
@@ -455,9 +558,14 @@ public class TtsTools {
             if (tryStreamFishAudio(text, cacheKeyForProvider(text, "fishaudio"))) return spokeMsg;
             if (tryStreamOpenAi(text, cacheKeyForProvider(text, "openai"))) return spokeMsg;
         } else if ("fishaudio".equals(engine)) {
-            if (tryPlayCachedProvider(text, "fishaudio")) return cachedMsg;
-            if (tryStreamFishAudio(text, cacheKeyForProvider(text, "fishaudio"))) return spokeMsg;
+            if (tryPlayCachedProvider(text, "fishaudio")) { startupTtsChecked = true; return cachedMsg; }
+            if (tryStreamFishAudio(text, cacheKeyForProvider(text, "fishaudio"))) { startupTtsChecked = true; return spokeMsg; }
             log.info("[TTS] Fish Audio failed or empty — falling back to ElevenLabs / OpenAI");
+            if (!startupTtsChecked) {
+                startupFallbackNotice = "Fish Audio is not responding — falling back to ElevenLabs for TTS.";
+                log.warn("[TTS] Startup notice: Fish Audio unavailable, falling back");
+            }
+            startupTtsChecked = true;
             if (tryStreamElevenLabs(text, cacheKeyForProvider(text, "elevenlabs"))) return spokeMsg;
             if (tryStreamOpenAi(text, cacheKeyForProvider(text, "openai"))) return spokeMsg;
         } else if ("openai".equals(engine)) {
@@ -466,11 +574,12 @@ public class TtsTools {
             if (tryStreamFishAudio(text, cacheKeyForProvider(text, "fishaudio"))) return spokeMsg;
             if (tryStreamElevenLabs(text, cacheKeyForProvider(text, "elevenlabs"))) return spokeMsg;
         } else {
-            // "auto" — cache lookup matches generation order (Fish → ElevenLabs → OpenAI)
-            if (tryPlayCachedAutoOrder(text)) return cachedMsg;
-            if (fishAudio.isEnabled() && tryStreamFishAudio(text, cacheKeyForProvider(text, "fishaudio"))) return spokeMsg;
-            if (elevenLabs.isEnabled() && tryStreamElevenLabs(text, cacheKeyForProvider(text, "elevenlabs"))) return spokeMsg;
-            if (openAiTts.isAvailable() && tryStreamOpenAi(text, cacheKeyForProvider(text, "openai"))) return spokeMsg;
+            // "auto" — follow user-configured priority order + enabled state
+            if (tryPlayCachedPriorityOrder(text)) return cachedMsg;
+            for (String eng : ttsPriority) {
+                if (!engineEnabled.getOrDefault(eng, true)) continue;
+                if (tryStreamByEngine(eng, text)) return spokeMsg;
+            }
         }
 
         log.warn("[TTS] All cloud TTS engines failed — no audio produced");
@@ -664,6 +773,25 @@ public class TtsTools {
         if (tryPlayCachedProvider(text, "elevenlabs")) return true;
         if (tryPlayCachedProvider(text, "openai")) return true;
         return false;
+    }
+
+    /** Try cached audio in user-configured priority order, respecting enabled state. */
+    private boolean tryPlayCachedPriorityOrder(String text) {
+        for (String eng : ttsPriority) {
+            if (!engineEnabled.getOrDefault(eng, true)) continue;
+            if (tryPlayCachedProvider(text, eng)) return true;
+        }
+        return false;
+    }
+
+    /** Try streaming from a specific engine by name. */
+    private boolean tryStreamByEngine(String engine, String text) {
+        return switch (engine) {
+            case "fishaudio" -> tryStreamFishAudio(text, cacheKeyForProvider(text, "fishaudio"));
+            case "elevenlabs" -> tryStreamElevenLabs(text, cacheKeyForProvider(text, "elevenlabs"));
+            case "openai" -> tryStreamOpenAi(text, cacheKeyForProvider(text, "openai"));
+            default -> false;
+        };
     }
 
     // ═══ Audio generation ═══

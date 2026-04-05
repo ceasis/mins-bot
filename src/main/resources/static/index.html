@@ -86,6 +86,7 @@
         <button class="tab tab-extra" data-tab="schedules">Schedules</button>
         <button class="tab tab-extra" data-tab="todos">Todo</button>
         <button class="tab tab-extra" data-tab="directives">Directives</button>
+        <button class="tab tab-extra" data-tab="voice">Voice</button>
         <button class="tab tab-extra" data-tab="calibration">Calibration</button>
       </div>
       <div id="tab-chat" class="tab-content active">
@@ -114,6 +115,11 @@
           <button type="button" id="send-btn" class="btn btn-send" title="Send" aria-label="Send message">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M3.478 2.405a.75.75 0 0 0-.926.94l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94l18-8.5a.75.75 0 0 0 0-1.38l-18-8.5Z"/>
+            </svg>
+          </button>
+          <button type="button" id="stop-btn" class="btn btn-stop" title="Stop" aria-label="Stop processing" hidden>
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="6" y="6" width="12" height="12" rx="2"/>
             </svg>
           </button>
         </div>
@@ -494,6 +500,32 @@
           <button type="button" id="directive-add-btn" class="btn btn-send" title="Add">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           </button>
+        </div>
+      </div>
+      <div id="tab-voice" class="tab-content">
+        <div class="tab-scroll-container tts-settings-inner">
+          <!-- Auto-speak toggle -->
+          <div class="tts-section">
+            <label class="tts-autospeak-label">
+              <input type="checkbox" id="tts-autospeak-cb" class="tts-cb">
+              <span>Auto-speak bot replies</span>
+            </label>
+          </div>
+
+          <!-- TTS Provider Priority -->
+          <div class="tts-section">
+            <div class="tts-section-title">Provider Priority <span class="tts-hint">(drag or use arrows &mdash; top = first choice)</span></div>
+            <ul id="tts-priority-list" class="tts-priority-list"></ul>
+          </div>
+
+          <!-- Per-engine voice config -->
+          <div id="tts-voice-panels" class="tts-voice-panels"></div>
+
+          <!-- Test button -->
+          <div class="tts-section tts-test-section">
+            <input type="text" id="tts-test-text" class="tab-input" placeholder="Test text..." value="Hello, this is a voice test.">
+            <button id="tts-test-btn" class="action-btn tts-test-btn">Test Voice</button>
+          </div>
         </div>
       </div>
       <div id="tab-calibration" class="tab-content">
