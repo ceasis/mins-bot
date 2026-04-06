@@ -277,6 +277,58 @@ public class GoogleIntegrationOAuthService {
         objectMapper.writerWithDefaultPrettyPrinter().writeValue(p.toFile(), tokens);
     }
 
+    /**
+     * Returns a valid access token for the given integration, refreshing if expired.
+     * Returns null if the integration is not connected or refresh fails.
+     */
+    public String getValidAccessToken(String integrationId) {
+        StoredGoogleTokens tokens = loadTokens().orElse(null);
+        if (tokens == null || !tokens.enabledIntegrations.contains(integrationId)) {
+            return null;
+        }
+        // If token is still valid (with 60s buffer), return it
+        if (tokens.accessToken != null && System.currentTimeMillis() < tokens.accessTokenExpiryEpochMs - 60_000) {
+            return tokens.accessToken;
+        }
+        // Refresh the token
+        if (tokens.refreshToken == null || tokens.refreshToken.isBlank()) {
+            log.warn("[GoogleOAuth] No refresh token for {}", integrationId);
+            return null;
+        }
+        try {
+            MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+            form.add("client_id", effectiveClientId());
+            form.add("client_secret", effectiveClientSecret());
+            form.add("refresh_token", tokens.refreshToken);
+            form.add("grant_type", "refresh_token");
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> body = restTemplate.postForObject(TOKEN_URL, new HttpEntity<>(form, headers), Map.class);
+            if (body == null || body.get("access_token") == null) {
+                log.warn("[GoogleOAuth] Refresh response missing access_token");
+                return null;
+            }
+            tokens.accessToken = String.valueOf(body.get("access_token"));
+            Number exp = (Number) body.get("expires_in");
+            long sec = exp != null ? exp.longValue() : 3600L;
+            tokens.accessTokenExpiryEpochMs = System.currentTimeMillis() + sec * 1000L;
+            saveTokens(tokens);
+            log.info("[GoogleOAuth] Refreshed access token for {}", integrationId);
+            return tokens.accessToken;
+        } catch (Exception e) {
+            log.warn("[GoogleOAuth] Token refresh failed: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /** Check if a specific integration is connected. */
+    public boolean isConnected(String integrationId) {
+        StoredGoogleTokens tokens = loadTokens().orElse(null);
+        return tokens != null && tokens.enabledIntegrations.contains(integrationId);
+    }
+
     private record PendingState(String integrationId, Instant expires) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)

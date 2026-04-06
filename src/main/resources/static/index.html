@@ -86,8 +86,16 @@
         <button class="tab tab-extra" data-tab="schedules">Schedules</button>
         <button class="tab tab-extra" data-tab="todos">Todo</button>
         <button class="tab tab-extra" data-tab="directives">Directives</button>
+        <button class="tab tab-extra" data-tab="personality">Personality</button>
+        <button class="tab tab-extra" data-tab="knowledge">Knowledge</button>
         <button class="tab tab-extra" data-tab="voice">Voice</button>
         <button class="tab tab-extra" data-tab="calibration">Calibration</button>
+        <button class="tab tab-extra" data-tab="workflows">Workflows</button>
+        <button class="tab tab-extra" data-tab="templates">Templates</button>
+        <button class="tab tab-extra" data-tab="marketplace">Marketplace</button>
+        <button class="tab tab-extra" data-tab="dashboard">Dashboard</button>
+        <button class="tab tab-extra" data-tab="multiagent">Multi-Agent</button>
+        <button class="tab tab-extra" data-tab="automations">Automations</button>
       </div>
       <div id="tab-chat" class="tab-content active">
         <div class="chat-area">
@@ -104,6 +112,7 @@
           <span id="quit-countdown-label" class="quit-countdown-label">Quitting in 30s</span>
           <div class="quit-countdown-track"><div id="quit-countdown-fill" class="quit-countdown-fill"></div></div>
         </div>
+        <div id="vision-status" class="vision-status" hidden></div>
         <div class="input-row">
           <input type="text" id="input" class="input" placeholder="Ask me anything..." autocomplete="off" aria-label="Message input">
           <button type="button" id="voice-btn" class="btn btn-voice" title="Voice off" aria-label="Toggle voice input">
@@ -461,24 +470,45 @@
         </div>
       </div>
       <div id="tab-skills" class="tab-content">
-        <div class="skills-container">
-          <div id="upload-area" class="upload-area">
-            <svg class="upload-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0L8 8m4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 16v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            <span class="upload-text">Drop .jar plugin here or click to browse</span>
-            <input type="file" id="skill-file-input" accept=".jar" hidden>
-          </div>
-          <div id="skills-list" class="skills-list"></div>
-          <div class="section-divider"></div>
-          <div class="publish-section">
-            <div class="section-title">Publish a Skill</div>
-            <input type="text" id="publish-author" class="tab-input" placeholder="Author name">
-            <input type="text" id="publish-desc" class="tab-input" placeholder="Description (optional)">
-            <div class="publish-row">
-              <input type="file" id="publish-file" accept=".java" class="tab-input file-input">
-              <button id="publish-btn" class="action-btn publish">Publish</button>
+        <div class="skills-layout">
+          <!-- Left column: skills list (40%) -->
+          <div class="skills-left">
+            <div class="skills-left-header">
+              <div class="section-title">Skills</div>
             </div>
+            <div id="skills-list" class="skills-list"></div>
+            <div id="published-list" class="skills-list"></div>
           </div>
-          <div id="published-list" class="skills-list"></div>
+          <!-- Right column: form/editor (60%) -->
+          <div class="skills-right">
+            <div class="skills-right-header">
+              <div class="section-title" id="skills-editor-title">Upload / Create</div>
+              <button id="skill-random-btn" class="action-btn publish">Random</button>
+            </div>
+            <div id="upload-area" class="upload-area">
+              <svg class="upload-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0L8 8m4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 16v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span class="upload-text">Drop .jar plugin here or click to browse</span>
+              <input type="file" id="skill-file-input" accept=".jar" hidden>
+            </div>
+            <div id="skill-detail" class="skill-detail" hidden>
+              <input type="text" id="skill-detail-name" class="tab-input skill-detail-name-input" placeholder="Skill name">
+              <div class="skill-detail-meta" id="skill-detail-meta"></div>
+              <textarea id="skill-detail-content" class="tab-input skill-detail-content-textarea" rows="8" hidden></textarea>
+              <div class="skill-detail-actions" id="skill-detail-actions"></div>
+            </div>
+            <div class="section-divider"></div>
+            <div class="publish-section">
+              <div class="section-title">Publish a Skill</div>
+              <input type="text" id="publish-skill-name" class="tab-input" placeholder="Skill name (max 10 words)">
+              <input type="text" id="publish-author" class="tab-input" placeholder="Author name">
+              <textarea id="publish-desc" class="tab-input skill-desc-textarea" rows="3" placeholder="Description (what does this skill do?)"></textarea>
+              <div class="publish-row">
+                <input type="file" id="publish-file" accept=".java" class="tab-input file-input">
+                <button id="publish-btn" class="action-btn publish">Publish</button>
+              </div>
+            </div>
+            <div id="skill-random-output" class="skill-random-output" hidden></div>
+          </div>
         </div>
       </div>
       <div id="tab-schedules" class="tab-content">
@@ -500,6 +530,133 @@
           <button type="button" id="directive-add-btn" class="btn btn-send" title="Add">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           </button>
+        </div>
+      </div>
+      <div id="tab-personality" class="tab-content">
+        <div class="personality-layout">
+        <div class="tab-scroll-container personality-inner">
+          <!-- Top buttons -->
+          <div class="personality-actions">
+            <button id="personality-randomize-btn" class="action-btn">Randomize</button>
+            <button id="personality-save-btn" class="action-btn publish">Save</button>
+          </div>
+
+          <!-- 1. Identity -->
+          <div class="pers-section">
+            <div class="pers-section-title">1. Identity</div>
+            <div class="pers-field"><label>Name / Alias</label><input type="text" id="pers-name" class="pers-input" placeholder="JARVIS, Atlas, Nova..."></div>
+            <div class="pers-field"><label>Role</label><input type="text" id="pers-role" class="pers-input" placeholder="AI assistant, security analyst..."></div>
+            <div class="pers-field"><label>Domain Expertise</label><input type="text" id="pers-domain" class="pers-input" placeholder="AWS architecture, customer support..."></div>
+            <div class="pers-field"><label>Backstory</label><textarea id="pers-backstory" class="pers-input pers-textarea" rows="2" placeholder="Built by X to assist Y users..."></textarea></div>
+          </div>
+
+          <!-- 2. Tone & Communication Style -->
+          <div class="pers-section">
+            <div class="pers-section-title">2. Tone &amp; Communication Style</div>
+            <div class="pers-field"><label>Formality</label><select id="pers-formality" class="pers-select"><option value="formal">Formal</option><option value="balanced">Balanced</option><option value="casual">Casual</option></select></div>
+            <div class="pers-field"><label>Verbosity</label><select id="pers-verbosity" class="pers-select"><option value="concise">Concise</option><option value="balanced">Balanced</option><option value="verbose">Verbose</option></select></div>
+            <div class="pers-field"><label>Demeanor</label><select id="pers-demeanor" class="pers-select"><option value="friendly">Friendly</option><option value="professional">Professional</option><option value="authoritative">Authoritative</option></select></div>
+            <div class="pers-field"><label>Humor</label><select id="pers-humor" class="pers-select"><option value="none">None</option><option value="light">Light</option><option value="witty">Witty</option><option value="sarcastic">Sarcastic</option></select></div>
+            <div class="pers-field"><label>Emojis</label><select id="pers-emojis" class="pers-select"><option value="none">None</option><option value="minimal">Minimal</option><option value="expressive">Expressive</option></select></div>
+          </div>
+
+          <!-- 3. Personality Traits -->
+          <div class="pers-section">
+            <div class="pers-section-title">3. Personality Traits</div>
+            <div class="pers-slider-field"><label>Assertiveness</label><span class="pers-slider-labels"><span>Passive</span><span>Assertive</span></span><input type="range" id="pers-assertiveness" min="1" max="5" value="3" class="pers-range"></div>
+            <div class="pers-slider-field"><label>Empathy</label><span class="pers-slider-labels"><span>Low</span><span>High</span></span><input type="range" id="pers-empathy" min="1" max="5" value="3" class="pers-range"></div>
+            <div class="pers-slider-field"><label>Curiosity</label><span class="pers-slider-labels"><span>Reactive</span><span>Proactive</span></span><input type="range" id="pers-curiosity" min="1" max="5" value="3" class="pers-range"></div>
+            <div class="pers-slider-field"><label>Patience</label><span class="pers-slider-labels"><span>Low</span><span>High</span></span><input type="range" id="pers-patience" min="1" max="5" value="4" class="pers-range"></div>
+            <div class="pers-slider-field"><label>Creativity</label><span class="pers-slider-labels"><span>Logical</span><span>Imaginative</span></span><input type="range" id="pers-creativity" min="1" max="5" value="3" class="pers-range"></div>
+          </div>
+
+          <!-- 4. Decision-Making Style -->
+          <div class="pers-section">
+            <div class="pers-section-title">4. Decision-Making Style</div>
+            <div class="pers-field"><label>Approach</label><select id="pers-decisionApproach" class="pers-select"><option value="data-driven">Data-driven</option><option value="intuitive">Intuitive</option><option value="balanced">Balanced</option></select></div>
+            <div class="pers-field"><label>Risk Style</label><select id="pers-riskStyle" class="pers-select"><option value="risk-averse">Risk-averse</option><option value="calculated">Calculated</option><option value="risk-taking">Risk-taking</option></select></div>
+            <div class="pers-field"><label>Reasoning</label><select id="pers-reasoning" class="pers-select"><option value="step-by-step">Step-by-step</option><option value="big-picture">Big-picture</option><option value="hybrid">Hybrid</option></select></div>
+            <div class="pers-field"><label>Exploration</label><select id="pers-exploration" class="pers-select"><option value="deterministic">Deterministic</option><option value="exploratory">Exploratory</option><option value="balanced">Balanced</option></select></div>
+          </div>
+
+          <!-- 5. Interaction Model -->
+          <div class="pers-section">
+            <div class="pers-section-title">5. Interaction Model</div>
+            <div class="pers-field"><label>Proactivity</label><select id="pers-proactivity" class="pers-select"><option value="reactive">Reactive</option><option value="balanced">Balanced</option><option value="proactive">Proactive</option></select></div>
+            <div class="pers-field"><label>Follow-up Questions</label><select id="pers-followUpQuestions" class="pers-select"><option value="always">Always</option><option value="when-needed">When needed</option><option value="rarely">Rarely</option></select></div>
+            <div class="pers-field"><label>Unprompted Suggestions</label><select id="pers-unpromptedSuggestions" class="pers-select"><option value="yes">Yes</option><option value="sometimes">Sometimes</option><option value="no">No</option></select></div>
+            <div class="pers-field"><label>Challenges User</label><select id="pers-challengesUser" class="pers-select"><option value="always">Always</option><option value="diplomatically">Diplomatically</option><option value="never">Never</option></select></div>
+          </div>
+
+          <!-- 6. Expertise Depth & Boundaries -->
+          <div class="pers-section">
+            <div class="pers-section-title">6. Expertise Depth &amp; Boundaries</div>
+            <div class="pers-field"><label>Expertise Level</label><select id="pers-expertiseLevel" class="pers-select"><option value="beginner-friendly">Beginner-friendly</option><option value="intermediate">Intermediate</option><option value="expert">Expert</option></select></div>
+            <div class="pers-field"><label>Explanation Style</label><select id="pers-explanationStyle" class="pers-select"><option value="always-explains">Always explains</option><option value="explains-when-asked">Explains when asked</option><option value="assumes-knowledge">Assumes knowledge</option></select></div>
+            <div class="pers-field"><label>Admits Uncertainty</label><select id="pers-admitsUncertainty" class="pers-select"><option value="yes">Yes</option><option value="sometimes">Sometimes</option><option value="rarely">Rarely</option></select></div>
+            <div class="pers-field"><label>Scope Boundaries</label><select id="pers-scopeBoundaries" class="pers-select"><option value="strict">Strict</option><option value="flexible">Flexible</option><option value="open">Open</option></select></div>
+          </div>
+
+          <!-- 7. Language & Expression Rules -->
+          <div class="pers-section">
+            <div class="pers-section-title">7. Language &amp; Expression Rules</div>
+            <div class="pers-field"><label>Sentence Length</label><select id="pers-sentenceLength" class="pers-select"><option value="short">Short</option><option value="medium">Medium</option><option value="long">Long</option></select></div>
+            <div class="pers-field"><label>Jargon Level</label><select id="pers-jargonLevel" class="pers-select"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></div>
+            <div class="pers-field"><label>Structure</label><select id="pers-structure" class="pers-select"><option value="bullet-heavy">Bullet-heavy</option><option value="mixed">Mixed</option><option value="paragraph">Paragraph</option></select></div>
+            <div class="pers-field"><label>Repetition Tolerance</label><select id="pers-repetitionTolerance" class="pers-select"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></div>
+          </div>
+
+          <!-- 8. Emotional Model -->
+          <div class="pers-section">
+            <div class="pers-section-title">8. Emotional Model</div>
+            <div class="pers-field"><label>Emotional Tone</label><select id="pers-emotionalTone" class="pers-select"><option value="neutral">Neutral</option><option value="supportive">Supportive</option><option value="motivational">Motivational</option></select></div>
+            <div class="pers-field"><label>Crisis Handling</label><select id="pers-crisisHandling" class="pers-select"><option value="calm">Calm</option><option value="urgent">Urgent</option><option value="empathetic">Empathetic</option></select></div>
+            <div class="pers-field"><label>Excitement</label><select id="pers-excitement" class="pers-select"><option value="low">Low</option><option value="moderate">Moderate</option><option value="high">High</option></select></div>
+          </div>
+
+          <!-- 9. Ethics & Constraints -->
+          <div class="pers-section">
+            <div class="pers-section-title">9. Ethics &amp; Constraints</div>
+            <div class="pers-field"><label>Avoids Speculation</label><select id="pers-avoidsSpeculation" class="pers-select"><option value="yes">Yes</option><option value="sometimes">Sometimes</option><option value="no">No</option></select></div>
+            <div class="pers-field"><label>Avoids Sensitive Topics</label><select id="pers-avoidsSensitiveTopics" class="pers-select"><option value="yes">Yes</option><option value="sometimes">Sometimes</option><option value="no">No</option></select></div>
+            <div class="pers-field"><label>Truth vs Politeness</label><select id="pers-truthVsPoliteness" class="pers-select"><option value="truth-first">Truth first</option><option value="balanced">Balanced</option><option value="politeness-first">Politeness first</option></select></div>
+          </div>
+
+          <!-- 10. Signature Behaviors -->
+          <div class="pers-section">
+            <div class="pers-section-title">10. Signature Behaviors</div>
+            <div class="pers-field"><label>Catchphrase</label><input type="text" id="pers-catchphrase" class="pers-input" placeholder="Let's get to work., Consider it done..."></div>
+            <div class="pers-field"><label>Signature Behavior</label><input type="text" id="pers-signatureBehavior" class="pers-input" placeholder="Always ends with actionable next steps..."></div>
+          </div>
+
+          <div id="personality-status" class="pers-status"></div>
+        </div>
+        <!-- Saved personalities sidebar -->
+        <div class="pers-sidebar">
+          <div class="pers-sidebar-title">Saved</div>
+          <div id="pers-sidebar-list" class="pers-sidebar-list"></div>
+        </div>
+        </div>
+      </div>
+      <div id="tab-knowledge" class="tab-content">
+        <div class="tab-scroll-container kb-inner">
+          <div class="kb-header">
+            <div class="kb-title">Knowledge Base</div>
+            <div class="kb-hint">Upload documents for the bot to reference in conversations</div>
+          </div>
+          <div class="kb-upload-area" id="kb-drop-zone">
+            <div class="kb-upload-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            </div>
+            <div class="kb-upload-text">Drop files here or click to upload</div>
+            <div class="kb-upload-hint">.txt, .md, .json, .csv, .pdf, .html, .xml, .yaml, .py, .java, .js, .sql ...</div>
+            <input type="file" id="kb-file-input" multiple hidden>
+          </div>
+          <div id="kb-upload-status" class="kb-status"></div>
+          <div class="kb-doc-list-header">Documents <span id="kb-doc-count" class="kb-doc-count"></span></div>
+          <div id="kb-doc-list" class="kb-doc-list">
+            <div class="kb-empty">No documents uploaded yet.</div>
+          </div>
         </div>
       </div>
       <div id="tab-voice" class="tab-content">
@@ -575,6 +732,200 @@
         </div>
       </div>
     </div>
+      <!-- ═══ Workflow Builder tab ═══ -->
+      <div id="tab-workflows" class="tab-content">
+        <div class="tab-scroll-container wf-inner">
+          <div class="wf-header">
+            <div class="section-title">Workflow Builder</div>
+            <button id="wf-new-btn" class="action-btn publish">+ New Workflow</button>
+          </div>
+          <div id="wf-editor" class="wf-editor" hidden>
+            <input type="text" id="wf-name" class="tab-input" placeholder="Workflow name (e.g. Morning Briefing)">
+            <input type="text" id="wf-trigger" class="tab-input" placeholder="Trigger (e.g. every morning, on command, manual)">
+            <div id="wf-steps" class="wf-steps"></div>
+            <button id="wf-add-step" class="action-btn wf-add-step-btn">+ Add Step</button>
+            <div class="wf-editor-actions">
+              <button id="wf-save-btn" class="action-btn publish">Save</button>
+              <button id="wf-cancel-btn" class="action-btn">Cancel</button>
+            </div>
+          </div>
+          <div id="wf-list" class="wf-list">
+            <div class="tab-empty">No workflows yet. Create one to chain tools together.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ Prompt Templates tab ═══ -->
+      <div id="tab-templates" class="tab-content">
+        <div class="tab-scroll-container pt-inner">
+          <div class="pt-header">
+            <div class="section-title">Prompt Templates</div>
+            <button id="pt-new-btn" class="action-btn publish">+ New Template</button>
+          </div>
+          <div id="pt-editor" class="pt-editor" hidden>
+            <input type="text" id="pt-name" class="tab-input" placeholder="Template name (e.g. Translate Text)">
+            <input type="text" id="pt-category" class="tab-input" placeholder="Category (e.g. Language, Coding, Writing)">
+            <textarea id="pt-body" class="tab-input pt-body-textarea" rows="4" placeholder="Prompt body with {{variables}} e.g.: Translate &quot;{{text}}&quot; to {{language}}"></textarea>
+            <div class="pt-hint">Use <code>{{variableName}}</code> for fill-in variables</div>
+            <div class="pt-editor-actions">
+              <button id="pt-save-btn" class="action-btn publish">Save</button>
+              <button id="pt-cancel-btn" class="action-btn">Cancel</button>
+            </div>
+          </div>
+          <div id="pt-list" class="pt-list">
+            <div class="tab-empty">No templates yet. Save reusable prompts with variables.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ Plugin Marketplace tab ═══ -->
+      <div id="tab-marketplace" class="tab-content">
+        <div class="tab-scroll-container mp-inner">
+          <div class="mp-header">
+            <div class="section-title">Plugin Marketplace</div>
+            <div class="mp-filter-row">
+              <select id="mp-category-filter" class="mp-filter-select">
+                <option value="all">All Categories</option>
+                <option value="Utilities">Utilities</option>
+                <option value="Search">Search</option>
+                <option value="Vision">Vision</option>
+                <option value="Automation">Automation</option>
+                <option value="Communication">Communication</option>
+                <option value="Finance">Finance</option>
+                <option value="Language">Language</option>
+                <option value="Development">Development</option>
+                <option value="Productivity">Productivity</option>
+              </select>
+              <select id="mp-source-filter" class="mp-filter-select">
+                <option value="all">All Sources</option>
+                <option value="builtin">Built-in</option>
+                <option value="catalog">Catalog</option>
+                <option value="community">Community</option>
+              </select>
+            </div>
+          </div>
+          <div id="mp-grid" class="mp-grid">
+            <div class="tab-empty">Loading plugins...</div>
+          </div>
+          <div class="mp-publish-section">
+            <div class="section-title">Publish Your Plugin</div>
+            <input type="text" id="mp-pub-name" class="tab-input" placeholder="Plugin name">
+            <input type="text" id="mp-pub-desc" class="tab-input" placeholder="Description">
+            <input type="text" id="mp-pub-author" class="tab-input" placeholder="Author">
+            <input type="text" id="mp-pub-category" class="tab-input" placeholder="Category">
+            <button id="mp-pub-btn" class="action-btn publish">Publish</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Dashboard / Analytics tab -->
+      <div id="tab-dashboard" class="tab-content">
+        <div class="tab-scroll-container dashboard-inner">
+          <div class="dashboard-header">
+            <div class="section-title">Analytics Dashboard</div>
+            <button id="dashboard-refresh" class="action-btn">Refresh</button>
+          </div>
+          <div class="dashboard-grid" id="dashboard-grid">
+            <div class="dash-card">
+              <div class="dash-card-label">Total Requests</div>
+              <div class="dash-card-value" id="dash-requests">—</div>
+            </div>
+            <div class="dash-card">
+              <div class="dash-card-label">Uptime</div>
+              <div class="dash-card-value" id="dash-uptime">—</div>
+            </div>
+            <div class="dash-card">
+              <div class="dash-card-label">Avg Response Time</div>
+              <div class="dash-card-value" id="dash-avg-time">—</div>
+            </div>
+            <div class="dash-card">
+              <div class="dash-card-label">Total Tokens</div>
+              <div class="dash-card-value" id="dash-tokens">—</div>
+            </div>
+            <div class="dash-card">
+              <div class="dash-card-label">Est. Cost</div>
+              <div class="dash-card-value" id="dash-cost">—</div>
+            </div>
+            <div class="dash-card">
+              <div class="dash-card-label">Input / Output Tokens</div>
+              <div class="dash-card-value" id="dash-token-split">—</div>
+            </div>
+          </div>
+          <div class="dashboard-section">
+            <div class="section-title">Top Tools</div>
+            <div id="dash-tools" class="dash-tools-list">—</div>
+          </div>
+          <div class="dashboard-section">
+            <div class="section-title">Response Time (last 20)</div>
+            <div class="dash-chart-container">
+              <canvas id="dash-chart" class="dash-chart" width="340" height="100"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Multi-Agent Chat tab -->
+      <div id="tab-multiagent" class="tab-content">
+        <div class="tab-scroll-container ma-inner">
+          <div class="ma-header">
+            <div class="section-title">Multi-Agent Chat</div>
+          </div>
+          <div class="ma-personas-section">
+            <div class="ma-label">Select agents for this conversation:</div>
+            <div id="ma-persona-chips" class="ma-persona-chips"></div>
+            <div class="ma-add-persona">
+              <input type="text" id="ma-new-name" class="tab-input" placeholder="New persona name" style="flex:1">
+              <input type="text" id="ma-new-prompt" class="tab-input" placeholder="System prompt" style="flex:2">
+              <input type="color" id="ma-new-color" value="#8b5cf6" class="ma-color-input">
+              <button id="ma-add-btn" class="action-btn">Add</button>
+            </div>
+          </div>
+          <div id="ma-chat-area" class="ma-chat-area">
+            <div id="ma-messages" class="ma-messages"></div>
+          </div>
+          <div class="ma-input-row">
+            <input type="text" id="ma-input" class="input" placeholder="Type a message for all agents..." autocomplete="off">
+            <button id="ma-send-btn" class="btn btn-send" title="Send to agents">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.478 2.405a.75.75 0 0 0-.926.94l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94l18-8.5a.75.75 0 0 0 0-1.38l-18-8.5Z"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Automations tab -->
+      <div id="tab-automations" class="tab-content">
+        <div class="tab-scroll-container auto-inner">
+          <div class="auto-header">
+            <div class="section-title">Automations</div>
+            <p class="auto-hint">Create rules: "when X happens, do Y". Triggers fire when your message matches.</p>
+          </div>
+          <div class="auto-builder">
+            <div class="auto-builder-row">
+              <label class="auto-builder-label">When</label>
+              <select id="auto-trigger" class="auto-select">
+                <option value="message_contains">Message contains</option>
+                <option value="message_equals">Message equals</option>
+                <option value="message_starts_with">Message starts with</option>
+                <option value="message_regex">Message matches regex</option>
+              </select>
+              <input type="text" id="auto-condition" class="tab-input" placeholder="e.g. good morning" style="flex:1">
+            </div>
+            <div class="auto-builder-row">
+              <label class="auto-builder-label">Do</label>
+              <input type="text" id="auto-action" class="tab-input" placeholder="e.g. read my calendar and weather" style="flex:1">
+            </div>
+            <div class="auto-builder-row">
+              <label class="auto-builder-label">Note</label>
+              <input type="text" id="auto-desc" class="tab-input" placeholder="Optional description" style="flex:1">
+              <button id="auto-add-btn" class="action-btn publish">Add Rule</button>
+            </div>
+          </div>
+          <div id="auto-rules-list" class="auto-rules-list">
+            <div class="tab-empty">No automations yet.</div>
+          </div>
+        </div>
+      </div>
+
     <div id="status-bar" class="status-bar">
       <span id="mouse-coords">X: 0 &nbsp; Y: 0</span>
     </div>

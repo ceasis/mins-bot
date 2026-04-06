@@ -129,4 +129,41 @@ public class SkillsController {
         String result = pluginLoader.deletePublishedSkill(name);
         return Map.of("result", result);
     }
+
+    /** Save a generated skill idea (name + markdown content, no code file). */
+    @PostMapping("/published/save-idea")
+    public Map<String, String> saveSkillIdea(@RequestBody Map<String, String> body) {
+        String name = body.get("name");
+        String content = body.get("content");
+        if (name == null || name.isBlank()) {
+            return Map.of("error", "Skill name is required");
+        }
+        if (content == null || content.isBlank()) {
+            return Map.of("error", "Skill content is required");
+        }
+        String result = pluginLoader.saveSkillIdea(name.trim(), content);
+        return Map.of("result", result);
+    }
+
+    /** Update a published skill: rename and/or update content. */
+    @PutMapping("/published/{name}")
+    public Map<String, String> updatePublished(@PathVariable String name,
+                                               @RequestBody Map<String, String> body) {
+        String newName = body.get("newName");
+        String content = body.get("content");
+        String result = pluginLoader.updatePublishedSkill(name, newName, content);
+        return Map.of("result", result);
+    }
+
+    /** Rename a plugin JAR file. */
+    @PutMapping("/{name}/rename")
+    public Map<String, String> renamePlugin(@PathVariable String name,
+                                            @RequestBody Map<String, String> body) {
+        String newName = body.get("newName");
+        if (newName == null || newName.isBlank()) {
+            return Map.of("error", "New name is required");
+        }
+        String result = pluginLoader.renamePlugin(name, newName.trim());
+        return Map.of("result", result);
+    }
 }

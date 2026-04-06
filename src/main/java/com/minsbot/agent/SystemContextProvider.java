@@ -1,5 +1,6 @@
 package com.minsbot.agent;
 
+import com.minsbot.PersonalityController;
 import com.minsbot.agent.tools.DirectivesTools;
 import org.springframework.stereotype.Component;
 
@@ -22,6 +23,12 @@ import java.util.regex.Pattern;
  */
 @Component
 public class SystemContextProvider {
+
+    private final PersonalityController personalityController;
+
+    public SystemContextProvider(PersonalityController personalityController) {
+        this.personalityController = personalityController;
+    }
 
     /** Whether the directive reminder has been shown at least once this session. */
     private boolean directiveReminderShownOnce = false;
@@ -297,7 +304,7 @@ public class SystemContextProvider {
                 - Example: A tool returns an error → try a different tool, a different approach, or \
                 use the PC's native capabilities to accomplish the same goal.
                 - You have FULL PC control. There is almost always an alternative path. Find it.
-                """.formatted(username, computerName, osName, osVersion, osArch, userHome, now, userHome));
+                """.formatted(username, computerName, osName, osVersion, osArch, userHome, now, userHome, userHome));
 
         // Primary prompt from minsbot_config.txt — injected at the top to shape bot personality/behavior
         String primaryPrompt = extractPrimaryPrompt();
@@ -305,6 +312,14 @@ public class SystemContextProvider {
             sb.append("\nPRIMARY INSTRUCTIONS (follow these at all times):\n");
             sb.append(primaryPrompt);
             if (!primaryPrompt.endsWith("\n")) sb.append("\n");
+        }
+
+        // Personality profile from ~/mins_bot_data/personality.json
+        String personality = personalityController.buildPromptFragment();
+        if (!personality.isBlank()) {
+            sb.append("\nYOUR PERSONALITY (adopt these traits in all interactions):\n");
+            sb.append(personality);
+            if (!personality.endsWith("\n")) sb.append("\n");
         }
 
         // Personal context from ~/mins_bot_data/personal_config.txt (created with template if missing)
@@ -340,6 +355,16 @@ public class SystemContextProvider {
         }
 
         sb.append("""
+
+                RESEARCH & REPORT WORKFLOWS (multi-step data gathering):
+                - When the user asks to research, compare, or create a report: use searchWeb for EACH data point \
+                separately (e.g. one search per provider/topic), then use readWebPage for details if needed.
+                - After gathering data: use createExcelFile + writeExcelCells to build a spreadsheet with clear \
+                column headers (provider, type, specs, cost, etc.), then createPdf for a summary report.
+                - Save outputs to the user's Desktop by default: %s\\Desktop\\
+                - After creating files: speak a brief summary aloud with the speak tool.
+                - Do NOT skip steps — execute every search, write every cell, create every file. The user wants \
+                complete deliverables, not a text summary.
 
                 APP LAUNCH RULE:
                 - When the user says "open chrome", "open spotify", "open discord", etc., the openApp tool will \

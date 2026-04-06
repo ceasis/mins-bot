@@ -187,28 +187,39 @@ public class PluginLoaderService {
 
     private static final Path PUBLISHED_DIR = PLUGINS_DIR.resolve("published");
 
-    /** Returns list of published skills with metadata. */
+    /** Returns list of published skills with metadata (.java and .md files). */
     public List<Map<String, Object>> getPublishedSkills() {
         List<Map<String, Object>> result = new ArrayList<>();
         try {
             if (!Files.isDirectory(PUBLISHED_DIR)) return result;
             try (var stream = Files.list(PUBLISHED_DIR)) {
-                stream.filter(p -> p.toString().endsWith(".java")).sorted().forEach(javaFile -> {
+                stream.filter(p -> {
+                    String n = p.toString();
+                    return n.endsWith(".java") || n.endsWith(".md");
+                }).sorted().forEach(file -> {
                     try {
-                        String name = javaFile.getFileName().toString();
+                        String name = file.getFileName().toString();
                         Map<String, Object> entry = new LinkedHashMap<>();
                         entry.put("name", name);
-                        entry.put("size", Files.size(javaFile));
-                        entry.put("sizeFormatted", formatSize(Files.size(javaFile)));
+                        entry.put("size", Files.size(file));
+                        entry.put("sizeFormatted", formatSize(Files.size(file)));
+                        entry.put("type", name.endsWith(".md") ? "idea" : "code");
 
                         // Read manifest if it exists
-                        Path manifest = PUBLISHED_DIR.resolve(name.replace(".java", ".json"));
+                        String baseName = name.replaceAll("\\.(java|md)$", "");
+                        Path manifest = PUBLISHED_DIR.resolve(baseName + ".json");
                         if (Files.exists(manifest)) {
                             String json = Files.readString(manifest);
                             entry.put("author", extractJsonField(json, "author"));
                             entry.put("description", extractJsonField(json, "description"));
                             entry.put("date", extractJsonField(json, "date"));
                         }
+
+                        // For .md files, include the content
+                        if (name.endsWith(".md")) {
+                            entry.put("content", Files.readString(file));
+                        }
+
                         result.add(entry);
                     } catch (Exception ignored) {}
                 });
@@ -217,6 +228,32 @@ public class PluginLoaderService {
             log.warn("[Plugin] Failed to list published skills: {}", e.getMessage());
         }
         return result;
+    }
+
+    /** Save a skill idea (name + markdown description, no code file). */
+    public String saveSkillIdea(String name, String markdownContent) {
+        try {
+            Files.createDirectories(PUBLISHED_DIR);
+            String safeName = name.replaceAll("[^a-zA-Z0-9 _-]", "").trim().replace(' ', '_');
+            if (safeName.isEmpty()) safeName = "skill_idea";
+            if (!safeName.toLowerCase().endsWith(".md")) safeName += ".md";
+
+            Files.writeString(PUBLISHED_DIR.resolve(safeName), markdownContent);
+
+            // Write manifest
+            String date = java.time.LocalDate.now().toString();
+            String manifest = "{\"name\":\"" + escapeJson(name)
+                    + "\",\"author\":\"Generated\""
+                    + ",\"description\":\"" + escapeJson(name)
+                    + "\",\"date\":\"" + date + "\"}";
+            Path manifestPath = PUBLISHED_DIR.resolve(safeName.replace(".md", ".json"));
+            Files.writeString(manifestPath, manifest);
+
+            log.info("[Plugin] Saved skill idea: {}", safeName);
+            return "Saved: " + safeName;
+        } catch (Exception e) {
+            return "Failed to save: " + e.getMessage();
+        }
     }
 
     /** Publish a .java skill file with metadata. */
@@ -244,12 +281,13 @@ public class PluginLoaderService {
         }
     }
 
-    /** Delete a published skill and its manifest. */
+    /** Delete a published skill and its manifest (.java or .md). */
     public String deletePublishedSkill(String name) {
         try {
-            Path javaFile = PUBLISHED_DIR.resolve(name);
-            Path manifest = PUBLISHED_DIR.resolve(name.replace(".java", ".json"));
-            if (Files.exists(javaFile)) Files.delete(javaFile);
+            Path file = PUBLISHED_DIR.resolve(name);
+            String baseName = name.replaceAll("\\.(java|md)$", "");
+            Path manifest = PUBLISHED_DIR.resolve(baseName + ".json");
+            if (Files.exists(file)) Files.delete(file);
             if (Files.exists(manifest)) Files.delete(manifest);
             log.info("[Plugin] Deleted published skill: {}", name);
             return "Deleted: " + name;
@@ -272,6 +310,100 @@ public class PluginLoaderService {
         if (s == null) return "";
         return s.replace("\\", "\\\\").replace("\"", "\\\"")
                 .replace("\n", "\\n").replace("\r", "\\r");
+    }
+
+    /** Update a published skill: rename and/or update content (.java or .md). */
+    public String updatePublishedSkill(String oldFileName, String newDisplayName, String content) {
+        try {
+            if (!Files.isDirectory(PUBLISHED_DIR)) return "Published directory not found";
+            Path oldFile = PUBLISHED_DIR.resolve(oldFileName);
+            if (!Files.exists(oldFile)) return "File not found: " + oldFileName;
+
+            String oldBase = oldFileName.replaceAll("\\.(java|md)$", "");
+            String ext = oldFileName.endsWith(".md") ? ".md" : ".java";
+
+            // Update content if provided
+            if (content != null && !content.isBlank()) {
+                Files.writeString(oldFile, content);
+            }
+
+            // Rename if new name differs
+            if (newDisplayName != null && !newDisplayName.isBlank()) {
+                String newSafe = newDisplayName.replaceAll("[^a-zA-Z0-9 _-]", "").trim().replace(' ', '_');
+                if (newSafe.isEmpty()) newSafe = oldBase;
+                String newFileName = newSafe + ext;
+
+                if (!newFileName.equals(oldFileName)) {
+                    Path newFile = PUBLISHED_DIR.resolve(newFileName);
+                    Files.move(oldFile, newFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+
+                    // Move manifest too
+                    Path oldManifest = PUBLISHED_DIR.resolve(oldBase + ".json");
+                    Path newManifest = PUBLISHED_DIR.resolve(newSafe + ".json");
+                    if (Files.exists(oldManifest)) {
+                        // Update manifest content with new name
+                        String json = Files.readString(oldManifest);
+                        String updatedJson = json.replace("\"name\":\"" + escapeJson(oldFileName) + "\"",
+                                "\"name\":\"" + escapeJson(newDisplayName) + "\"")
+                                .replace("\"description\":\"" + extractJsonField(json, "description") + "\"",
+                                        "\"description\":\"" + escapeJson(newDisplayName) + "\"");
+                        Files.writeString(newManifest, updatedJson);
+                        if (!oldManifest.equals(newManifest)) Files.deleteIfExists(oldManifest);
+                    }
+                    log.info("[Plugin] Renamed: {} → {}", oldFileName, newFileName);
+                    return "Renamed: " + newFileName;
+                } else {
+                    // Name unchanged but update manifest description
+                    Path manifest = PUBLISHED_DIR.resolve(oldBase + ".json");
+                    if (Files.exists(manifest)) {
+                        String json = Files.readString(manifest);
+                        String updatedJson = json.replace(
+                                "\"description\":\"" + extractJsonField(json, "description") + "\"",
+                                "\"description\":\"" + escapeJson(newDisplayName) + "\"");
+                        Files.writeString(manifest, updatedJson);
+                    }
+                }
+            }
+
+            log.info("[Plugin] Updated: {}", oldFileName);
+            return "Updated: " + oldFileName;
+        } catch (Exception e) {
+            return "Failed to update: " + e.getMessage();
+        }
+    }
+
+    /** Rename a plugin JAR file. */
+    public String renamePlugin(String oldName, String newName) {
+        try {
+            Path oldFile = PLUGINS_DIR.resolve(oldName);
+            if (!Files.exists(oldFile)) return "Plugin not found: " + oldName;
+
+            String safeName = newName.replaceAll("[^a-zA-Z0-9._-]", "_");
+            if (!safeName.toLowerCase().endsWith(".jar")) safeName += ".jar";
+
+            Path newFile = PLUGINS_DIR.resolve(safeName);
+            if (Files.exists(newFile) && !oldFile.equals(newFile)) {
+                return "A plugin named " + safeName + " already exists";
+            }
+
+            // Unload if loaded
+            PluginInfo loaded = loadedPlugins.get(oldName);
+            if (loaded != null) {
+                unloadPlugin(oldName);
+            }
+
+            Files.move(oldFile, newFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            log.info("[Plugin] Renamed: {} → {}", oldName, safeName);
+
+            // Re-load if it was loaded before
+            if (loaded != null) {
+                loadPlugin(safeName);
+            }
+
+            return "Renamed: " + safeName;
+        } catch (Exception e) {
+            return "Failed to rename: " + e.getMessage();
+        }
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────

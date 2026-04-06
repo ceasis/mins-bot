@@ -1,5 +1,6 @@
 package com.minsbot.agent;
 
+import com.minsbot.agent.tools.ToolExecutionNotifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -25,15 +26,18 @@ public class ScreenStateService {
     private final ScreenMemoryService screenMemoryService;
     private final TextractService textractService;
     private final GeminiVisionService geminiVisionService;
+    private final ToolExecutionNotifier toolNotifier;
 
     public ScreenStateService(SystemControlService systemControl,
                               ScreenMemoryService screenMemoryService,
                               TextractService textractService,
-                              GeminiVisionService geminiVisionService) {
+                              GeminiVisionService geminiVisionService,
+                              ToolExecutionNotifier toolNotifier) {
         this.systemControl = systemControl;
         this.screenMemoryService = screenMemoryService;
         this.textractService = textractService;
         this.geminiVisionService = geminiVisionService;
+        this.toolNotifier = toolNotifier;
     }
 
     private static final String GEMINI_SCREEN_PROMPT = """
@@ -118,6 +122,7 @@ public class ScreenStateService {
             // Try Gemini reasoning first (best quality)
             if (geminiVisionService.isAvailable()) {
                 log.info("[ScreenState] Gemini available — analyzing...");
+                toolNotifier.notify("__vision__Checking screen with Gemini Vision...");
                 String geminiResult = analyzeWithGemini(screenshotPath, userMessage);
                 if (geminiResult != null && !geminiResult.isBlank()) {
                     log.info("[ScreenState] Gemini SUCCESS: {} chars", geminiResult.length());
@@ -129,6 +134,7 @@ public class ScreenStateService {
             }
 
             // Fallback: OCR + Textract word listing
+            toolNotifier.notify("__vision__Checking screen with OCR fallback...");
             String ocrResult = collectOcrText(screenshotPath);
             if (ocrResult != null) {
                 log.info("[ScreenState] OCR fallback SUCCESS: {} chars", ocrResult.length());

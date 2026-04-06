@@ -45,7 +45,7 @@ public class ToolClassifierService {
             "ai_model", "communication", "scheduling", "utility", "export",
             "plugins", "hotkeys", "tray", "screen_memory", "audio_memory",
             "playlist", "software", "network", "printing", "excel", "screen_watching",
-            "travel"
+            "travel", "research", "knowledge", "briefing", "calendar", "gmail"
     );
 
     private static final String SYSTEM_PROMPT = """
@@ -75,8 +75,13 @@ public class ToolClassifierService {
             - excel: Excel spreadsheet, write cells, format cells, add sheet, read spreadsheet, workbook, xlsx, create spreadsheet
             - screen_watching: watch screen, observe, guess drawing, guess what I'm drawing, monitor screen, continuous observation, watch me, drawing game, watch my screen, help me play, assist me with game, play game with me, listen to audio, hear what I'm listening, listen to my meeting, turn on ears, what song is this, listen mode, listen to what I'm hearing, listen to my speakers
             - travel: flights, hotels, travel, trip, vacation, book flight, find hotel, airfare, accommodation, search flights, search hotels, travel research, plan trip
+            - research: research and create report, compare options and make spreadsheet, research pricing and create Excel/PDF, multi-step research with output files, analyze and summarize into document, create comparison report, gather data from web and save to file
+            - knowledge: knowledge base, uploaded documents, reference documents
+            - briefing: morning briefing, daily briefing, prepare my briefing, summarize my day, daily summary, what do I have today, brief me, start of day summary, morning routine
+            - calendar: calendar, events today, what's on my calendar, meetings today, schedule, upcoming events, this week's events, Google Calendar, my appointments
+            - gmail: check gmail, unread emails, new emails, check my email, inbox, gmail messages, any new mail, email summary
 
-            Return at most 3 of the most relevant category names, comma-separated. If none match, return: none""";
+            Return at most 4 of the most relevant category names, comma-separated. If none match, return: none""";
 
     @PostConstruct
     void init() {

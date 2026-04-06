@@ -86,7 +86,7 @@ public class ChatService {
             - Keep steps short and specific (max 10 words each).
             - Always end with a verification step: "Verify — read file back", "Verify — take screenshot", etc.
             - For simple questions, greetings, or tasks that need no tools, respond with just: SKIP
-            - Max 6 steps. Combine related actions into one step if needed.
+            - Max 10 steps. Combine related actions into one step if needed.
 
             Examples:
             User: "open google and search for bose speakers"
@@ -102,6 +102,24 @@ public class ChatService {
 
             User: "what time is it?"
             SKIP
+
+            User: "prepare my morning briefing"
+            ⬜ 1. Fetch unread emails from Gmail
+            ⬜ 2. Fetch today's calendar events
+            ⬜ 3. Get weather forecast for my location
+            ⬜ 4. Summarize everything into a concise briefing
+            ⬜ 5. Speak the briefing aloud
+            ⬜ 6. Verify — confirm all data sources responded
+
+            User: "compare cloud GPU pricing for AWS, Azure, and GCP, create an Excel and PDF summary"
+            ⬜ 1. Search web for AWS GPU instance pricing (24GB VRAM)
+            ⬜ 2. Search web for Azure GPU instance pricing (24GB VRAM)
+            ⬜ 3. Search web for GCP GPU instance pricing (24GB VRAM)
+            ⬜ 4. Create Excel spreadsheet with comparison columns
+            ⬜ 5. Write pricing data into Excel cells
+            ⬜ 6. Create PDF summary report on Desktop
+            ⬜ 7. Speak the summary aloud
+            ⬜ 8. Verify — read Excel back to confirm data
             """;
 
     /**
@@ -896,6 +914,24 @@ public class ChatService {
                 || lower.equals("resume") || lower.equals("next") || lower.equals("proceed")
                 || lower.startsWith("continue ") || lower.startsWith("go on ")
                 || lower.startsWith("keep going") || lower.startsWith("resume ");
+    }
+
+    /**
+     * Direct reply with a custom system prompt — used by multi-agent chat.
+     * Skips planning, screen capture, and tool calling for fast responses.
+     */
+    public String getDirectReply(String userMessage, String systemPrompt) {
+        if (chatClient == null) return "(AI not configured)";
+        try {
+            return chatClient.prompt()
+                    .system(systemPrompt)
+                    .user(userMessage)
+                    .call()
+                    .content();
+        } catch (Exception e) {
+            log.error("[MultiAgent] Direct reply failed: {}", e.getMessage());
+            return "(error: " + e.getMessage() + ")";
+        }
     }
 
     /** Native audio pipeline: WAV -> transcription -> text response. */

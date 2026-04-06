@@ -3,7 +3,8 @@
     "allow": [
       "Bash(mvn compile:*)",
       "Bash(git mv:*)",
-      "Bash(ls /c/Users/cholo/eclipse-workspace/mins-bot/src/main/java/com/minsbot/*.java)"
+      "Bash(ls /c/Users/cholo/eclipse-workspace/mins-bot/src/main/java/com/minsbot/*.java)",
+      "Bash(mvn compiler:compile -q)"
     ]
   },
   "hooks": {

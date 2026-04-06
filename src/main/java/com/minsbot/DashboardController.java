@@ -20,6 +20,18 @@ import java.util.stream.Collectors;
 @RestController
 public class DashboardController {
 
+    private final AnalyticsService analyticsService;
+
+    public DashboardController(AnalyticsService analyticsService) {
+        this.analyticsService = analyticsService;
+    }
+
+    /** JSON endpoint: returns analytics data. */
+    @GetMapping("/api/analytics")
+    public Map<String, Object> getAnalytics() {
+        return analyticsService.getStats();
+    }
+
     private static final Path BASE_DIR =
             Paths.get(System.getProperty("user.home"), "mins_bot_data");
     private static final DateTimeFormatter FMT =

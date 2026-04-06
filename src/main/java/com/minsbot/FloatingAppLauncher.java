@@ -97,8 +97,10 @@ public class FloatingAppLauncher extends Application {
                         window.setMember("java", bridge);
                     }
                     // Auto-expand on load (regular window is always expanded)
+                    // Also mark as embedded so tab bar is hidden in app mode
                     engine.executeScript(
-                            "document.getElementById('root').classList.add('expanded');"
+                            "document.body.classList.add('embedded-minsbot');"
+                            + "document.getElementById('root').classList.add('expanded');"
                             + "setTimeout(function(){var i=document.getElementById('input');if(i)i.focus();},80);"
                     );
                     bridge.expand();

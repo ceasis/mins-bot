@@ -94,6 +94,9 @@ public class ToolRouter {
     private final PluginLoaderService pluginLoaderService;
     private final SystemTrayService systemTrayService;
     private final ScreenClickTools screenClickTools;
+    private final KnowledgeBaseTools knowledgeBaseTools;
+    private final CalendarTools calendarTools;
+    private final GmailApiTools gmailApiTools;
 
     @Autowired(required = false)
     private ToolClassifierService classifier;
@@ -165,7 +168,10 @@ public class ToolRouter {
             AppSwitchTools appSwitchTools,
             PluginLoaderService pluginLoaderService,
             SystemTrayService systemTrayService,
-            ScreenClickTools screenClickTools) {
+            ScreenClickTools screenClickTools,
+            KnowledgeBaseTools knowledgeBaseTools,
+            CalendarTools calendarTools,
+            GmailApiTools gmailApiTools) {
 
         this.directivesTools = directivesTools;
         this.directiveDataTools = directiveDataTools;
@@ -221,6 +227,9 @@ public class ToolRouter {
         this.pluginLoaderService = pluginLoaderService;
         this.systemTrayService = systemTrayService;
         this.screenClickTools = screenClickTools;
+        this.knowledgeBaseTools = knowledgeBaseTools;
+        this.calendarTools = calendarTools;
+        this.gmailApiTools = gmailApiTools;
 
         // Count @Tool methods on every bean (once, via reflection)
         countToolsOnAllBeans();
@@ -406,7 +415,7 @@ public class ToolRouter {
         map.put("printing",    List.of(printerTools));
         map.put("media",       List.of(imageTools, pdfTools, ttsTools));
         map.put("ai_model",     List.of(localModelTools, huggingFaceImageTool, summarizationTools, modelSwitchTools));
-        map.put("communication", List.of(emailTools, weatherTools));
+        map.put("communication", List.of(emailTools, weatherTools, gmailApiTools, calendarTools));
         map.put("scheduling",   List.of(scheduledTaskTools, timerTools, notificationTools, cronConfigTools));
         map.put("utility",      List.of(calculatorTools, qrTools, hashTools, unitConversionTools));
         map.put("export",       List.of(exportTools));
@@ -418,6 +427,11 @@ public class ToolRouter {
         map.put("playlist",     List.of(playlistTools));
         map.put("screen_watching", List.of(screenWatchingTools, audioListeningTools, sensoryToggleTools));
         map.put("travel",        List.of(travelSearchTools, webSearchTools, wordDocTools, pdfTools));
+        map.put("knowledge",     List.of(knowledgeBaseTools));
+        map.put("research",      List.of(webSearchTools, webScraperTools, excelTools, pdfTools, fileTools, fileSystemTools, ttsTools, summarizationTools));
+        map.put("briefing",      List.of(gmailApiTools, calendarTools, emailTools, weatherTools, ttsTools, summarizationTools));
+        map.put("calendar",      List.of(calendarTools));
+        map.put("gmail",         List.of(gmailApiTools, emailTools));
 
         return Collections.unmodifiableMap(map);
     }
@@ -452,10 +466,13 @@ public class ToolRouter {
         map.put("printing",     List.of(printerTools));
         map.put("media",        List.of(imageTools, pdfTools));
         map.put("ai_model",     List.of(localModelTools, summarizationTools));
-        map.put("communication", List.of(emailTools));
+        map.put("communication", List.of(emailTools, gmailApiTools, calendarTools));
         map.put("scheduling",   List.of(scheduledTaskTools, cronConfigTools));
         map.put("export",       List.of(exportTools));
         map.put("travel",       List.of(travelSearchTools, webSearchTools, wordDocTools, pdfTools));
+        map.put("briefing",     List.of(gmailApiTools, calendarTools, emailTools, weatherTools, ttsTools, summarizationTools));
+        map.put("calendar",     List.of(calendarTools));
+        map.put("gmail",        List.of(gmailApiTools, emailTools));
 
         return Collections.unmodifiableMap(map);
     }

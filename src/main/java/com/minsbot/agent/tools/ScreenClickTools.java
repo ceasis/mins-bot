@@ -327,6 +327,8 @@ public class ScreenClickTools {
                 int[] coords = null;
                 String usedEngine = null;
                 for (String eng : getActiveEnginePriority()) {
+                    notifier.notify("__vision__Asking " + engineDisplayName(eng) + " to locate '" + search + "'"
+                            + (attempt > 1 ? " (attempt " + attempt + ")" : "") + "...");
                     notifier.notify("Step 1: Asking " + engineDisplayName(eng) + " to locate '" + search + "'"
                             + (attempt > 1 ? " (attempt " + attempt + ")" : "") + "...");
                     coords = findWithEngine(eng, fullShot, search, sw, sh);
