@@ -162,6 +162,7 @@ public class ChatService {
     private final TtsTools ttsTools;
     private final ScreenStateService screenStateService;
     private final com.minsbot.agent.tools.ScreenWatchingTools screenWatchingTools;
+    private final com.minsbot.agent.tools.ClipboardHistoryTools clipboardHistoryTools;
 
     /** Spring AI ChatClient — null when no API key is configured. Swappable at runtime. */
     @Autowired(required = false)
@@ -193,7 +194,8 @@ public class ChatService {
                        AsyncMessageService asyncMessages,
                        TtsTools ttsTools,
                        ScreenStateService screenStateService,
-                       com.minsbot.agent.tools.ScreenWatchingTools screenWatchingTools) {
+                       com.minsbot.agent.tools.ScreenWatchingTools screenWatchingTools,
+                       com.minsbot.agent.tools.ClipboardHistoryTools clipboardHistoryTools) {
         this.transcriptService = transcriptService;
         this.pcAgent = pcAgent;
         this.systemCtx = systemCtx;
@@ -206,6 +208,7 @@ public class ChatService {
         this.ttsTools = ttsTools;
         this.screenStateService = screenStateService;
         this.screenWatchingTools = screenWatchingTools;
+        this.clipboardHistoryTools = clipboardHistoryTools;
     }
 
     @PostConstruct
@@ -263,6 +266,9 @@ public class ChatService {
                         processUserMessage(userMessage);
                         mainLoopBusy = false;
                     } else {
+                        // ── Poll clipboard history ──
+                        try { clipboardHistoryTools.poll(); } catch (Exception ignored) {}
+
                         // ── No user message: observe screen autonomously ──
                         // Only run autonomous observation if idle long enough
                         long idleMs = System.currentTimeMillis() - lastActivityTime;

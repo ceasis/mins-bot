@@ -97,6 +97,21 @@ public class ToolRouter {
     private final KnowledgeBaseTools knowledgeBaseTools;
     private final CalendarTools calendarTools;
     private final GmailApiTools gmailApiTools;
+    private final WebMonitorTools webMonitorTools;
+    private final CodeAuditTools codeAuditTools;
+    private final BackupConfigTools backupConfigTools;
+    private final MusicControlTools musicControlTools;
+    private final HealthMonitorTools healthMonitorTools;
+    private final VideoDownloadTools videoDownloadTools;
+    private final ClipboardHistoryTools clipboardHistoryTools;
+    private final WakeWordTools wakeWordTools;
+    private final AutoPilotTools autoPilotTools;
+    private final GiftIdeaTools giftIdeaTools;
+    private final LifeProfileTools lifeProfileTools;
+    private final EpisodicMemoryTools episodicMemoryTools;
+    private final ProactiveEngineTools proactiveEngineTools;
+    private final HealthTrackerTools healthTrackerTools;
+    private final FinanceTrackerTools financeTrackerTools;
 
     @Autowired(required = false)
     private ToolClassifierService classifier;
@@ -171,7 +186,22 @@ public class ToolRouter {
             ScreenClickTools screenClickTools,
             KnowledgeBaseTools knowledgeBaseTools,
             CalendarTools calendarTools,
-            GmailApiTools gmailApiTools) {
+            GmailApiTools gmailApiTools,
+            WebMonitorTools webMonitorTools,
+            CodeAuditTools codeAuditTools,
+            BackupConfigTools backupConfigTools,
+            MusicControlTools musicControlTools,
+            HealthMonitorTools healthMonitorTools,
+            VideoDownloadTools videoDownloadTools,
+            ClipboardHistoryTools clipboardHistoryTools,
+            WakeWordTools wakeWordTools,
+            AutoPilotTools autoPilotTools,
+            GiftIdeaTools giftIdeaTools,
+            LifeProfileTools lifeProfileTools,
+            EpisodicMemoryTools episodicMemoryTools,
+            ProactiveEngineTools proactiveEngineTools,
+            HealthTrackerTools healthTrackerTools,
+            FinanceTrackerTools financeTrackerTools) {
 
         this.directivesTools = directivesTools;
         this.directiveDataTools = directiveDataTools;
@@ -230,6 +260,21 @@ public class ToolRouter {
         this.knowledgeBaseTools = knowledgeBaseTools;
         this.calendarTools = calendarTools;
         this.gmailApiTools = gmailApiTools;
+        this.webMonitorTools = webMonitorTools;
+        this.codeAuditTools = codeAuditTools;
+        this.backupConfigTools = backupConfigTools;
+        this.musicControlTools = musicControlTools;
+        this.healthMonitorTools = healthMonitorTools;
+        this.videoDownloadTools = videoDownloadTools;
+        this.clipboardHistoryTools = clipboardHistoryTools;
+        this.wakeWordTools = wakeWordTools;
+        this.autoPilotTools = autoPilotTools;
+        this.giftIdeaTools = giftIdeaTools;
+        this.lifeProfileTools = lifeProfileTools;
+        this.episodicMemoryTools = episodicMemoryTools;
+        this.proactiveEngineTools = proactiveEngineTools;
+        this.healthTrackerTools = healthTrackerTools;
+        this.financeTrackerTools = financeTrackerTools;
 
         // Count @Tool methods on every bean (once, via reflection)
         countToolsOnAllBeans();
@@ -349,7 +394,11 @@ public class ToolRouter {
                 screenMemoryTools, audioMemoryTools, playlistTools,
                 softwareTools, networkTools, printerTools, screenRecordTools, screenWatchingTools, audioListeningTools,
                 sensoryToggleTools,
-                travelSearchTools, wordDocTools, appSwitchTools, globalHotkeyService, pluginLoaderService, systemTrayService
+                travelSearchTools, wordDocTools, appSwitchTools, globalHotkeyService, pluginLoaderService, systemTrayService,
+                codeAuditTools, backupConfigTools, musicControlTools,
+                videoDownloadTools, clipboardHistoryTools, wakeWordTools, autoPilotTools, giftIdeaTools,
+                lifeProfileTools, episodicMemoryTools, proactiveEngineTools,
+                healthTrackerTools, financeTrackerTools
         };
         for (Object bean : allBeans) {
             if (bean != null && !toolCounts.containsKey(bean)) {
@@ -397,7 +446,7 @@ public class ToolRouter {
         return List.of(
                 directivesTools, directiveDataTools,
                 chatHistoryTool, taskStatusTool, clipboardTools, todoListTools,
-                personalConfigTools, minsbotConfigTools, webSearchTools, sensoryToggleTools);
+                personalConfigTools, lifeProfileTools, minsbotConfigTools, webSearchTools, sensoryToggleTools);
     }
 
     private Map<String, List<Object>> buildCategories() {
@@ -407,7 +456,7 @@ public class ToolRouter {
         map.put("browser",      List.of(screenClickTools, playwrightTools, downloadTools, sitesConfigTools, systemTools, chromeCdpTools, webSearchTools, travelSearchTools));
         map.put("cdp",          List.of(chromeCdpTools));
         map.put("sites",        List.of(sitesConfigTools));
-        map.put("files",        List.of(fileTools, fileSystemTools, excelTools, systemTools, wordDocTools, pdfTools));
+        map.put("files",        List.of(fileTools, fileSystemTools, excelTools, systemTools, wordDocTools, pdfTools, backupConfigTools));
         map.put("excel",        List.of(excelTools));
         map.put("system",       List.of(screenClickTools, systemTools, softwareTools, screenRecordTools, appSwitchTools));
         map.put("software",    List.of(softwareTools));
@@ -432,6 +481,20 @@ public class ToolRouter {
         map.put("briefing",      List.of(gmailApiTools, calendarTools, emailTools, weatherTools, ttsTools, summarizationTools));
         map.put("calendar",      List.of(calendarTools));
         map.put("gmail",         List.of(gmailApiTools, emailTools));
+        map.put("web_monitor",   List.of(webMonitorTools));
+        map.put("code_audit",    List.of(codeAuditTools, fileSystemTools));
+        map.put("backup",        List.of(backupConfigTools, fileSystemTools));
+        map.put("music",         List.of(musicControlTools, playlistTools));
+        map.put("health_monitor", List.of(healthMonitorTools));
+        map.put("video_download", List.of(videoDownloadTools, downloadTools));
+        map.put("clipboard_history", List.of(clipboardHistoryTools, clipboardTools));
+        map.put("wake_word",      List.of(wakeWordTools));
+        map.put("autopilot",      List.of(autoPilotTools));
+        map.put("gift_ideas",     List.of(giftIdeaTools, webSearchTools));
+        map.put("episodic_memory", List.of(episodicMemoryTools));
+        map.put("proactive",      List.of(proactiveEngineTools));
+        map.put("health_tracker", List.of(healthTrackerTools));
+        map.put("finance_tracker", List.of(financeTrackerTools));
 
         return Collections.unmodifiableMap(map);
     }
@@ -450,7 +513,7 @@ public class ToolRouter {
         return List.of(
                 directivesTools, directiveDataTools,
                 chatHistoryTool, taskStatusTool, clipboardTools, todoListTools,
-                personalConfigTools, webSearchTools, sensoryToggleTools);
+                personalConfigTools, lifeProfileTools, webSearchTools, sensoryToggleTools);
     }
 
     private Map<String, List<Object>> buildAutonomousCategories() {
@@ -473,6 +536,10 @@ public class ToolRouter {
         map.put("briefing",     List.of(gmailApiTools, calendarTools, emailTools, weatherTools, ttsTools, summarizationTools));
         map.put("calendar",     List.of(calendarTools));
         map.put("gmail",        List.of(gmailApiTools, emailTools));
+        map.put("web_monitor", List.of(webMonitorTools));
+        map.put("health_monitor", List.of(healthMonitorTools));
+        map.put("health_tracker", List.of(healthTrackerTools));
+        map.put("finance_tracker", List.of(financeTrackerTools));
 
         return Collections.unmodifiableMap(map);
     }

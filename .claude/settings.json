@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls src/main/java/com/minsbot/*.java)",
+      "Bash(xargs -I {} basename {})",
+      "Bash(xargs grep:*)"
+    ]
+  }
+}

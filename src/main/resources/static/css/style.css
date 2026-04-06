@@ -3738,3 +3738,35 @@ body.embedded-minsbot .tab-bar {
   color: #f87171;
   cursor: pointer;
 }
+
+/* ═══ Auto-pilot button ═══ */
+
+.header-autopilot-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.header-autopilot-btn .autopilot-icon {
+  font-size: 13px;
+  color: rgba(255,255,255,0.3);
+  transition: color 0.2s, text-shadow 0.2s;
+}
+
+.header-autopilot-btn:hover .autopilot-icon {
+  color: rgba(255,255,255,0.6);
+}
+
+.header-autopilot-btn.autopilot-active .autopilot-icon {
+  color: #a78bfa;
+  text-shadow: 0 0 8px rgba(167,139,250,0.6);
+  animation: autopilot-pulse 2s ease-in-out infinite;
+}
+
+@keyframes autopilot-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}

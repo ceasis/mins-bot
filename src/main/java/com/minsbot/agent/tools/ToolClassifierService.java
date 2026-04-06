@@ -45,7 +45,21 @@ public class ToolClassifierService {
             "ai_model", "communication", "scheduling", "utility", "export",
             "plugins", "hotkeys", "tray", "screen_memory", "audio_memory",
             "playlist", "software", "network", "printing", "excel", "screen_watching",
-            "travel", "research", "knowledge", "briefing", "calendar", "gmail"
+            "travel", "research", "knowledge", "briefing", "calendar", "gmail",
+            "web_monitor",
+            "code_audit",
+            "backup",
+            "music",
+            "health_monitor",
+            "video_download",
+            "clipboard_history",
+            "wake_word",
+            "autopilot",
+            "gift_ideas",
+            "episodic_memory",
+            "proactive",
+            "health_tracker",
+            "finance_tracker"
     );
 
     private static final String SYSTEM_PROMPT = """
@@ -80,6 +94,20 @@ public class ToolClassifierService {
             - briefing: morning briefing, daily briefing, prepare my briefing, summarize my day, daily summary, what do I have today, brief me, start of day summary, morning routine
             - calendar: calendar, events today, what's on my calendar, meetings today, schedule, upcoming events, this week's events, Google Calendar, my appointments
             - gmail: check gmail, unread emails, new emails, check my email, inbox, gmail messages, any new mail, email summary
+            - web_monitor: monitor website, watch for changes, alert me if website changes, check URL every N minutes, track website updates, website monitoring, watch this page, notify me when site changes
+            - code_audit: clone repo, git clone, code audit, scan code, security scan, vulnerability scan, SQL injection, hardcoded secrets, unused imports, code review, audit repository, scan for vulnerabilities, check for secrets
+            - backup: backup config files, backup configs, backup .env, backup properties, backup important configs, backup settings, backup yml files, backup configuration files, config backup, settings backup
+            - music: play music, pause music, next song, previous song, skip track, volume up, volume down, mute, play on spotify, what song is playing, search spotify, play/pause, stop music, current track, open spotify, louder, quieter
+            - health_monitor: system health, CPU usage, RAM usage, disk space, monitor system, system alerts, process watchdog, watch process, restart if crashes, keep running, kill process, top processes, system performance, PC health, memory usage, disk alert
+            - video_download: download video, download from youtube, save video, yt-dlp, download audio, save as mp3, extract audio, download playlist, video info, download tiktok, download twitter video, download instagram video, download reddit video
+            - clipboard_history: clipboard history, what did I copy, recent copies, search clipboard, find in clipboard, restore clipboard, clipboard log, past copies, clipboard stats, what was on my clipboard
+            - wake_word: wake word, hey jarvis, voice activation, always listen, voice trigger, listen for my voice, voice command, hey computer, ok bot, enable wake word, voice wake, hands free, activate voice
+            - autopilot: auto-pilot, autopilot, watch my screen and help, be proactive, help me as I work, proactive mode, smart assistant, context-aware help, auto pilot on, auto pilot off, stop auto-pilot, screen assistant
+            - gift_ideas: gift ideas, what should I get, birthday gift, Christmas gift, present for, gift for mom, gift for dad, gift for friend, gift for partner, save contact interests, gift contacts, gift suggestions, gift budget, anniversary gift, wish list, gift history
+            - episodic_memory: remember this, do you remember, recall, what happened, what do you know about, memory, memories, remember when, forget this, memory stats, what do you remember about, life events, episodes, journal
+            - proactive: proactive engine, proactive notifications, proactive mode, proactive status, proactive rules, enable proactive, disable proactive, quiet hours, break reminders, hydration reminders, morning briefing, proactive check
+            - health_tracker: log water, log meal, log exercise, log weight, log mood, log sleep, log medication, health summary, health trend, health goals, how much water, what did I eat, calories today, weight trend, mood tracker, sleep quality, medication reminder, fitness log, workout log, daily health
+            - finance_tracker: log expense, log income, budget, spending, how much did I spend, monthly report, bills, upcoming bills, debt, savings goal, financial goal, expense category, track spending, money, income vs expenses, finance summary, set budget, add bill, debt overview
 
             Return at most 4 of the most relevant category names, comma-separated. If none match, return: none""";
 

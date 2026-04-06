@@ -3266,6 +3266,30 @@
   var dashRefresh = document.getElementById('dashboard-refresh');
   if (dashRefresh) dashRefresh.addEventListener('click', loadDashboard);
 
+  // ═══ Auto-pilot mode ═══
+
+  var headerAutopilot = document.getElementById('header-autopilot');
+
+  function refreshAutopilotStatus() {
+    fetch('/api/status/autopilot').then(function (r) { return r.json(); }).then(function (d) {
+      if (headerAutopilot) {
+        headerAutopilot.classList.toggle('autopilot-active', !!d.enabled);
+        headerAutopilot.title = d.enabled ? 'Auto-pilot ON (click to disable)' : 'Auto-pilot OFF (click to enable)';
+      }
+    }).catch(function () {});
+  }
+
+  if (headerAutopilot) {
+    headerAutopilot.addEventListener('click', function () {
+      fetch('/api/autopilot/toggle', { method: 'POST' }).then(function (r) { return r.json(); }).then(function (d) {
+        headerAutopilot.classList.toggle('autopilot-active', !!d.enabled);
+        appendMessage(d.message || (d.enabled ? 'Auto-pilot enabled.' : 'Auto-pilot disabled.'), false);
+      }).catch(function () {});
+    });
+  }
+
+  refreshAutopilotStatus();
+
   // ═══ Multi-Agent Chat tab ═══
 
   var maConvId = null;

@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
+import com.minsbot.agent.AutoPilotService;
 import com.minsbot.agent.tools.AudioListeningTools;
 import com.minsbot.agent.tools.ScreenClickTools;
 import com.minsbot.agent.tools.ScreenWatchingTools;
@@ -30,18 +31,21 @@ public class ChatController {
     private final AudioListeningTools audioListeningTools;
     private final ScreenClickTools screenClickTools;
     private final TtsTools ttsTools;
+    private final AutoPilotService autoPilotService;
 
     public ChatController(ChatService chatService, TranscriptService transcriptService,
                           ScreenWatchingTools screenWatchingTools,
                           AudioListeningTools audioListeningTools,
                           ScreenClickTools screenClickTools,
-                          TtsTools ttsTools) {
+                          TtsTools ttsTools,
+                          AutoPilotService autoPilotService) {
         this.chatService = chatService;
         this.transcriptService = transcriptService;
         this.screenWatchingTools = screenWatchingTools;
         this.audioListeningTools = audioListeningTools;
         this.screenClickTools = screenClickTools;
         this.ttsTools = ttsTools;
+        this.autoPilotService = autoPilotService;
     }
 
     @GetMapping(value = "/version", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -66,12 +70,17 @@ public class ChatController {
         return Map.of("reply", reply != null ? reply : "");
     }
 
-    /** Poll for async agent results (background tasks like file collection). */
+    /** Poll for async agent results (background tasks like file collection) and auto-pilot suggestions. */
     @GetMapping(value = "/chat/async", produces = MediaType.APPLICATION_JSON_VALUE)
     public Map<String, Object> pollAsync() {
         String result = chatService.pollAsyncResult();
         if (result != null) {
             return Map.of("hasResult", true, "reply", result);
+        }
+        // Also check auto-pilot suggestions
+        List<String> suggestions = autoPilotService.drainSuggestions();
+        if (!suggestions.isEmpty()) {
+            return Map.of("hasResult", true, "reply", String.join("\n", suggestions));
         }
         return Map.of("hasResult", false);
     }
@@ -336,5 +345,32 @@ public class ChatController {
         List<Map<String, Object>> comparisons = (List<Map<String, Object>>) body.get("comparisons");
         int threshold = body.containsKey("threshold") ? ((Number) body.get("threshold")).intValue() : 5;
         return screenClickTools.generateCalibrationComparison(screenshotPath, comparisons, threshold);
+    }
+
+    // ═══ Auto-pilot mode ═══
+
+    /** Toggle auto-pilot on/off from the UI. */
+    @PostMapping(value = "/autopilot/toggle", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> toggleAutoPilot() {
+        if (autoPilotService.isEnabled()) {
+            String msg = autoPilotService.stop();
+            return Map.of("enabled", false, "message", msg);
+        } else {
+            String msg = autoPilotService.start();
+            return Map.of("enabled", true, "message", msg);
+        }
+    }
+
+    /** Check auto-pilot status. */
+    @GetMapping(value = "/status/autopilot", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> autoPilotStatus() {
+        return autoPilotService.getStatus();
+    }
+
+    /** Drain pending auto-pilot suggestions for the UI. */
+    @GetMapping(value = "/status/autopilot-feed", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> autoPilotFeed() {
+        List<String> suggestions = autoPilotService.drainSuggestions();
+        return Map.of("suggestions", suggestions);
     }
 }
