@@ -37,6 +37,9 @@ public class GeminiVisionService {
     @Value("${app.gemini.reasoning-model:gemini-2.5-pro}")
     private String reasoningModel;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private ModuleStatsService moduleStats;
+
     private HttpClient httpClient;
 
     private static final String BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/";
@@ -272,6 +275,7 @@ public class GeminiVisionService {
             if (result == null || result.isBlank()) {
                 log.warn("[Gemini] analyze — callGemini returned null/empty");
             } else {
+                if (moduleStats != null) moduleStats.recordVisionCall("Gemini " + model);
                 log.info("[Gemini] analyze — SUCCESS ({} chars): {}", result.length(),
                         result.length() > 300 ? result.substring(0, 300) + "..." : result);
             }
@@ -295,6 +299,7 @@ public class GeminiVisionService {
             String mediaType = imagePath.toString().toLowerCase().endsWith(".png") ? "image/png" : "image/jpeg";
             String result = callGemini(base64, prompt, mediaType, modelOverride);
             if (result != null && !result.isBlank()) {
+                if (moduleStats != null) moduleStats.recordVisionCall("Gemini " + modelOverride);
                 log.info("[Gemini] analyze — SUCCESS ({} chars): {}", result.length(),
                         result.length() > 300 ? result.substring(0, 300) + "..." : result);
             }

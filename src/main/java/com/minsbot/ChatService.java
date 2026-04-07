@@ -1,6 +1,7 @@
 package com.minsbot;
 
 import com.minsbot.agent.AsyncMessageService;
+import com.minsbot.agent.ModuleStatsService;
 import com.minsbot.agent.PcAgentService;
 import com.minsbot.agent.ScreenStateService;
 import com.minsbot.agent.SystemContextProvider;
@@ -164,6 +165,12 @@ public class ChatService {
     private final com.minsbot.agent.tools.ScreenWatchingTools screenWatchingTools;
     private final com.minsbot.agent.tools.ClipboardHistoryTools clipboardHistoryTools;
     private final com.minsbot.agent.AutoMemoryExtractor autoMemoryExtractor;
+
+    @Autowired(required = false)
+    private ModuleStatsService moduleStats;
+
+    @Value("${spring.ai.openai.chat.options.model:unknown}")
+    private String chatModelName;
 
     /** Spring AI ChatClient — null when no API key is configured. Swappable at runtime. */
     @Autowired(required = false)
@@ -438,6 +445,7 @@ public class ChatService {
                     }
 
                     workingSound.stop();
+                    if (moduleStats != null) moduleStats.recordChatCall(chatModelName);
                     if (reply != null && !reply.isBlank()) {
                         transcriptService.save("BOT", reply);
                         asyncMessages.push(reply);

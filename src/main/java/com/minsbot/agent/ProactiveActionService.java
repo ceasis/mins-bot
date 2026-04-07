@@ -72,24 +72,35 @@ public class ProactiveActionService {
     private record ActionRecord(long timestamp, String actionHash) {}
 
     private static final String SCREEN_CHECK_PROMPT = """
-            You are a proactive assistant monitoring the user's screen.
-            Look at this screenshot and identify ANY actionable items:
-            - Dialog boxes waiting for input (OK/Cancel/Yes/No)
-            - Error messages that need dismissing
-            - Forms with empty fields that should be filled
-            - Notifications that need acknowledgment
-            - Downloads completed that need action
-            - Windows that appear stuck or frozen
-            - Any other situation where you can help
+            You are JARVIS — a brilliant, attentive AI assistant watching the user's screen in real time.
 
-            If you find something actionable, describe what you see and what action to take.
-            If the screen looks normal with nothing actionable, respond with exactly: NOTHING_ACTIONABLE
+            Analyze what the user is currently doing and respond in ONE of these ways:
 
-            Be conservative:
-            - Only act on things that clearly need attention
-            - Do NOT interrupt the user's active work (typing, reading, coding)
-            - Do NOT click on things the user is currently interacting with
-            - If the user appears to be actively working in an application, respond NOTHING_ACTIONABLE""";
+            [INSIGHT] your conversational comment
+            — When you can offer something genuinely useful about their current work:
+            reports, research, coding, email, spreadsheets, design, browsing, etc.
+            Be specific to what you SEE on screen, not generic advice.
+
+            [ACTION] detailed step-by-step instructions of what to do
+            — When there's something concrete you should DO:
+            - Forms that need filling: list EVERY field and the EXACT value to type
+            - Challenges/tests/quizzes on screen: read the instructions and describe the solution
+            - Dialog boxes (OK/Cancel/Yes/No), error messages, notifications
+            - Buttons to click, text to type, selections to make
+            IMPORTANT: For forms, extract ALL data visible on screen. Example:
+            "Fill form: Company Name = TechFlow, First Name = George, Country = Brazil.
+            Then type verification string: abc123xyz. Then click Submit As Bot."
+
+            [SILENT]
+            — Screen hasn't changed, nothing interesting, user just scrolling/idle.
+
+            RULES:
+            - Be conversational, brief, genuinely helpful — like a smart colleague
+            - For [ACTION], be EXHAUSTIVE about the data — list every value you can read
+            - NEVER repeat the same observation twice
+            - If the screen shows a challenge, test, or task with instructions, ALWAYS respond [ACTION]
+
+            Format: [INSIGHT] comment  OR  [ACTION] full instructions  OR  [SILENT]""";
 
     private static final String TASK_CHECK_PROMPT = """
             You are a proactive assistant. The user has the following pending tasks:
@@ -223,13 +234,7 @@ public class ProactiveActionService {
             try {
                 long now = System.currentTimeMillis();
 
-                // Skip if user was active very recently (within 5 seconds)
-                if (now - lastUserActivityTime < 5000) {
-                    Thread.sleep(2000);
-                    continue;
-                }
-
-                // Screen check — most frequent
+                // Screen check — most frequent (runs even when user is active — that's the point)
                 if (now - lastScreenCheck >= screenCheckSeconds * 1000L) {
                     checkScreenForActions();
                     lastScreenCheck = System.currentTimeMillis();
@@ -292,32 +297,82 @@ public class ProactiveActionService {
             }
 
             String trimmed = analysis.trim();
-            if (trimmed.equalsIgnoreCase("NOTHING_ACTIONABLE")
-                    || trimmed.contains("NOTHING_ACTIONABLE")) {
-                log.debug("[ProactiveAction] Screen check: nothing actionable");
+
+            // Route based on response type
+            if (trimmed.contains("[SILENT]") || trimmed.equalsIgnoreCase("NOTHING_ACTIONABLE")) {
+                log.debug("[ProactiveAction] Screen check: silent/nothing");
                 return;
             }
 
-            // Check cooldown — don't repeat the same action
+            // Check cooldown — don't repeat the same observation/action
             String actionHash = computeActionHash(trimmed);
             if (isRecentAction(actionHash)) {
-                log.debug("[ProactiveAction] Screen action on cooldown, skipping: {}", truncate(trimmed, 80));
+                log.debug("[ProactiveAction] On cooldown, skipping: {}", truncate(trimmed, 80));
                 return;
             }
 
-            log.info("[ProactiveAction] Screen found actionable: {}", truncate(trimmed, 200));
+            if (trimmed.contains("[INSIGHT]")) {
+                // Conversational insight — just comment, don't take action
+                String insight = trimmed.replaceAll("(?s).*\\[INSIGHT\\]\\s*", "").trim();
+                if (!insight.isBlank()) {
+                    recordAction(actionHash);
+                    asyncMessages.push("\u26a1 " + insight);
+                    speakThought(insight);
+                    log.info("[ProactiveAction] Insight: {}", truncate(insight, 200));
+                }
 
-            // Use AI with tools to take action
-            String actionPrompt = "You are in proactive action mode. Based on screen analysis, take action:\n\n"
-                    + trimmed + "\n\nExecute the appropriate action using the tools available. "
-                    + "Be precise and conservative. Describe what you did.";
+            } else if (trimmed.contains("[ACTION]")) {
+                // Actionable item — use AI with tools to execute
+                String actionDesc = trimmed.replaceAll("(?s).*\\[ACTION\\]\\s*", "").trim();
+                log.info("[ProactiveAction] Action found: {}", truncate(actionDesc, 200));
 
-            String reply = executeWithTools(actionPrompt);
-            if (reply != null && !reply.isBlank()) {
+                asyncMessages.push("\u26a1 On it: " + truncate(actionDesc, 150));
+
+                // Build a rich action prompt with the full screen context so the AI knows
+                // every value, field, and button it needs to interact with
+                String actionPrompt = """
+                        You are in PROACTIVE ACTION MODE. You just analyzed the screen and found work to do.
+
+                        SCREEN ANALYSIS (what you saw):
+                        %s
+
+                        YOUR TASK: Execute the action described above. Use the tools available:
+                        - fastPaste(x, y, text) — PREFERRED for ALL form fields. Clicks at (x,y) and instantly pastes text via clipboard. \
+                          Under 200ms per field. For multiple fields use sequence mode: fastPaste(0, 0, "x1,y1,text1|x2,y2,text2|x3,y3,text3")
+                        - sendKeys(keys) — for Tab, Enter, Escape, shortcuts (e.g. {TAB}, {ENTER}, ^v)
+                        - takeScreenshot() — verify after completing all fields
+                        - screenClick(x, y) — for clicking buttons (Submit, OK, etc.)
+
+                        CRITICAL STRATEGY for form filling:
+                        1. FIRST take a screenshot to get exact field coordinates
+                        2. Use ONE fastPaste call in sequence mode to fill ALL form fields at once: \
+                           fastPaste(0, 0, "x1,y1,Smith|x2,y2,555-4321|x3,y3,Carlos")
+                        3. For time-sensitive verification fields (e.g. "type within 10 seconds"): \
+                           use fastPaste(x, y, "the-full-verification-string") — it pastes instantly via clipboard
+                        4. Then click the submit button with screenClick
+                        5. Take a screenshot to verify
+
+                        IMPORTANT: Do NOT use sendKeys to type long strings character-by-character. \
+                        ALWAYS use fastPaste — it uses clipboard paste (Ctrl+V) which is instant. \
+                        For verification/timed typing challenges, fastPaste is ESSENTIAL — it pastes 100+ chars in under 200ms.
+
+                        Be precise with coordinates. After completing, describe what you did briefly."""
+                        .formatted(trimmed);
+
+                String reply = executeWithTools(actionPrompt);
+                if (reply != null && !reply.isBlank()) {
+                    recordAction(actionHash);
+                    asyncMessages.push("\u26a1 Done: " + reply);
+                    speakThought(reply);
+                    log.info("[ProactiveAction] Action completed: {}", truncate(reply, 200));
+                }
+
+            } else {
+                // No tag — treat as insight
                 recordAction(actionHash);
-                asyncMessages.push("[Proactive] " + reply);
-                speakThought(reply);
-                log.info("[ProactiveAction] Screen action completed: {}", truncate(reply, 200));
+                asyncMessages.push("\u26a1 " + trimmed);
+                speakThought(trimmed);
+                log.info("[ProactiveAction] Observation: {}", truncate(trimmed, 200));
             }
 
         } catch (Exception e) {

@@ -18,12 +18,14 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
 /**
@@ -39,9 +41,27 @@ public class BackgroundAgentService {
         QUEUED, RUNNING, COMPLETED, FAILED, CANCELLED
     }
 
+    private static final String[] BOT_NAMES = {
+        "Archie", "Nova", "Pixel", "Spark", "Echo", "Atlas", "Byte", "Cleo",
+        "Dash", "Flux", "Gizmo", "Helix", "Iris", "Jazz", "Koda", "Luna",
+        "Milo", "Neon", "Orbit", "Pulse", "Quinn", "Rex", "Sage", "Tron",
+        "Vex", "Wren", "Xeno", "Yara", "Zephyr", "Bolt"
+    };
+
+    private static final String[] BOT_AVATARS = {
+        "\uD83E\uDD16", "\uD83E\uDDE0", "\u26A1", "\uD83D\uDD2E", "\uD83C\uDFAF", "\uD83E\uDDBE", "\uD83C\uDF00", "\uD83D\uDD2C",
+        "\uD83D\uDE80", "\uD83D\uDC8E", "\uD83E\uDD8A", "\uD83D\uDC19", "\uD83C\uDFAD", "\uD83C\uDF1F", "\uD83D\uDD25", "\u2744\uFE0F",
+        "\uD83C\uDF0A", "\uD83C\uDFAA", "\uD83E\uDDE9", "\uD83C\uDFB2", "\uD83E\uDD85", "\uD83D\uDC3A", "\uD83E\uDD81", "\uD83D\uDC09",
+        "\uD83C\uDF08", "\u2604\uFE0F", "\uD83C\uDF40", "\uD83C\uDFB8", "\uD83C\uDFC6", "\u2B50"
+    };
+
     public static final class AgentJob {
         private final String id;
         private final String mission;
+        private final String name;
+        private final String avatar;
+        private volatile String model = "";
+        private volatile long tokenCount = 0;
         private final Instant createdAt = Instant.now();
         private volatile AgentStatus status = AgentStatus.QUEUED;
         private volatile String progress = "Queued…";
@@ -56,10 +76,19 @@ public class BackgroundAgentService {
         AgentJob(String id, String mission) {
             this.id = id;
             this.mission = mission;
+            int idx = new Random().nextInt(BOT_NAMES.length);
+            this.name = BOT_NAMES[idx];
+            this.avatar = BOT_AVATARS[idx];
         }
 
         public String getId() { return id; }
         public String getMission() { return mission; }
+        public String getName() { return name; }
+        public String getAvatar() { return avatar; }
+        public String getModel() { return model; }
+        public void setModel(String m) { this.model = m != null ? m : ""; }
+        public long getTokenCount() { return tokenCount; }
+        public void addTokens(long count) { this.tokenCount += count; }
         public Instant getCreatedAt() { return createdAt; }
         public AgentStatus getStatus() { return status; }
         public void setStatus(AgentStatus s) { this.status = s; }
@@ -110,6 +139,9 @@ public class BackgroundAgentService {
     private final ToolExecutionNotifier toolNotifier;
     private final TranscriptService transcriptService;
 
+    @Value("${spring.ai.openai.chat.options.model:unknown}")
+    private String defaultModel;
+
     private final int maxConcurrent;
 
     @Autowired
@@ -133,6 +165,10 @@ public class BackgroundAgentService {
      * @throws IllegalStateException if AI is unavailable or max concurrent agents are running
      */
     public String startAgent(String mission) {
+        return startAgent(mission, null);
+    }
+
+    public String startAgent(String mission, String modelOverride) {
         if (mission == null || mission.isBlank()) {
             throw new IllegalArgumentException("Mission text is required.");
         }
@@ -152,6 +188,9 @@ public class BackgroundAgentService {
 
         String id = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         AgentJob job = new AgentJob(id, mission.trim());
+        // Set model: use override if provided, otherwise default
+        String useModel = (modelOverride != null && !modelOverride.isBlank()) ? modelOverride : defaultModel;
+        job.setModel(useModel);
         jobs.put(id, job);
 
         executor.submit(() -> {
@@ -204,6 +243,10 @@ public class BackgroundAgentService {
         m.put("finishedAt", j.getFinishedAt() != null ? j.getFinishedAt().toEpochMilli() : 0L);
         m.put("result", j.getResult() != null ? j.getResult() : "");
         m.put("error", j.getError() != null ? j.getError() : "");
+        m.put("name", j.getName());
+        m.put("model", j.getModel());
+        m.put("avatar", j.getAvatar());
+        m.put("tokenCount", j.getTokenCount());
         m.put("log", j.snapshotLog());
         return m;
     }
@@ -222,6 +265,7 @@ public class BackgroundAgentService {
             }
 
             job.setStatus(AgentStatus.RUNNING);
+            if (job.getModel() == null || job.getModel().isBlank()) job.setModel(defaultModel);
             job.setProgressPercentAtLeast(3);
             job.setProgress("Starting…");
 
@@ -261,13 +305,18 @@ public class BackgroundAgentService {
             job.setProgressPercentAtLeast(30);
             job.setProgress(planText != null && !planText.isBlank() ? "Plan ready — calling AI…" : "Calling AI (tools may run)…");
 
-            String reply = client.prompt()
+            String agentModel = job.getModel();
+            var prompt = client.prompt()
                     .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, convId))
                     .system(system)
                     .user(job.getMission())
-                    .tools(toolRouter.selectToolsForBackgroundAgent())
-                    .call()
-                    .content();
+                    .tools(toolRouter.selectToolsForBackgroundAgent());
+            // Override model if different from the default ChatClient model
+            if (agentModel != null && !agentModel.isBlank() && !agentModel.equals(defaultModel)) {
+                prompt = prompt.options(org.springframework.ai.openai.OpenAiChatOptions.builder()
+                        .model(agentModel).build());
+            }
+            String reply = prompt.call().content();
 
             if (job.isCancelRequested()) {
                 finishCancelled(job);

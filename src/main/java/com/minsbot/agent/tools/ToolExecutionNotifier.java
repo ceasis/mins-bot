@@ -33,8 +33,15 @@ public class ToolExecutionNotifier {
         this.soundListener = listener;
     }
 
+    /** Messages that fire too frequently — suppress from status queue and mirrors. */
+    private static final java.util.Set<String> QUIET_MESSAGES = java.util.Set.of(
+            "Reading clipboard...",
+            "Checking task status..."
+    );
+
     /** Called by @Tool methods to report what they're about to do. */
     public void notify(String message) {
+        if (QUIET_MESSAGES.contains(message)) return;
         statusMessages.add(message);
         for (Consumer<String> mirror : progressMirrors) {
             try {

@@ -1220,12 +1220,34 @@
         if (st === 'COMPLETED') fillMod = ' agent-progress-fill-done';
         else if (st === 'FAILED') fillMod = ' agent-progress-fill-failed';
         else if (st === 'CANCELLED') fillMod = ' agent-progress-fill-cancelled';
+
+        var avatar = a.avatar || '\uD83E\uDD16';
+        var name = a.name || a.id;
+        var model = a.model || 'unknown';
+        var tokens = a.tokenCount || 0;
+        var tokenStr = tokens > 1000 ? (tokens / 1000).toFixed(1) + 'k' : String(tokens);
+
         html += '<div class="agent-card">';
-        html += '<div class="agent-card-header"><span class="agent-card-id">' + escapeHtml(a.id) + '</span>';
-        html += '<span class="agent-status agent-status-' + escapeHtml(st) + '">' + escapeHtml(st) + '</span></div>';
+
+        // Header with avatar, name, model, status
+        html += '<div class="agent-card-header">';
+        html += '<div class="agent-avatar">' + avatar + '</div>';
+        html += '<div class="agent-card-info">';
+        html += '<div class="agent-card-name">' + escapeHtml(name) + ' <span class="agent-status agent-status-' + escapeHtml(st) + '">' + escapeHtml(st) + '</span></div>';
+        html += '<div class="agent-card-meta">';
+        html += '<span class="agent-model-badge">' + escapeHtml(model) + '</span>';
+        html += '<span class="agent-tokens">' + tokenStr + ' tokens</span>';
+        html += '<span class="agent-card-id">' + escapeHtml(a.id) + '</span>';
+        html += '</div></div></div>';
+
+        // Mission
         html += '<div class="agent-mission">' + escapeHtml(a.mission || '') + '</div>';
+
+        // Progress bar
         html += '<div class="agent-progress-track" role="progressbar" aria-valuenow="' + pct + '" aria-valuemin="0" aria-valuemax="100">';
         html += '<div class="agent-progress-fill' + fillMod + '" style="width:' + pct + '%"></div></div>';
+
+        // Plan, progress, log, error, result
         if (a.plan) {
           html += '<div class="agent-plan"><div class="agent-plan-label">Plan</div>';
           html += '<pre class="agent-plan-body">' + escapeHtml(a.plan) + '</pre></div>';
@@ -1234,6 +1256,8 @@
         if (logJoin) html += '<div class="agent-log">' + escapeHtml(logJoin) + '</div>';
         if (a.error) html += '<div class="agent-progress" style="color:#fca5a5">' + escapeHtml(a.error) + '</div>';
         if (a.result) html += '<div class="agent-result">' + escapeHtml(a.result) + '</div>';
+
+        // Actions
         html += '<div class="agent-actions">';
         if (st === 'QUEUED' || st === 'RUNNING') {
           html += '<button type="button" class="agent-btn agent-btn-danger" data-agent-cancel="' + escapeHtml(a.id) + '">Cancel</button>';
@@ -1262,6 +1286,7 @@
   var agentsStartBtn = document.getElementById('agents-start-btn');
   var agentsMissionInput = document.getElementById('agents-mission-input');
   var agentsStartStatus = document.getElementById('agents-start-status');
+  var agentsModelSelect = document.getElementById('agents-model-select');
   if (agentsStartBtn && agentsMissionInput) {
     agentsStartBtn.addEventListener('click', function () {
       var mission = agentsMissionInput.value != null ? agentsMissionInput.value.trim() : '';
@@ -1270,16 +1295,35 @@
         if (agentsStartStatus) agentsStartStatus.textContent = 'Enter a mission first.';
         return;
       }
+      var payload = { mission: mission };
+      if (agentsModelSelect && agentsModelSelect.value) payload.model = agentsModelSelect.value;
       fetch('/api/agents/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mission: mission })
+        body: JSON.stringify(payload)
       }).then(function (r) {
         if (!r.ok) return r.text().then(function (t) { throw new Error(t || r.status); });
         return r.json();
       }).then(function () {
         agentsMissionInput.value = '';
         if (agentsStartStatus) agentsStartStatus.textContent = '';
+        refreshAgentsList();
+      }).catch(function (e) {
+        if (agentsStartStatus) agentsStartStatus.textContent = String(e.message || e);
+      });
+    });
+  }
+
+  var agentsRandomBtn = document.getElementById('agents-random-btn');
+  if (agentsRandomBtn) {
+    agentsRandomBtn.addEventListener('click', function () {
+      fetch('/api/agents/start-random', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      }).then(function (r) {
+        if (!r.ok) return r.text().then(function (t) { throw new Error(t || r.status); });
+        return r.json();
+      }).then(function () {
         refreshAgentsList();
       }).catch(function (e) {
         if (agentsStartStatus) agentsStartStatus.textContent = String(e.message || e);
@@ -2051,6 +2095,35 @@
         }
       } catch (_) {}
     }, 100);
+  }
+
+  // ── Module stats (vision/audio) in status bar ──
+  var statusChatLabel = document.getElementById('status-chat-label');
+  var statusVisionLabel = document.getElementById('status-vision-label');
+  var statusAudioLabel = document.getElementById('status-audio-label');
+  if (statusChatLabel || statusVisionLabel || statusAudioLabel) {
+    setInterval(async function () {
+      try {
+        var res = await fetch('/api/status/modules');
+        if (!res.ok) return;
+        var d = await res.json();
+        if (statusChatLabel) {
+          var cModel = d.chatModel || '—';
+          cModel = cModel.replace('gemini-', 'Gemini ').replace('gpt-', 'GPT-').replace('claude-', 'Claude ');
+          statusChatLabel.textContent = cModel + ' : ' + (d.chatTotal || 0);
+        }
+        if (statusVisionLabel) {
+          var vModel = d.visionModel || '—';
+          vModel = vModel.replace('gemini-', 'Gemini ').replace('gpt-', 'GPT-');
+          statusVisionLabel.textContent = vModel + ' : ' + (d.visionTotal || 0);
+        }
+        if (statusAudioLabel) {
+          var aModel = d.audioModel || '—';
+          aModel = aModel.replace('gemini-', 'Gemini ').replace('whisper-gpt', 'Whisper+GPT');
+          statusAudioLabel.textContent = aModel + ' : ' + (d.audioTotal || 0);
+        }
+      } catch (_) {}
+    }, 3000);
   }
 
   // ═══ Calibration tab ═══
@@ -3891,7 +3964,8 @@
       { label: 'Toggle Keyboard Control', action: function () { if (headerControlEl) headerControlEl.click(); } },
       { label: 'Toggle Audio Listen', action: function () { if (headerListenEl) headerListenEl.click(); } },
       { label: 'Toggle Auto-pilot', action: function () { var ap = document.getElementById('header-autopilot'); if (ap) ap.click(); } },
-      { label: 'Focus Input', action: function () { focusInput(); } }
+      { label: 'Focus Input', action: function () { focusInput(); } },
+      { label: 'Start Random Agent', action: function () { clickTab('agents'); setTimeout(function () { var rb = document.getElementById('agents-random-btn'); if (rb) rb.click(); }, 200); } }
     ];
 
     function clickTab(tabId) {

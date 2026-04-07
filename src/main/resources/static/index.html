@@ -171,8 +171,26 @@
           <p class="agents-hint">Parallel agents with <strong>limited tools only</strong>: web search, files (incl. Office/PDF), HTTP page fetch, and <strong>headless Playwright</strong> (isolated browser per operation — not your visible Chrome). No screen control, CDP, or shell.</p>
           <div class="agents-capacity" id="agents-capacity"></div>
           <div class="agents-start-row">
+            <div class="agents-model-row">
+              <label class="agents-model-label">Model:</label>
+              <select id="agents-model-select" class="agents-model-select">
+                <option value="">Default (from config)</option>
+                <option value="gpt-5.1">GPT-5.1</option>
+                <option value="gpt-5.4">GPT-5.4</option>
+                <option value="gpt-4o">GPT-4o</option>
+                <option value="gpt-4o-mini">GPT-4o Mini</option>
+                <option value="o3-mini">o3-mini</option>
+                <option value="claude-opus-4-6">Claude Opus 4.6</option>
+                <option value="claude-sonnet-4-6">Claude Sonnet 4.6</option>
+                <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+              </select>
+            </div>
             <textarea id="agents-mission-input" class="tab-input agents-mission-input" rows="3" placeholder="Mission for the new agent (e.g. Search the web for X and summarize)" aria-label="Agent mission"></textarea>
-            <button type="button" id="agents-start-btn" class="action-btn publish">Start agent</button>
+            <div class="agents-btn-row">
+              <button type="button" id="agents-start-btn" class="action-btn publish">Start agent</button>
+              <button type="button" id="agents-random-btn" class="action-btn agents-random-btn" title="Start a random agent with a surprise mission">&#x1F3B2; Random</button>
+            </div>
           </div>
           <p id="agents-start-status" class="agents-start-status" role="status"></p>
           <div id="agents-list" class="agents-list"></div>
@@ -984,7 +1002,25 @@
       </div>
 
     <div id="status-bar" class="status-bar">
-      <span id="mouse-coords">X: 0 &nbsp; Y: 0</span>
+      <div class="status-row">
+        <span id="mouse-coords">X: 0 &nbsp; Y: 0</span>
+      </div>
+      <div class="status-row">
+        <span id="status-chat" class="status-module" title="Chat LLM model &amp; call count">
+          <i class="fa-solid fa-brain status-module-icon"></i>
+          <span id="status-chat-label">—</span>
+        </span>
+        <span class="status-sep">|</span>
+        <span id="status-vision" class="status-module" title="Vision engine &amp; call count">
+          <i class="fa-solid fa-eye status-module-icon"></i>
+          <span id="status-vision-label">—</span>
+        </span>
+        <span class="status-sep">|</span>
+        <span id="status-audio" class="status-module" title="Audio engine &amp; call count">
+          <i class="fa-solid fa-headphones status-module-icon"></i>
+          <span id="status-audio-label">—</span>
+        </span>
+      </div>
     </div>
   </div>
   <!-- Command Palette (Ctrl+K) -->

@@ -38,6 +38,9 @@ public class ClaudeVisionService {
     private String apiKey;
     private HttpClient httpClient;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private ModuleStatsService moduleStats;
+
     public ClaudeVisionService(Environment environment) {
         this.environment = environment;
     }
@@ -145,6 +148,7 @@ public class ClaudeVisionService {
                         }
 
                         if (x >= 0 && x <= imgWidth && y >= 0 && y <= imgHeight) {
+                            if (moduleStats != null) moduleStats.recordVisionCall("Claude " + model);
                             log.info("[Claude] RESULT: '{}' at ({},{}) model={}", elementDescription, x, y, model);
                             return new int[]{x, y};
                         }

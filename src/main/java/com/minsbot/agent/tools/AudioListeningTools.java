@@ -68,16 +68,20 @@ public class AudioListeningTools {
     /** Most recent transcription — available for main AI context. */
     private volatile String latestTranscription = null;
 
+    private final com.minsbot.agent.ModuleStatsService moduleStats;
+
     public AudioListeningTools(AudioMemoryService audioMemoryService,
                                AudioPipelineService audioPipeline,
                                AsyncMessageService asyncMessages, ToolExecutionNotifier notifier,
-                               TtsTools ttsTools, GeminiLiveService geminiLiveService) {
+                               TtsTools ttsTools, GeminiLiveService geminiLiveService,
+                               com.minsbot.agent.ModuleStatsService moduleStats) {
         this.audioMemoryService = audioMemoryService;
         this.audioPipeline = audioPipeline;
         this.asyncMessages = asyncMessages;
         this.notifier = notifier;
         this.ttsTools = ttsTools;
         this.geminiLiveService = geminiLiveService;
+        this.moduleStats = moduleStats;
     }
 
     @PostConstruct
@@ -343,6 +347,7 @@ public class AudioListeningTools {
                     listenFeed.add(displayText);
                     asyncMessages.push(displayText);
                     latestTranscription = displayText;
+                    moduleStats.recordAudioCall(activeEngine);
 
                     // Vocal mode: speak the translation
                     if (vocalMode && !displayText.isBlank()) {
@@ -506,6 +511,7 @@ public class AudioListeningTools {
                             listenFeed.add(feedText);
                             asyncMessages.push(feedText);
                             latestTranscription = translated;
+                            moduleStats.recordAudioCall("whisper-gpt");
 
                             // Vocal mode: speak the translation with gender-matched voice
                             if (vocalMode && translated != null && !translated.isBlank()) {

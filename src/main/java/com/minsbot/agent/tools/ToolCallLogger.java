@@ -18,10 +18,19 @@ public class ToolCallLogger {
 
     private static final int MAX_OUTPUT_CHARS = 50_000;
 
+    /** Tools that fire too frequently — suppress their logs to reduce noise. */
+    private static final java.util.Set<String> QUIET_TOOLS = java.util.Set.of(
+            "ClipboardTools.getClipboardText",
+            "ClipboardTools.setClipboardText",
+            "TaskStatusTool.taskStatus"
+    );
+
     @Around("@annotation(tool)")
     public Object logToolCall(ProceedingJoinPoint joinPoint, Tool tool) throws Throwable {
         MethodSignature sig = (MethodSignature) joinPoint.getSignature();
         String methodName = sig.getDeclaringType().getSimpleName() + "." + sig.getName();
+
+        boolean quiet = QUIET_TOOLS.contains(methodName);
         String[] paramNames = sig.getParameterNames();
         Object[] args = joinPoint.getArgs();
 
@@ -34,8 +43,10 @@ public class ToolCallLogger {
             }
         }
 
-        System.out.println("[TOOL-CALL] >>> " + methodName + "(" + params + ")");
-        System.out.println("[TOOL-CALL]     description: " + tool.description());
+        if (!quiet) {
+            System.out.println("[TOOL-CALL] >>> " + methodName + "(" + params + ")");
+            System.out.println("[TOOL-CALL]     description: " + tool.description());
+        }
 
         long start = System.currentTimeMillis();
         try {
@@ -46,14 +57,14 @@ public class ToolCallLogger {
             if (result instanceof String s && s.length() > MAX_OUTPUT_CHARS) {
                 result = s.substring(0, MAX_OUTPUT_CHARS)
                         + "\n...(output truncated at " + MAX_OUTPUT_CHARS + " chars, total was " + s.length() + ")";
-                System.out.println("[TOOL-CALL] <<< " + methodName + " returned in " + elapsed + "ms => TRUNCATED from " + s.length() + " to " + MAX_OUTPUT_CHARS + " chars");
+                if (!quiet) System.out.println("[TOOL-CALL] <<< " + methodName + " returned in " + elapsed + "ms => TRUNCATED from " + s.length() + " to " + MAX_OUTPUT_CHARS + " chars");
             } else {
-                System.out.println("[TOOL-CALL] <<< " + methodName + " returned in " + elapsed + "ms => " + truncate(result, 200));
+                if (!quiet) System.out.println("[TOOL-CALL] <<< " + methodName + " returned in " + elapsed + "ms => " + truncate(result, 200));
             }
             return result;
         } catch (Throwable ex) {
             long elapsed = System.currentTimeMillis() - start;
-            System.out.println("[TOOL-CALL] !!! " + methodName + " FAILED in " + elapsed + "ms => " + ex.getClass().getSimpleName() + ": " + ex.getMessage());
+            if (!quiet) System.out.println("[TOOL-CALL] !!! " + methodName + " FAILED in " + elapsed + "ms => " + ex.getClass().getSimpleName() + ": " + ex.getMessage());
             throw ex;
         }
     }

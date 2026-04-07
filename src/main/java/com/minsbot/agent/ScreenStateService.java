@@ -26,17 +26,23 @@ public class ScreenStateService {
     private final ScreenMemoryService screenMemoryService;
     private final TextractService textractService;
     private final GeminiVisionService geminiVisionService;
+    private final VisionService visionService;
+    private final VisionModelConfig visionModelConfig;
     private final ToolExecutionNotifier toolNotifier;
 
     public ScreenStateService(SystemControlService systemControl,
                               ScreenMemoryService screenMemoryService,
                               TextractService textractService,
                               GeminiVisionService geminiVisionService,
+                              VisionService visionService,
+                              VisionModelConfig visionModelConfig,
                               ToolExecutionNotifier toolNotifier) {
         this.systemControl = systemControl;
         this.screenMemoryService = screenMemoryService;
         this.textractService = textractService;
         this.geminiVisionService = geminiVisionService;
+        this.visionService = visionService;
+        this.visionModelConfig = visionModelConfig;
         this.toolNotifier = toolNotifier;
     }
 
@@ -89,19 +95,18 @@ public class ScreenStateService {
                     userMessage != null && userMessage.length() > 80
                             ? userMessage.substring(0, 80) + "..." : userMessage);
 
-            // Hide Mins Bot so it doesn't appear in screenshot
-            try { com.minsbot.FloatingAppLauncher.hideWindow(); } catch (Exception e) {
-                log.info("[ScreenState] hideWindow failed: {}", e.getMessage());
+            // Get bot window bounds so we can tell vision AI to ignore that area
+            // (no more hiding/showing — avoids flicker and focus-stealing)
+            int[] botBounds = com.minsbot.FloatingAppLauncher.getWindowBounds();
+            if (botBounds != null) {
+                log.info("[ScreenState] Bot window at ({},{}) {}x{} — AI will ignore this region",
+                        botBounds[0], botBounds[1], botBounds[2], botBounds[3]);
             }
-            Thread.sleep(150);
 
-            // Take a fresh screenshot NOW
+            // Take a fresh screenshot NOW (bot window is visible but will be ignored)
             String result = systemControl.takeScreenshot();
             log.info("[ScreenState] takeScreenshot: '{}'",
                     result != null && result.length() > 150 ? result.substring(0, 150) + "..." : result);
-
-            // Restore window immediately
-            try { com.minsbot.FloatingAppLauncher.showWindow(); } catch (Exception ignored) {}
 
             if (result == null || !result.startsWith("Screenshot saved:")) {
                 log.warn("[ScreenState] Screenshot FAILED — result: {}", result);
@@ -119,18 +124,29 @@ public class ScreenStateService {
             log.info("[ScreenState] Screenshot ready: {} ({} bytes)",
                     screenshotPath.getFileName(), Files.size(screenshotPath));
 
-            // Try Gemini reasoning first (best quality)
-            if (geminiVisionService.isAvailable()) {
-                log.info("[ScreenState] Gemini available — analyzing...");
-                toolNotifier.notify("__vision__Checking screen with Gemini Vision...");
-                String geminiResult = analyzeWithGemini(screenshotPath, userMessage);
-                if (geminiResult != null && !geminiResult.isBlank()) {
-                    log.info("[ScreenState] Gemini SUCCESS: {} chars", geminiResult.length());
-                    return geminiResult;
+            // Build an ignore-region hint for the vision AI
+            String ignoreHint = "";
+            if (botBounds != null) {
+                ignoreHint = "\n\nIMPORTANT: The Mins Bot window is visible on screen at pixel region ("
+                        + botBounds[0] + "," + botBounds[1] + ") to ("
+                        + (botBounds[0] + botBounds[2]) + "," + (botBounds[1] + botBounds[3])
+                        + "). IGNORE this region completely — do not describe it, do not list its contents, "
+                        + "do not include it as a window or application. Focus only on what is BEHIND or OUTSIDE it.";
+            }
+
+            // GPT Vision only — no Gemini for screen analysis
+            if (visionService.isAvailable()) {
+                log.info("[ScreenState] GPT Vision available — analyzing...");
+                toolNotifier.notify("__vision__Checking screen with GPT Vision...");
+                String prompt = (userMessage != null && !userMessage.isBlank() && looksLikeScreenTask(userMessage))
+                        ? GEMINI_TASK_PROMPT.formatted(userMessage) : GEMINI_SCREEN_PROMPT;
+                prompt += ignoreHint;
+                String gptResult = visionService.analyzeWithPrompt(screenshotPath, prompt, visionModelConfig.getPrimaryModel());
+                if (gptResult != null && !gptResult.isBlank()) {
+                    log.info("[ScreenState] GPT Vision SUCCESS: {} chars", gptResult.length());
+                    return gptResult;
                 }
-                log.warn("[ScreenState] Gemini returned null/empty — falling back to OCR");
-            } else {
-                log.warn("[ScreenState] Gemini NOT available — using OCR fallback");
+                log.warn("[ScreenState] GPT Vision returned null/empty — falling back to OCR");
             }
 
             // Fallback: OCR + Textract word listing
@@ -145,13 +161,12 @@ public class ScreenStateService {
 
         } catch (Exception e) {
             log.warn("[ScreenState] EXCEPTION: {}", e.getMessage(), e);
-            try { com.minsbot.FloatingAppLauncher.showWindow(); } catch (Exception ignored) {}
             return null;
         }
     }
 
     /** Use Gemini to provide intelligent, context-aware screen analysis. */
-    private String analyzeWithGemini(Path screenshotPath, String userMessage) {
+    private String analyzeWithGemini(Path screenshotPath, String userMessage, String ignoreHint) {
         try {
             String prompt;
             if (userMessage != null && !userMessage.isBlank()
@@ -162,6 +177,7 @@ public class ScreenStateService {
                 prompt = GEMINI_SCREEN_PROMPT;
                 log.info("[ScreenState] Using SCREEN prompt");
             }
+            if (ignoreHint != null && !ignoreHint.isBlank()) prompt += ignoreHint;
 
             String result = geminiVisionService.analyze(screenshotPath, prompt);
             if (result == null || result.isBlank()) {

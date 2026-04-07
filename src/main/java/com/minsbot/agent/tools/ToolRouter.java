@@ -122,6 +122,7 @@ public class ToolRouter {
     private final RemotionVideoTools remotionVideoTools;
     private final TrendScoutTools trendScoutTools;
     private final GitHubTools gitHubTools;
+    private final BotWindowTools botWindowTools;
 
     @Autowired(required = false)
     private ToolClassifierService classifier;
@@ -221,7 +222,8 @@ public class ToolRouter {
             IntelligenceTools intelligenceTools,
             RemotionVideoTools remotionVideoTools,
             TrendScoutTools trendScoutTools,
-            GitHubTools gitHubTools) {
+            GitHubTools gitHubTools,
+            BotWindowTools botWindowTools) {
 
         this.directivesTools = directivesTools;
         this.directiveDataTools = directiveDataTools;
@@ -305,6 +307,7 @@ public class ToolRouter {
         this.remotionVideoTools = remotionVideoTools;
         this.trendScoutTools = trendScoutTools;
         this.gitHubTools = gitHubTools;
+        this.botWindowTools = botWindowTools;
 
         // Count @Tool methods on every bean (once, via reflection)
         countToolsOnAllBeans();
@@ -432,7 +435,7 @@ public class ToolRouter {
                 habitDetectionTools, feedbackLoopTools, skillAutoCreateTools, windowManagerTools,
                 socialMonitorTools, intelligenceTools,
                 remotionVideoTools, trendScoutTools,
-                gitHubTools
+                gitHubTools, botWindowTools
         };
         for (Object bean : allBeans) {
             if (bean != null && !toolCounts.containsKey(bean)) {
@@ -539,6 +542,7 @@ public class ToolRouter {
         map.put("video_creation", List.of(remotionVideoTools));
         map.put("trend_scout",   List.of(trendScoutTools, webSearchTools));
         map.put("github",        List.of(gitHubTools));
+        map.put("bot_window",    List.of(botWindowTools));
 
         return Collections.unmodifiableMap(map);
     }

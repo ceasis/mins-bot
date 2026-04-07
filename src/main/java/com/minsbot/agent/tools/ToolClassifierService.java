@@ -69,7 +69,8 @@ public class ToolClassifierService {
             "intelligence",
             "video_creation",
             "trend_scout",
-            "github"
+            "github",
+            "bot_window"
     );
 
     private static final String SYSTEM_PROMPT = """
@@ -128,6 +129,7 @@ public class ToolClassifierService {
             - video_creation: video, remotion, create video, render video, animation, slideshow, text video, video composition, make a video, generate video, animated text, video from images, programmatic video, react video, video project, setup remotion
             - trend_scout: what's new, any updates, trending, what's happening with, latest news about, YouTube updates, track interest, my interests, scout topics, what should I know about, new release, what's trending, any news about, follow updates, tech news, product launch
             - github: github, repository, repo, pull request, PR, issue, commit, branch, gist, CI, workflow, actions, git, github notifications, github activity, merge, fork, stars, github search
+            - bot_window: move yourself, move to the left, move to the right, move to the corner, minimize yourself, hide yourself, go away, come back, show yourself, restore yourself, make yourself bigger, make yourself smaller, resize yourself, get out of the way, move the bot window, bot window position, where are you
 
             Return at most 4 of the most relevant category names, comma-separated. If none match, return: none""";
 

@@ -6,6 +6,7 @@ import com.minsbot.agent.GeminiVisionService;
 import com.minsbot.agent.RekognitionService;
 import com.minsbot.agent.ScreenMemoryService;
 import com.minsbot.agent.TextractService;
+import com.minsbot.agent.VisionModelConfig;
 import com.minsbot.agent.VisionService;
 import com.minsbot.agent.ScreenMemoryService.OcrWord;
 import com.minsbot.agent.SystemControlService;
@@ -55,6 +56,7 @@ public class ScreenClickTools {
     private final RekognitionService rekognitionService;
     private final VisionService visionService;
     private final ClaudeVisionService claudeVisionService;
+    private final VisionModelConfig visionModelConfig;
     private final ToolExecutionNotifier notifier;
 
     private static final Path NAV_DIR = Paths.get(
@@ -73,21 +75,21 @@ public class ScreenClickTools {
 
     // Engine priority for screenClick — tried in order, first success wins
     private volatile List<String> enginePriority = new ArrayList<>(List.of(
-            "gpt", "ocr", "textract", "gemini", "claude", "gemini3", "rek", "docai"
+            "gpt5.4", "gpt4o-mini", "ocr", "textract", "claude", "rek", "docai", "gemini", "gemini3"
     ));
 
     // Calibration engine checkboxes — which engines are selected for calibration runs
     private volatile List<String> calibrationEngines = new ArrayList<>(List.of(
-            "gpt", "gemini3", "claude"
+            "gpt5.4", "gemini3", "claude"
     ));
 
     // Per-engine enabled/disabled toggle — disabled engines are skipped in screenClick + navigate
     private static final List<String> ALL_ENGINE_KEYS = List.of(
-            "gpt", "ocr", "textract", "gemini", "claude", "gemini3", "rek", "docai"
+            "gpt5.4", "gpt4o-mini", "ocr", "textract", "gemini", "claude", "gemini3", "rek", "docai"
     );
     private volatile Map<String, Boolean> engineEnabled = new HashMap<>(Map.of(
-            "gpt", true, "ocr", true, "textract", true, "gemini", true,
-            "claude", true, "gemini3", true, "rek", true, "docai", true
+            "gpt5.4", true, "gpt4o-mini", false, "ocr", true, "textract", true, "gemini", false,
+            "claude", true, "gemini3", false, "rek", true, "docai", true
     ));
     // Priority order per engine (1 = highest) — used to rebuild enginePriority from config
     private volatile Map<String, Integer> enginePriorityOrder = new HashMap<>();
@@ -142,6 +144,7 @@ public class ScreenClickTools {
                             RekognitionService rekognitionService,
                             VisionService visionService,
                             ClaudeVisionService claudeVisionService,
+                            VisionModelConfig visionModelConfig,
                             ToolExecutionNotifier notifier) {
         this.systemControl = systemControl;
         this.screenMemoryService = screenMemoryService;
@@ -151,6 +154,7 @@ public class ScreenClickTools {
         this.rekognitionService = rekognitionService;
         this.visionService = visionService;
         this.claudeVisionService = claudeVisionService;
+        this.visionModelConfig = visionModelConfig;
         this.notifier = notifier;
     }
 
@@ -195,9 +199,11 @@ public class ScreenClickTools {
                         calibrationEngines = parsed;
                     }
                     default -> {
-                        // Per-engine config: e.g. "gpt: true, 1" (enabled, priority 1)
-                        // or "docai: false, 8" (disabled, priority 8)
-                        if (ALL_ENGINE_KEYS.contains(key)) {
+                        // Per-engine config: e.g. "gpt5: true, 1" (enabled, priority 1)
+                        // Legacy: "gpt" maps to "gpt5.4"
+                        String resolvedKey = "gpt".equals(key) ? "gpt5.4" : key;
+                        if (ALL_ENGINE_KEYS.contains(resolvedKey)) {
+                            key = resolvedKey;
                             String[] parts = val.split(",");
                             boolean enabled = parts[0].trim().equalsIgnoreCase("true");
                             engineEnabled.put(key, enabled);
@@ -302,12 +308,15 @@ public class ScreenClickTools {
             + "then moves the mouse and clicks. Verifies the click worked via screen change detection. "
             + "ALWAYS call this FIRST — do NOT focus/switch/open apps before calling this. "
             + "If this returns 'NOT_FOUND', THEN switch to the correct app and call again. "
+            + "CRITICAL: Always pass the EXACT FULL TEXT of the button/link. If there are two similar buttons "
+            + "like 'Submit As Human' and 'Submit As Bot', pass the COMPLETE label 'Submit As Bot' — "
+            + "NEVER just 'Submit'. When buttons share words, use the FULL distinguishing text. "
             + "IMPORTANT: If you need to click multiple elements in sequence (e.g. 'click History then Shorts then Music'), "
             + "use screenNavigate('History, Shorts, Music') instead — it has tree-based backtracking for when "
             + "there are multiple instances of an element and clicking the wrong one leads to a dead end. "
             + "Example: screenClick('Pricing') — screenshot, finds it, clicks it.")
     public String screenClick(
-            @ToolParam(description = "The visible text or description of the element to click, e.g. 'Pricing', 'the Shorts button in the sidebar', 'Submit'")
+            @ToolParam(description = "The EXACT visible text of the element to click. Use FULL button text to avoid ambiguity — e.g. 'Submit As Bot' not just 'Submit', 'Sign In with Google' not just 'Sign In'")
             String targetText) {
 
         String search = targetText.trim();
@@ -366,8 +375,20 @@ public class ScreenClickTools {
                 // }
                 // notifier.notify("Step 3 (1/8 zoom): (" + targetX + ", " + targetY + ")");
 
-                // ── Step 4: Click ──
-                notifier.notify("Clicking '" + search + "' at (" + targetX + ", " + targetY + ")...");
+                // ── Step 4: Smart hover probe + Click ──
+                if (com.minsbot.FloatingAppLauncher.isInsideWindow(targetX, targetY)) {
+                    return "SKIPPED: Target (" + targetX + "," + targetY + ") is inside the Mins Bot window. "
+                            + "Move or minimize the bot window first, or use a different element.";
+                }
+
+                // Smart hover probe: move mouse, detect hover effects to confirm button
+                int[] confirmed = hoverProbe(targetX, targetY, search);
+                if (confirmed != null) {
+                    targetX = confirmed[0];
+                    targetY = confirmed[1];
+                }
+
+                notifier.notify("Left button clicked '" + search + "' at (" + targetX + ", " + targetY + ")");
                 BufferedImage before = captureRegion(targetX, targetY);
                 String clickResult = systemControl.mouseClick(targetX, targetY, "left");
 
@@ -392,6 +413,128 @@ public class ScreenClickTools {
                     + " times at different locations but none caused a screen change.";
         } finally {
             if (!skipHideWindow) showMinsBotWindow();
+        }
+    }
+
+    @Tool(description = "Fill a web form by tabbing through fields and typing values. MUCH faster and more reliable "
+            + "than clicking each field individually. Pass a pipe-separated list of values in TAB ORDER "
+            + "(the order the fields appear top-to-bottom in the form). "
+            + "Clicks the FIRST field to focus it, then types value → Tab → types next value → Tab → ... "
+            + "Detects focus changes via pixel comparison after each Tab to confirm the cursor moved. "
+            + "Use this for ANY form with multiple input fields (registration, login, search filters, etc.). "
+            + "Example: fillFormByTab('Email Address', 'bob@demo.org|555-3456|Martinez|Hannah|28') fills 5 fields. "
+            + "IMPORTANT: Read the form carefully and provide values in the EXACT order the fields appear.")
+    public String fillFormByTab(
+            @ToolParam(description = "Text/label of the FIRST input field to click to start, e.g. 'Email Address', 'First Name'")
+            String firstFieldLabel,
+            @ToolParam(description = "Pipe-separated values in tab order, e.g. 'bob@demo.org|555-3456|Martinez|Hannah|28'")
+            String pipeValues) {
+
+        if (pipeValues == null || pipeValues.isBlank()) return "No values provided.";
+        String[] values = pipeValues.split("\\|");
+        if (values.length == 0) return "No values to fill.";
+
+        notifier.notify("Filling form: " + values.length + " fields via Tab navigation...");
+        log.info("[fillFormByTab] Starting with '{}', {} values", firstFieldLabel, values.length);
+
+        try {
+            Robot robot = new Robot();
+            java.awt.Dimension screen = Toolkit.getDefaultToolkit().getScreenSize();
+
+            // Step 1: Click the first field to focus it
+            notifier.notify("Clicking first field: " + firstFieldLabel);
+            String clickResult = screenClick(firstFieldLabel);
+            if (clickResult != null && clickResult.startsWith("NOT_FOUND")) {
+                // Fallback: try clicking generic "first input" area
+                return "Could not find first field '" + firstFieldLabel + "'. " + clickResult;
+            }
+
+            // Small delay to let the field focus
+            Thread.sleep(300);
+
+            // Step 2: For each value, type it and Tab to the next field
+            StringBuilder result = new StringBuilder();
+            int filled = 0;
+
+            for (int i = 0; i < values.length; i++) {
+                String value = values[i].trim();
+                if (value.isEmpty()) {
+                    // Empty value — just Tab to skip this field
+                    robot.keyPress(java.awt.event.KeyEvent.VK_TAB);
+                    robot.keyRelease(java.awt.event.KeyEvent.VK_TAB);
+                    Thread.sleep(150);
+                    result.append("Field ").append(i + 1).append(": (skipped)\n");
+                    continue;
+                }
+
+                // Clear any existing content: Ctrl+A then type
+                robot.keyPress(java.awt.event.KeyEvent.VK_CONTROL);
+                robot.keyPress(java.awt.event.KeyEvent.VK_A);
+                robot.keyRelease(java.awt.event.KeyEvent.VK_A);
+                robot.keyRelease(java.awt.event.KeyEvent.VK_CONTROL);
+                Thread.sleep(50);
+
+                // Paste via clipboard (much faster and supports special chars)
+                java.awt.datatransfer.StringSelection sel = new java.awt.datatransfer.StringSelection(value);
+                Toolkit.getDefaultToolkit().getSystemClipboard().setContents(sel, null);
+                Thread.sleep(30);
+                robot.keyPress(java.awt.event.KeyEvent.VK_CONTROL);
+                robot.keyPress(java.awt.event.KeyEvent.VK_V);
+                robot.keyRelease(java.awt.event.KeyEvent.VK_V);
+                robot.keyRelease(java.awt.event.KeyEvent.VK_CONTROL);
+                Thread.sleep(100);
+
+                filled++;
+                notifier.notify("Field " + (i + 1) + "/" + values.length + ": typed '" + value + "'");
+                result.append("Field ").append(i + 1).append(": '").append(value).append("'\n");
+
+                // Tab to next field (unless this is the last value)
+                if (i < values.length - 1) {
+                    // Capture region BEFORE Tab
+                    BufferedImage beforeTab = captureSmallRegion(robot, screen);
+
+                    robot.keyPress(java.awt.event.KeyEvent.VK_TAB);
+                    robot.keyRelease(java.awt.event.KeyEvent.VK_TAB);
+                    Thread.sleep(200);
+
+                    // Capture region AFTER Tab — verify focus moved
+                    BufferedImage afterTab = captureSmallRegion(robot, screen);
+                    double tabChange = compareSmallRegion(beforeTab, afterTab);
+
+                    if (tabChange < 0.1) {
+                        // Tab didn't seem to change anything — try Tab again
+                        log.info("[fillFormByTab] Tab had no visible effect ({}%), pressing Tab again",
+                                String.format("%.1f", tabChange));
+                        robot.keyPress(java.awt.event.KeyEvent.VK_TAB);
+                        robot.keyRelease(java.awt.event.KeyEvent.VK_TAB);
+                        Thread.sleep(200);
+                    } else {
+                        log.debug("[fillFormByTab] Tab moved focus ({}% change)", String.format("%.1f", tabChange));
+                    }
+                }
+            }
+
+            notifier.notify("Form filled: " + filled + "/" + values.length + " fields");
+            log.info("[fillFormByTab] Done: {}/{} fields filled", filled, values.length);
+
+            return "OK: Filled " + filled + " of " + values.length + " fields via Tab navigation.\n" + result;
+
+        } catch (Exception e) {
+            log.warn("[fillFormByTab] Error: {}", e.getMessage(), e);
+            return "Form fill failed: " + e.getMessage();
+        }
+    }
+
+    /** Capture a 200x200 region around the current mouse position. */
+    private BufferedImage captureSmallRegion(Robot robot, java.awt.Dimension screen) {
+        try {
+            java.awt.Point mouse = java.awt.MouseInfo.getPointerInfo().getLocation();
+            int size = 200;
+            int rx = Math.max(0, Math.min(mouse.x - size / 2, screen.width - size));
+            int ry = Math.max(0, Math.min(mouse.y - size / 2, screen.height - size));
+            return robot.createScreenCapture(new Rectangle(rx, ry, size, size));
+        } catch (Exception e) {
+            return null;
         }
     }
 
@@ -446,9 +589,13 @@ public class ScreenClickTools {
             else log.info("[calibration] Rekognition not available (missing config)");
         }
         if (engineSet == null || engineSet.contains("ocr")) availableEngines.add("WindowsOCR");
-        if (engineSet == null || engineSet.contains("gpt")) {
+        if (engineSet == null || engineSet.contains("gpt5.4") || engineSet.contains("gpt")) {
             if (visionService.isAvailable()) availableEngines.add("GPT-5.4");
             else log.info("[calibration] GPT-5.4 not available (missing OpenAI key)");
+        }
+        if (engineSet == null || engineSet.contains("gpt4o-mini")) {
+            if (visionService.isAvailable()) availableEngines.add("GPT-4o Mini");
+            else log.info("[calibration] GPT-4o Mini not available (missing OpenAI key)");
         }
         if (engineSet == null || engineSet.contains("gemini3")) availableEngines.add("Gemini3.1Pro");
         if (engineSet == null || engineSet.contains("claude")) {
@@ -583,23 +730,44 @@ public class ScreenClickTools {
             }
 
             // GPT-5.4 — pass actual image dimensions, then scale result to logical
-            if (engineSet == null || engineSet.contains("gpt")) {
+            if (engineSet == null || engineSet.contains("gpt5.4") || engineSet.contains("gpt")) {
                 try {
                     if (visionService.isAvailable()) {
                         long t0 = System.currentTimeMillis();
-                        int[] gptCoords = visionService.findElementCoordinates(screenshot, searchLabel, imgW, imgH, "gpt-5.4");
+                        int[] gptCoords = visionService.findElementCoordinates(screenshot, searchLabel, imgW, imgH, visionModelConfig.getPrimaryModel());
                         long gptMs = System.currentTimeMillis() - t0;
-                        entry.put("gptMs", gptMs);
+                        entry.put("gpt5Ms", gptMs);
                         if (gptCoords != null) {
                             int gx = (int) (gptCoords[0] / dpiScaleX);
                             int gy = (int) (gptCoords[1] / dpiScaleY);
-                            entry.put("gptX", gx);
-                            entry.put("gptY", gy);
+                            entry.put("gpt5X", gx);
+                            entry.put("gpt5Y", gy);
                             log.info("[calibration] '{}' GPT-5.4: ({},{}) raw→({},{}) scaled in {}ms", label, gptCoords[0], gptCoords[1], gx, gy, gptMs);
                         }
                     }
                 } catch (Exception e) {
                     log.warn("[calibration] '{}' GPT-5.4 failed: {}", label, e.getMessage());
+                }
+            }
+
+            // GPT-4o Mini — lighter/cheaper vision model
+            if (engineSet != null && engineSet.contains("gpt4o-mini")) {
+                try {
+                    if (visionService.isAvailable()) {
+                        long t0 = System.currentTimeMillis();
+                        int[] gpt4oCoords = visionService.findElementCoordinates(screenshot, searchLabel, imgW, imgH, visionModelConfig.getFastModel());
+                        long gpt4oMs = System.currentTimeMillis() - t0;
+                        entry.put("gpt4oMs", gpt4oMs);
+                        if (gpt4oCoords != null) {
+                            int gx = (int) (gpt4oCoords[0] / dpiScaleX);
+                            int gy = (int) (gpt4oCoords[1] / dpiScaleY);
+                            entry.put("gpt4oX", gx);
+                            entry.put("gpt4oY", gy);
+                            log.info("[calibration] '{}' GPT-4o Mini: ({},{}) raw→({},{}) scaled in {}ms", label, gpt4oCoords[0], gpt4oCoords[1], gx, gy, gpt4oMs);
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("[calibration] '{}' GPT-4o Mini failed: {}", label, e.getMessage());
                 }
             }
 
@@ -676,15 +844,16 @@ public class ScreenClickTools {
             g.setStroke(new java.awt.BasicStroke(3f));
 
             List<Map<String, Object>> details = new ArrayList<>();
-            String[] engines = {"gemini", "docai", "textract", "rek", "ocr", "gpt", "gemini3", "claude"};
-            String[] engineLabels = {"Gemini 2.5", "Document AI", "Textract", "Rekognition", "Windows OCR", "GPT-5.4", "Gemini 3.1", "Claude Opus 4.6"};
+            String[] engines = {"gemini", "docai", "textract", "rek", "ocr", "gpt5.4", "gpt4o-mini", "gemini3", "claude"};
+            String[] engineLabels = {"Gemini 2.5", "Document AI", "Textract", "Rekognition", "Windows OCR", "GPT-5.4", "GPT-4o Mini", "Gemini 3.1", "Claude Opus 4.6"};
             java.awt.Color[] engineColors = {
                 java.awt.Color.RED,
                 new java.awt.Color(255, 165, 0),   // orange
                 new java.awt.Color(138, 43, 226),   // purple
                 new java.awt.Color(255, 215, 0),    // gold
                 new java.awt.Color(0, 191, 255),     // cyan
-                new java.awt.Color(0, 255, 127),     // spring green
+                new java.awt.Color(0, 255, 127),     // spring green (GPT-5.4)
+                new java.awt.Color(144, 238, 144),   // light green (GPT-4o Mini)
                 new java.awt.Color(255, 105, 180),   // hot pink
                 new java.awt.Color(217, 119, 6)      // amber
             };
@@ -1173,6 +1342,132 @@ public class ScreenClickTools {
         }
     }
 
+    /**
+     * Smart hover probe: moves the mouse to the target, checks for hover effects
+     * (color changes, cursor changes). If nothing happens at the exact coords,
+     * spirals outward in a 100px radius checking nearby positions for interactive elements.
+     * Returns the confirmed clickable position, or null to use the original coords.
+     */
+    private int[] hoverProbe(int targetX, int targetY, String search) {
+        try {
+            Robot robot = new Robot();
+            java.awt.Dimension screen = Toolkit.getDefaultToolkit().getScreenSize();
+            int probeRadius = 100;
+
+            // 1. Move to exact target and check for hover effect
+            int[] result = probeAt(robot, targetX, targetY, screen);
+            if (result != null) {
+                log.info("[hoverProbe] Hover effect confirmed at original ({},{})", targetX, targetY);
+                return null; // original coords are good
+            }
+
+            // 2. No hover effect at exact location — spiral outward checking nearby
+            log.info("[hoverProbe] No hover effect at ({},{}), probing nearby...", targetX, targetY);
+            notifier.notify("__vision__Probing nearby for '" + search + "'...");
+
+            // Spiral pattern: check in expanding rings at 15px steps
+            int[][] offsets = {
+                // Ring 1: 15px
+                {0, -15}, {15, 0}, {0, 15}, {-15, 0},
+                {10, -10}, {10, 10}, {-10, 10}, {-10, -10},
+                // Ring 2: 30px
+                {0, -30}, {30, 0}, {0, 30}, {-30, 0},
+                {21, -21}, {21, 21}, {-21, 21}, {-21, -21},
+                // Ring 3: 50px
+                {0, -50}, {50, 0}, {0, 50}, {-50, 0},
+                {35, -35}, {35, 35}, {-35, 35}, {-35, -35},
+                // Ring 4: 75px
+                {0, -75}, {75, 0}, {0, 75}, {-75, 0},
+                {53, -53}, {53, 53}, {-53, 53}, {-53, -53},
+                // Ring 5: 100px
+                {0, -100}, {100, 0}, {0, 100}, {-100, 0},
+            };
+
+            for (int[] off : offsets) {
+                int px = targetX + off[0];
+                int py = targetY + off[1];
+                // Bounds check
+                if (px < 5 || py < 5 || px >= screen.width - 5 || py >= screen.height - 5) continue;
+                // Skip if inside bot window
+                if (com.minsbot.FloatingAppLauncher.isInsideWindow(px, py)) continue;
+
+                result = probeAt(robot, px, py, screen);
+                if (result != null) {
+                    log.info("[hoverProbe] Hover effect found at ({},{}) — offset ({},{}) from target",
+                            px, py, off[0], off[1]);
+                    notifier.notify("__vision__Button found at (" + px + "," + py + ") via hover probe");
+                    return new int[]{px, py};
+                }
+            }
+
+            log.info("[hoverProbe] No hover effect detected in {}px radius, using original coords", probeRadius);
+            return null; // no hover found, use original
+
+        } catch (Exception e) {
+            log.warn("[hoverProbe] Failed: {}, using original coords", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Move mouse to (x,y), wait for hover effect, capture a small region and compare.
+     * Returns {x,y} if hover change detected (>0.5% pixel change in 50px radius), null otherwise.
+     */
+    private int[] probeAt(Robot robot, int x, int y, java.awt.Dimension screen) {
+        try {
+            int regionSize = 100; // 50px radius = 100x100 region
+            int rx = Math.max(0, Math.min(x - regionSize / 2, screen.width - regionSize));
+            int ry = Math.max(0, Math.min(y - regionSize / 2, screen.height - regionSize));
+
+            // Capture BEFORE moving mouse there
+            BufferedImage before = robot.createScreenCapture(
+                    new Rectangle(rx, ry, regionSize, regionSize));
+
+            // Move mouse to the probe point
+            robot.mouseMove(x, y);
+            robot.delay(150); // wait for hover effect to render
+
+            // Capture AFTER hover
+            BufferedImage after = robot.createScreenCapture(
+                    new Rectangle(rx, ry, regionSize, regionSize));
+
+            // Compare
+            double change = compareSmallRegion(before, after);
+
+            // Also check cursor shape change via pixel sampling around cursor tip
+            // (hand cursor vs arrow cursor produces different pixels)
+            if (change > 0.5) {
+                log.debug("[hoverProbe] Hover change at ({},{}): {}%", x, y, String.format("%.1f", change));
+                return new int[]{x, y};
+            }
+
+            return null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** Fast pixel comparison for small regions. Returns % of pixels changed. */
+    private double compareSmallRegion(BufferedImage a, BufferedImage b) {
+        if (a == null || b == null) return 0;
+        int w = Math.min(a.getWidth(), b.getWidth());
+        int h = Math.min(a.getHeight(), b.getHeight());
+        int changed = 0, total = w * h;
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                int c1 = a.getRGB(x, y), c2 = b.getRGB(x, y);
+                if (c1 != c2) {
+                    // Only count as "changed" if the color difference is significant
+                    int dr = Math.abs(((c1 >> 16) & 0xFF) - ((c2 >> 16) & 0xFF));
+                    int dg = Math.abs(((c1 >> 8) & 0xFF) - ((c2 >> 8) & 0xFF));
+                    int db = Math.abs((c1 & 0xFF) - (c2 & 0xFF));
+                    if (dr + dg + db > 30) changed++; // threshold to ignore anti-aliasing noise
+                }
+            }
+        }
+        return total == 0 ? 0.0 : (changed * 100.0 / total);
+    }
+
     /** Capture a 500x400 region around a screen point. */
     private BufferedImage captureRegion(int centerX, int centerY) {
         try {
@@ -1345,7 +1640,7 @@ public class ScreenClickTools {
                     + "The coordinates must be within this image (0-" + regionW + " for x, 0-" + regionH + " for y). "
                     + "Return ONLY one line: either CONFIRMED or CORRECTED:x,y";
 
-            String response = visionService.analyzeWithPrompt(imgFile, prompt, "gpt-5.4");
+            String response = visionService.analyzeWithPrompt(imgFile, prompt, visionModelConfig.getVerifyModel());
             if (response == null || response.isBlank()) return null;
 
             for (String line : response.trim().split("\\r?\\n")) {
@@ -1478,9 +1773,13 @@ public class ScreenClickTools {
     private int[] findWithEngine(String engineKey, Path screenshot, String search, int screenW, int screenH) {
         try {
             switch (engineKey) {
-                case "gpt":
+                case "gpt5.4":
+                case "gpt": // legacy
                     if (!visionService.isAvailable()) return null;
-                    return visionService.findElementCoordinates(screenshot, search, screenW, screenH, "gpt-5.4");
+                    return visionService.findElementCoordinates(screenshot, search, screenW, screenH, visionModelConfig.getPrimaryModel());
+                case "gpt4o-mini":
+                    if (!visionService.isAvailable()) return null;
+                    return visionService.findElementCoordinates(screenshot, search, screenW, screenH, visionModelConfig.getFastModel());
                 case "gemini":
                     return askGeminiForCoords(screenshot, search, screenW, screenH, 1);
                 case "gemini3":
@@ -1519,7 +1818,9 @@ public class ScreenClickTools {
 
     private static String engineDisplayName(String key) {
         switch (key) {
-            case "gpt": return "GPT-5.4";
+            case "gpt5.4": return "GPT-5.4";
+            case "gpt4o-mini": return "GPT-4o Mini";
+            case "gpt": return "GPT-5.4"; // legacy
             case "gemini": return "Gemini 2.5";
             case "gemini3": return "Gemini 3.1";
             case "claude": return "Claude Opus 4.6";

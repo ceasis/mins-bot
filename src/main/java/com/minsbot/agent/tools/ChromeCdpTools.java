@@ -228,6 +228,140 @@ public class ChromeCdpTools {
         }
     }
 
+    @Tool(description = "Execute JavaScript code directly in a Chrome tab via CDP. "
+            + "The fastest way to fill forms, read DOM values, click buttons, or manipulate page state. "
+            + "Returns the result of the JS expression (stringified). "
+            + "PREFERRED for filling entire forms in one call — example: "
+            + "browserExecuteJs('sentientdev.com', "
+            + "'document.querySelector(\"input[placeholder=\\\"Last Name\\\"]\").value=\"Smith\"; "
+            + "document.querySelector(\"input[placeholder=\\\"Last Name\\\"]\").dispatchEvent(new Event(\"input\",{bubbles:true})); "
+            + "\"done\"') "
+            + "Use dispatchEvent(new Event('input',{bubbles:true})) after setting .value so React/frameworks detect the change. "
+            + "For timed verification fields, this is INSTANT — no click/paste delay.")
+    public String browserExecuteJs(
+            @ToolParam(description = "Part of the site URL to find the tab, e.g. 'sentientdev.com'")
+            String siteUrlContains,
+            @ToolParam(description = "JavaScript code to execute in the page context. "
+                    + "Use document.querySelector/querySelectorAll to find elements. "
+                    + "Return a string result for confirmation.")
+            String jsCode) {
+        notifier.notify("CDP JS: " + (jsCode.length() > 60 ? jsCode.substring(0, 60) + "..." : jsCode));
+        try {
+            cdpService.ensureConnected();
+            Page page = cdpService.findPageByUrl(siteUrlContains);
+            if (page == null) return "FAILED: No tab found containing '" + siteUrlContains + "' in URL.";
+            cdpService.activatePage(page);
+
+            Object result = page.evaluate(jsCode);
+            String resultStr = result != null ? result.toString() : "null";
+            if (resultStr.length() > 2000) resultStr = resultStr.substring(0, 2000) + "...(truncated)";
+            return "JS executed. Result: " + resultStr;
+        } catch (Exception e) {
+            return "FAILED: browserExecuteJs on " + siteUrlContains + ": " + e.getMessage();
+        }
+    }
+
+    @Tool(description = "Fill an entire form at once using JavaScript injection via CDP. "
+            + "Pass a pipe-separated list of 'cssSelector=value' pairs. "
+            + "This is the FASTEST form-filling method — fills all fields in one ~10ms call. "
+            + "Each field gets its value set AND an 'input' event dispatched (so React/Vue/Angular detect it). "
+            + "Example: browserFillForm('sentientdev.com', "
+            + "'input[placeholder=\"Last Name\"]=Smith|input[placeholder=\"Phone Number\"]=555-4321|input[placeholder=\"First Name\"]=Carlos')")
+    public String browserFillForm(
+            @ToolParam(description = "Part of the site URL to find the tab")
+            String siteUrlContains,
+            @ToolParam(description = "Pipe-separated 'cssSelector=value' pairs, e.g. "
+                    + "'#name=John|#email=john@x.com|textarea.bio=Hello world'")
+            String fieldPairs) {
+        notifier.notify("CDP fill form on " + siteUrlContains);
+        try {
+            cdpService.ensureConnected();
+            Page page = cdpService.findPageByUrl(siteUrlContains);
+            if (page == null) return "FAILED: No tab found containing '" + siteUrlContains + "' in URL.";
+            cdpService.activatePage(page);
+
+            String[] pairs = fieldPairs.split("\\|");
+            StringBuilder js = new StringBuilder("(function(){var r=[];");
+            for (String pair : pairs) {
+                int eq = pair.indexOf('=');
+                if (eq < 0) continue;
+                String selector = pair.substring(0, eq).trim();
+                String value = pair.substring(eq + 1).trim();
+                // Escape for JS strings
+                String jsSel = selector.replace("\\", "\\\\").replace("'", "\\'");
+                String jsVal = value.replace("\\", "\\\\").replace("'", "\\'");
+                js.append("var e=document.querySelector('").append(jsSel).append("');");
+                js.append("if(e){");
+                js.append("var nativeSetter=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value')||Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value');");
+                js.append("if(nativeSetter&&nativeSetter.set){nativeSetter.set.call(e,'").append(jsVal).append("');}else{e.value='").append(jsVal).append("';}");
+                js.append("e.dispatchEvent(new Event('input',{bubbles:true}));");
+                js.append("e.dispatchEvent(new Event('change',{bubbles:true}));");
+                js.append("r.push('").append(jsSel).append("=OK');");
+                js.append("}else{r.push('").append(jsSel).append("=NOT FOUND');}");
+            }
+            js.append("return r.join(', ');})()");
+
+            Object result = page.evaluate(js.toString());
+            return "Form filled: " + (result != null ? result.toString() : "done");
+        } catch (Exception e) {
+            return "FAILED: browserFillForm: " + e.getMessage();
+        }
+    }
+
+    @Tool(description = "Click a button or element by CSS selector via JavaScript. "
+            + "Faster than visual click — no screenshot needed. "
+            + "Example: browserClickElement('sentientdev.com', 'button.submit-bot')")
+    public String browserClickElement(
+            @ToolParam(description = "Part of the site URL to find the tab")
+            String siteUrlContains,
+            @ToolParam(description = "CSS selector of the element to click, e.g. 'button.submit', '#login-btn', 'a[href=\"/next\"]'")
+            String cssSelector) {
+        notifier.notify("CDP click: " + cssSelector);
+        try {
+            cdpService.ensureConnected();
+            Page page = cdpService.findPageByUrl(siteUrlContains);
+            if (page == null) return "FAILED: No tab found containing '" + siteUrlContains + "' in URL.";
+            cdpService.activatePage(page);
+
+            String js = "(function(){var e=document.querySelector('" + cssSelector.replace("'", "\\'")
+                    + "');if(e){e.click();return 'clicked';}return 'not found';})()";
+            Object result = page.evaluate(js);
+            return "Click result: " + (result != null ? result.toString() : "done");
+        } catch (Exception e) {
+            return "FAILED: browserClickElement: " + e.getMessage();
+        }
+    }
+
+    @Tool(description = "Read the current value of form fields via CDP JavaScript. "
+            + "Pass a pipe-separated list of CSS selectors. Returns their current values. "
+            + "Use to verify form was filled correctly before submitting.")
+    public String browserReadFields(
+            @ToolParam(description = "Part of the site URL")
+            String siteUrlContains,
+            @ToolParam(description = "Pipe-separated CSS selectors, e.g. '#name|#email|textarea.bio'")
+            String selectors) {
+        notifier.notify("CDP read fields...");
+        try {
+            cdpService.ensureConnected();
+            Page page = cdpService.findPageByUrl(siteUrlContains);
+            if (page == null) return "FAILED: No tab found.";
+
+            String[] sels = selectors.split("\\|");
+            StringBuilder js = new StringBuilder("(function(){var r=[];");
+            for (String sel : sels) {
+                String s = sel.trim().replace("'", "\\'");
+                js.append("var e=document.querySelector('").append(s).append("');");
+                js.append("r.push('").append(s).append("=' + (e?e.value:'NOT FOUND'));");
+            }
+            js.append("return r.join('\\n');})()");
+
+            Object result = page.evaluate(js.toString());
+            return result != null ? result.toString() : "no result";
+        } catch (Exception e) {
+            return "FAILED: " + e.getMessage();
+        }
+    }
+
     // ═══ Smart click — multi-strategy Playwright element clicking ═══
 
     private static final Logger log = LoggerFactory.getLogger(ChromeCdpTools.class);

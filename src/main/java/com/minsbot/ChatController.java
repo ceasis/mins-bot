@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 
 import com.minsbot.agent.AutoPilotService;
+import com.minsbot.agent.ModuleStatsService;
 import com.minsbot.agent.ProactiveActionService;
 import com.minsbot.agent.tools.AudioListeningTools;
 import com.minsbot.agent.tools.IntelligenceTools;
@@ -36,6 +37,7 @@ public class ChatController {
     private final AutoPilotService autoPilotService;
     private final ProactiveActionService proactiveActionService;
     private final IntelligenceTools intelligenceTools;
+    private final ModuleStatsService moduleStatsService;
 
     public ChatController(ChatService chatService, TranscriptService transcriptService,
                           ScreenWatchingTools screenWatchingTools,
@@ -44,7 +46,8 @@ public class ChatController {
                           TtsTools ttsTools,
                           AutoPilotService autoPilotService,
                           ProactiveActionService proactiveActionService,
-                          IntelligenceTools intelligenceTools) {
+                          IntelligenceTools intelligenceTools,
+                          ModuleStatsService moduleStatsService) {
         this.chatService = chatService;
         this.transcriptService = transcriptService;
         this.screenWatchingTools = screenWatchingTools;
@@ -54,6 +57,7 @@ public class ChatController {
         this.autoPilotService = autoPilotService;
         this.proactiveActionService = proactiveActionService;
         this.intelligenceTools = intelligenceTools;
+        this.moduleStatsService = moduleStatsService;
     }
 
     @GetMapping(value = "/version", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -425,5 +429,12 @@ public class ChatController {
         } catch (Exception e) {
             return Map.of("success", false, "error", e.getMessage());
         }
+    }
+
+    // ═══ Module stats (vision/audio counters for status bar) ═══
+
+    @GetMapping(value = "/status/modules", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> moduleStats() {
+        return moduleStatsService.getStats();
     }
 }

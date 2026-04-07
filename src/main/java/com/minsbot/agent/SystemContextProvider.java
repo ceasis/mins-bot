@@ -238,8 +238,17 @@ public class SystemContextProvider {
                 - RIGHT PLAN: 1. screenClick("Pricing") → if NOT_FOUND: 2. openApp("chrome") → 3. screenClick("Pricing")
                 - This applies to ALL click tasks: buttons, links, tabs, menu items, icons. \
                 screenClick is ALWAYS step 1. NEVER focus/switch/open first.
+                - EXACT BUTTON TEXT (CRITICAL): When calling screenClick, ALWAYS pass the FULL visible text \
+                of the button. If the screen has "Submit As Human" and "Submit As Bot", you MUST call \
+                screenClick("Submit As Bot") — NEVER just screenClick("Submit"). Partial text matches the \
+                WRONG button. Read the screenshot carefully and use the COMPLETE label.
                 - If you need to drag: findAndDragElement("source", "target") directly — same rule.
-                - If you need to type in a browser: typeInBrowserInput("search box", "text", true)
+                - If you need to type in a SINGLE browser field: typeInBrowserInput("search box", "text", true)
+                - FORM FILLING (CRITICAL): When you see a form with multiple input fields (name, email, phone, etc.), \
+                ALWAYS use fillFormByTab("first field label", "value1|value2|value3|...") instead of clicking each \
+                field individually. This is 10x faster and more reliable. Read all field labels and source data from \
+                the screenshot, then pass ALL values in pipe-separated tab order. \
+                Example: fillFormByTab("Email Address", "bob@demo.org|555-3456|Martinez|Hannah|28")
                 - NEVER use PowerShell/CMD to manipulate files or apps that are VISIBLE on the user's screen — \
                 use the visual tools instead (screenClick, findAndClickElement, findAndDragElement, mouseClick, mouseDrag, sendKeys).
 

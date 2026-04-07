@@ -43,6 +43,9 @@ public class VisionService {
     @Value("${app.vision.detail:high}")
     private String detail;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private ModuleStatsService moduleStats;
+
     private HttpClient httpClient;
 
     private static final String SYSTEM_PROMPT = """
@@ -120,6 +123,7 @@ public class VisionService {
                 return null;
             }
 
+            if (moduleStats != null) moduleStats.recordVisionCall(model);
             log.info("[Vision] Analysis SUCCESS ({} chars): {}", content.length(),
                     content.length() > 300 ? content.substring(0, 300) + "..." : content);
             return content;
@@ -171,7 +175,9 @@ public class VisionService {
                 log.warn("[Vision] analyzeWithPrompt — HTTP {}", response.statusCode());
                 return null;
             }
-            return extractContent(response.body());
+            String content = extractContent(response.body());
+            if (content != null && !content.isBlank() && moduleStats != null) moduleStats.recordVisionCall(useModel);
+            return content;
         } catch (Exception e) {
             log.warn("[Vision] analyzeWithPrompt — FAILED: {}", e.getMessage());
             return null;

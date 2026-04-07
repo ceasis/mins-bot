@@ -256,6 +256,75 @@ public class SystemTools {
         return systemControl.sendKeys(keys);
     }
 
+    @Tool(description = "INSTANT paste: click at screen coordinates, then immediately paste text via clipboard (Ctrl+V). "
+            + "Completes in under 200ms — use for time-sensitive fields like verification strings, captchas, "
+            + "timed typing challenges, or any field where speed matters. "
+            + "Also use for filling multiple form fields in one call: pass a sequence of x,y,text triples. "
+            + "Example single field: fastPaste(500, 300, 'some text') "
+            + "Example multiple fields: fastPaste with fillSequence = 'x1,y1,text1|x2,y2,text2|x3,y3,text3'")
+    public String fastPaste(
+            @ToolParam(description = "X coordinate to click (0 for sequence mode)") double x,
+            @ToolParam(description = "Y coordinate to click (0 for sequence mode)") double y,
+            @ToolParam(description = "Text to paste, OR a pipe-separated sequence: 'x1,y1,text1|x2,y2,text2'") String text) {
+        notifier.notify("Fast paste...");
+        try {
+            java.awt.Robot robot = new java.awt.Robot();
+
+            if (text.contains("|") && x == 0 && y == 0) {
+                // Sequence mode: fill multiple fields in rapid succession
+                StringBuilder result = new StringBuilder();
+                String[] entries = text.split("\\|");
+                for (String entry : entries) {
+                    String[] parts = entry.split(",", 3);
+                    if (parts.length < 3) continue;
+                    int fx = Integer.parseInt(parts[0].trim());
+                    int fy = Integer.parseInt(parts[1].trim());
+                    String ftext = parts[2].trim();
+                    clickAndPaste(robot, fx, fy, ftext);
+                    result.append("Pasted '").append(ftext.length() > 30 ? ftext.substring(0, 30) + "..." : ftext)
+                            .append("' at (").append(fx).append(",").append(fy).append(")\n");
+                }
+                return result.toString().trim();
+            }
+
+            // Single field mode
+            clickAndPaste(robot, (int) x, (int) y, text);
+            return "Pasted " + text.length() + " chars at (" + (int) x + "," + (int) y + ")";
+        } catch (Exception e) {
+            return "Fast paste failed: " + e.getMessage();
+        }
+    }
+
+    private void clickAndPaste(java.awt.Robot robot, int x, int y, String text) throws Exception {
+        // Guard: don't click inside the bot window
+        if (com.minsbot.FloatingAppLauncher.isInsideWindow(x, y)) {
+            throw new RuntimeException("Target (" + x + "," + y + ") is inside the Mins Bot window — skipping.");
+        }
+        // Click to focus the field
+        robot.mouseMove(x, y);
+        robot.mousePress(java.awt.event.InputEvent.BUTTON1_DOWN_MASK);
+        robot.mouseRelease(java.awt.event.InputEvent.BUTTON1_DOWN_MASK);
+        robot.delay(80);
+
+        // Select all existing content
+        robot.keyPress(java.awt.event.KeyEvent.VK_CONTROL);
+        robot.keyPress(java.awt.event.KeyEvent.VK_A);
+        robot.keyRelease(java.awt.event.KeyEvent.VK_A);
+        robot.keyRelease(java.awt.event.KeyEvent.VK_CONTROL);
+        robot.delay(30);
+
+        // Put text on clipboard and paste
+        java.awt.datatransfer.StringSelection sel = new java.awt.datatransfer.StringSelection(text);
+        java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(sel, null);
+        robot.delay(30);
+
+        robot.keyPress(java.awt.event.KeyEvent.VK_CONTROL);
+        robot.keyPress(java.awt.event.KeyEvent.VK_V);
+        robot.keyRelease(java.awt.event.KeyEvent.VK_V);
+        robot.keyRelease(java.awt.event.KeyEvent.VK_CONTROL);
+        robot.delay(80);
+    }
+
     @Tool(description = "Open an application with optional arguments: a file path for Notepad, a URL for browser, or a folder path for Explorer.")
     public String openAppWithArgs(
             @ToolParam(description = "App name: notepad, chrome, edge, firefox, explorer, etc.") String appName,

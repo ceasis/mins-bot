@@ -872,6 +872,31 @@ body.embedded-minsbot .tab-bar {
   margin-bottom: 8px;
 }
 
+.agents-model-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.agents-model-label {
+  font-size: 10px;
+  color: rgba(255,255,255,0.4);
+  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.agents-model-select {
+  flex: 1;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 4px;
+  color: #e4e4e7;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-family: inherit;
+}
+
 .agents-mission-input {
   width: 100%;
   box-sizing: border-box;
@@ -893,19 +918,85 @@ body.embedded-minsbot .tab-bar {
   gap: 10px;
 }
 
+.agents-btn-row {
+  display: flex;
+  gap: 8px;
+}
+
+.agents-random-btn {
+  background: rgba(234, 179, 8, 0.15);
+  border: 1px solid rgba(234, 179, 8, 0.3);
+  color: #fcd34d;
+}
+.agents-random-btn:hover {
+  background: rgba(234, 179, 8, 0.25);
+}
+
 .agent-card {
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  padding: 10px 12px;
+  border-radius: 10px;
+  padding: 12px 14px;
   background: rgba(0, 0, 0, 0.2);
+  transition: border-color 0.2s;
+}
+.agent-card:hover {
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
 .agent-card-header {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.agent-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(99, 102, 241, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.agent-card-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.agent-card-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e4e4e7;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.agent-card-meta {
+  font-size: 10px;
+  color: #71717a;
+  display: flex;
+  align-items: center;
   gap: 8px;
-  margin-bottom: 6px;
+  margin-top: 2px;
+}
+
+.agent-model-badge {
+  font-size: 9px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(99, 102, 241, 0.15);
+  color: #a5b4fc;
+  font-family: ui-monospace, monospace;
+}
+
+.agent-tokens {
+  font-size: 9px;
+  color: #52525b;
 }
 
 .agent-card-id {
@@ -2361,9 +2452,8 @@ body.embedded-minsbot .tab-bar {
 /* ── Status bar ── */
 .status-bar {
   display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding: 2px 10px;
+  flex-direction: column;
+  padding: 1px 10px;
   font-size: 11px;
   color: #71717a;
   background: rgba(24, 24, 27, 0.85);
@@ -2373,10 +2463,42 @@ body.embedded-minsbot .tab-bar {
   flex-shrink: 0;
 }
 
+.status-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 16px;
+}
+
 .status-bar #mouse-coords {
   font-family: 'Consolas', 'Courier New', monospace;
   letter-spacing: 0.5px;
 }
+
+.status-sep {
+  margin: 0 6px;
+  color: rgba(255,255,255,0.1);
+}
+
+.status-module {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 10px;
+  letter-spacing: 0.3px;
+}
+
+.status-module-icon {
+  font-size: 9px;
+  opacity: 0.5;
+}
+
+#status-vision .status-module-icon { color: #60a5fa; }
+#status-audio .status-module-icon { color: #a78bfa; }
+
+#status-vision-label { color: #60a5fa; }
+#status-audio-label { color: #a78bfa; }
 
 /* ═══ TTS Settings Tab ═══ */
 

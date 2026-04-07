@@ -315,4 +315,85 @@ public class FloatingAppLauncher extends Application {
         String title = (name != null && !name.isBlank()) ? "Mins Bot - " + name : "Mins Bot";
         Platform.runLater(() -> primaryStageRef.setTitle(title));
     }
+
+    /**
+     * Get the current window bounds as [x, y, width, height] in screen pixels.
+     * Returns null if the window is not available.
+     * Used by vision/click tools to know where the bot window is so they can
+     * avoid clicking inside it and tell the AI to ignore that screen region.
+     */
+    public static int[] getWindowBounds() {
+        if (primaryStageRef == null) return null;
+        try {
+            // Read on FX thread to avoid threading issues
+            java.util.concurrent.atomic.AtomicReference<int[]> ref = new java.util.concurrent.atomic.AtomicReference<>();
+            CountDownLatch latch = new CountDownLatch(1);
+            Platform.runLater(() -> {
+                try {
+                    ref.set(new int[]{
+                            (int) primaryStageRef.getX(),
+                            (int) primaryStageRef.getY(),
+                            (int) primaryStageRef.getWidth(),
+                            (int) primaryStageRef.getHeight()
+                    });
+                } finally {
+                    latch.countDown();
+                }
+            });
+            latch.await(500, TimeUnit.MILLISECONDS);
+            return ref.get();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * Check if a screen coordinate is inside the bot window.
+     */
+    public static boolean isInsideWindow(int screenX, int screenY) {
+        int[] bounds = getWindowBounds();
+        if (bounds == null) return false;
+        return screenX >= bounds[0] && screenX <= bounds[0] + bounds[2]
+                && screenY >= bounds[1] && screenY <= bounds[1] + bounds[3];
+    }
+
+    /** Move the bot window to specific screen coordinates. */
+    public static void moveTo(double x, double y) {
+        if (primaryStageRef == null) return;
+        Platform.runLater(() -> {
+            primaryStageRef.setX(x);
+            primaryStageRef.setY(y);
+        });
+    }
+
+    /** Resize the bot window. */
+    public static void resizeTo(double width, double height) {
+        if (primaryStageRef == null) return;
+        Platform.runLater(() -> {
+            primaryStageRef.setWidth(width);
+            primaryStageRef.setHeight(height);
+        });
+    }
+
+    /** Minimize (iconify) the bot window. */
+    public static void minimize() {
+        if (primaryStageRef == null) return;
+        Platform.runLater(() -> primaryStageRef.setIconified(true));
+    }
+
+    /** Restore the bot window from minimized state. */
+    public static void restore() {
+        if (primaryStageRef == null) return;
+        Platform.runLater(() -> {
+            primaryStageRef.setIconified(false);
+            primaryStageRef.setOpacity(1);
+            primaryStageRef.toFront();
+        });
+    }
+
+    /** Get screen dimensions (logical). */
+    public static int[] getScreenSize() {
+        java.awt.Dimension d = java.awt.Toolkit.getDefaultToolkit().getScreenSize();
+        return new int[]{d.width, d.height};
+    }
 }
