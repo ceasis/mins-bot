@@ -7,11 +7,14 @@ import org.springframework.web.client.RestTemplate;
 import java.util.List;
 import java.util.Map;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+
 /**
  * Client for Viber REST Bot API (set_webhook, send_message).
  * See https://developers.viber.com/docs/api/rest-bot-api/
  */
 @Component
+@ConditionalOnProperty(name = "app.viber.enabled", havingValue = "true")
 public class ViberApiClient {
 
     private static final String VIBER_API_BASE = "https://chatapi.viber.com/pa";

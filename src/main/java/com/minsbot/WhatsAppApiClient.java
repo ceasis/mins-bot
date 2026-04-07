@@ -6,11 +6,14 @@ import org.springframework.web.client.RestTemplate;
 
 import java.util.Map;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+
 /**
  * Client for WhatsApp Cloud API (Meta Business Platform).
  * See https://developers.facebook.com/docs/whatsapp/cloud-api
  */
 @Component
+@ConditionalOnProperty(name = "app.whatsapp.enabled", havingValue = "true")
 public class WhatsAppApiClient {
 
     private static final String API_BASE = "https://graph.facebook.com/v21.0";

@@ -69,8 +69,14 @@
           <button type="button" id="header-autopilot" class="header-autopilot-btn" title="Auto-pilot: proactive screen help" aria-label="Toggle auto-pilot">
             <i class="fa-solid fa-brain autopilot-icon"></i>
           </button>
+          <button type="button" id="header-proactive" class="header-proactive-btn" title="Proactive mode: auto-act on screen, tasks & directives" aria-label="Toggle proactive action mode">
+            <i class="fa-solid fa-bolt proactive-icon"></i>
+          </button>
         </div>
         <div class="panel-actions">
+          <button type="button" id="sound-toggle" class="btn-icon btn-sound" title="Sound effects on" aria-label="Toggle sound effects">
+            <i class="fa-solid fa-volume-high sound-icon"></i>
+          </button>
           <button type="button" id="clear-btn" class="btn-icon btn-clear" title="Clear chat" aria-label="Clear chat">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8M9 4h6a1 1 0 0 1 1 1v1H8V5a1 1 0 0 1 1-1ZM4 7h16"/>
@@ -100,7 +106,17 @@
         <button class="tab tab-extra" data-tab="multiagent">Multi-Agent</button>
         <button class="tab tab-extra" data-tab="automations">Automations</button>
       </div>
-      <div id="tab-chat" class="tab-content active">
+      <div id="tab-chat" class="tab-content active tab-visible">
+        <div id="chat-search" class="chat-search" hidden>
+          <div class="chat-search-inner">
+            <svg class="chat-search-icon" viewBox="0 0 24 24" width="14" height="14"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><line x1="16.5" y1="16.5" x2="21" y2="21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            <input type="text" id="chat-search-input" class="chat-search-input" placeholder="Search messages..." autocomplete="off">
+            <span id="chat-search-count" class="chat-search-count"></span>
+            <button type="button" id="chat-search-prev" class="chat-search-nav" title="Previous">&uarr;</button>
+            <button type="button" id="chat-search-next" class="chat-search-nav" title="Next">&darr;</button>
+            <button type="button" id="chat-search-close" class="chat-search-close" title="Close">&times;</button>
+          </div>
+        </div>
         <div class="chat-area">
           <div id="messages" class="messages" role="log" aria-live="polite"></div>
           <div id="watch-feed" class="watch-feed" hidden>
@@ -515,8 +531,46 @@
         </div>
       </div>
       <div id="tab-schedules" class="tab-content">
-        <div class="tab-scroll-container" id="schedules-container">
-          <div class="tab-empty">Loading schedules...</div>
+        <div class="sched-layout">
+          <!-- Left: schedule list (40%) -->
+          <div class="sched-left">
+            <div class="sched-left-header">
+              <div class="section-title">Schedules</div>
+            </div>
+            <div id="sched-list" class="sched-list">
+              <div class="tab-empty">Loading...</div>
+            </div>
+          </div>
+          <!-- Right: editor (60%) -->
+          <div class="sched-right">
+            <div class="sched-right-header">
+              <div class="section-title" id="sched-editor-title">Add / Edit</div>
+              <button id="sched-random-btn" class="action-btn publish">Random</button>
+            </div>
+            <div id="sched-editor" class="sched-editor">
+              <select id="sched-section-select" class="tab-input sched-section-select">
+                <option value="Daily checks">Daily checks</option>
+                <option value="Weekly checks">Weekly checks</option>
+                <option value="Reminders">Reminders</option>
+                <option value="Other schedule">Other schedule</option>
+              </select>
+              <input type="text" id="sched-entry-input" class="tab-input" placeholder="Schedule entry (e.g. Check email at 9:00 AM)">
+              <div class="sched-editor-actions">
+                <button id="sched-save-btn" class="action-btn publish">Save</button>
+                <button id="sched-cancel-btn" class="action-btn" hidden>Cancel</button>
+              </div>
+            </div>
+            <div id="sched-detail" class="sched-detail" hidden>
+              <div class="sched-detail-section" id="sched-detail-section"></div>
+              <input type="text" id="sched-detail-entry" class="tab-input" placeholder="Edit entry...">
+              <div class="sched-detail-actions">
+                <button id="sched-update-btn" class="action-btn publish">Update</button>
+                <button id="sched-delete-btn" class="action-btn" style="color:#f87171;border-color:rgba(248,113,113,0.3)">Delete</button>
+                <button id="sched-detail-cancel-btn" class="action-btn">Back</button>
+              </div>
+            </div>
+            <div id="sched-random-output" class="skill-random-output" hidden></div>
+          </div>
         </div>
       </div>
       <div id="tab-todos" class="tab-content">
@@ -933,6 +987,32 @@
       <span id="mouse-coords">X: 0 &nbsp; Y: 0</span>
     </div>
   </div>
+  <!-- Command Palette (Ctrl+K) -->
+  <div id="command-palette" class="cmd-palette" hidden>
+    <div class="cmd-palette-backdrop"></div>
+    <div class="cmd-palette-dialog">
+      <input type="text" id="cmd-palette-input" class="cmd-palette-input" placeholder="Type a command..." autocomplete="off">
+      <div id="cmd-palette-list" class="cmd-palette-list"></div>
+    </div>
+  </div>
+
+  <!-- Keyboard Shortcuts Overlay (Ctrl+/) -->
+  <div id="shortcuts-overlay" class="shortcuts-overlay" hidden>
+    <div class="shortcuts-backdrop"></div>
+    <div class="shortcuts-dialog">
+      <div class="shortcuts-title">Keyboard Shortcuts</div>
+      <div class="shortcuts-grid">
+        <div class="shortcut-row"><kbd>Ctrl+K</kbd><span>Command palette</span></div>
+        <div class="shortcut-row"><kbd>Ctrl+/</kbd><span>This help</span></div>
+        <div class="shortcut-row"><kbd>Ctrl+L</kbd><span>Clear chat</span></div>
+        <div class="shortcut-row"><kbd>Ctrl+F</kbd><span>Search messages</span></div>
+        <div class="shortcut-row"><kbd>Enter</kbd><span>Send message</span></div>
+        <div class="shortcut-row"><kbd>&uarr; / &darr;</kbd><span>Input history</span></div>
+        <div class="shortcut-row"><kbd>Esc</kbd><span>Close overlay</span></div>
+      </div>
+    </div>
+  </div>
+
   <script src="js/app.js"></script>
 </body>
 </html>

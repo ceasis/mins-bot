@@ -6,11 +6,14 @@ import org.springframework.web.client.RestTemplate;
 
 import java.util.Map;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+
 /**
  * Client for Telegram Bot API (setWebhook, sendMessage).
  * See https://core.telegram.org/bots/api
  */
 @Component
+@ConditionalOnProperty(name = "app.telegram.enabled", havingValue = "true")
 public class TelegramApiClient {
 
     private static final String API_BASE = "https://api.telegram.org/bot";

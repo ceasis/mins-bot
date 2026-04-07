@@ -6,11 +6,14 @@ import org.springframework.web.client.RestTemplate;
 
 import java.util.Map;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+
 /**
  * Client for Slack Web API (chat.postMessage).
  * See https://api.slack.com/methods/chat.postMessage
  */
 @Component
+@ConditionalOnProperty(name = "app.slack.enabled", havingValue = "true")
 public class SlackApiClient {
 
     private static final String API_BASE = "https://slack.com/api";

@@ -163,6 +163,7 @@ public class ChatService {
     private final ScreenStateService screenStateService;
     private final com.minsbot.agent.tools.ScreenWatchingTools screenWatchingTools;
     private final com.minsbot.agent.tools.ClipboardHistoryTools clipboardHistoryTools;
+    private final com.minsbot.agent.AutoMemoryExtractor autoMemoryExtractor;
 
     /** Spring AI ChatClient — null when no API key is configured. Swappable at runtime. */
     @Autowired(required = false)
@@ -195,7 +196,8 @@ public class ChatService {
                        TtsTools ttsTools,
                        ScreenStateService screenStateService,
                        com.minsbot.agent.tools.ScreenWatchingTools screenWatchingTools,
-                       com.minsbot.agent.tools.ClipboardHistoryTools clipboardHistoryTools) {
+                       com.minsbot.agent.tools.ClipboardHistoryTools clipboardHistoryTools,
+                       com.minsbot.agent.AutoMemoryExtractor autoMemoryExtractor) {
         this.transcriptService = transcriptService;
         this.pcAgent = pcAgent;
         this.systemCtx = systemCtx;
@@ -209,6 +211,7 @@ public class ChatService {
         this.screenStateService = screenStateService;
         this.screenWatchingTools = screenWatchingTools;
         this.clipboardHistoryTools = clipboardHistoryTools;
+        this.autoMemoryExtractor = autoMemoryExtractor;
     }
 
     @PostConstruct
@@ -310,6 +313,9 @@ public class ChatService {
      */
     private void processUserMessage(String trimmed) {
         stopRequested = false; // reset at start of each message
+
+        // Auto-extract life facts from user message (async, never blocks chat)
+        autoMemoryExtractor.analyzeAsync(trimmed);
 
         Consumer<String> asyncCallback = result -> {
             transcriptService.save("BOT(agent)", result);

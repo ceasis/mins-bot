@@ -106,12 +106,22 @@ public class ToolRouter {
     private final ClipboardHistoryTools clipboardHistoryTools;
     private final WakeWordTools wakeWordTools;
     private final AutoPilotTools autoPilotTools;
+    private final ProactiveActionTools proactiveActionTools;
     private final GiftIdeaTools giftIdeaTools;
     private final LifeProfileTools lifeProfileTools;
     private final EpisodicMemoryTools episodicMemoryTools;
     private final ProactiveEngineTools proactiveEngineTools;
     private final HealthTrackerTools healthTrackerTools;
     private final FinanceTrackerTools financeTrackerTools;
+    private final HabitDetectionTools habitDetectionTools;
+    private final FeedbackLoopTools feedbackLoopTools;
+    private final SkillAutoCreateTools skillAutoCreateTools;
+    private final WindowManagerTools windowManagerTools;
+    private final SocialMonitorTools socialMonitorTools;
+    private final IntelligenceTools intelligenceTools;
+    private final RemotionVideoTools remotionVideoTools;
+    private final TrendScoutTools trendScoutTools;
+    private final GitHubTools gitHubTools;
 
     @Autowired(required = false)
     private ToolClassifierService classifier;
@@ -196,12 +206,22 @@ public class ToolRouter {
             ClipboardHistoryTools clipboardHistoryTools,
             WakeWordTools wakeWordTools,
             AutoPilotTools autoPilotTools,
+            ProactiveActionTools proactiveActionTools,
             GiftIdeaTools giftIdeaTools,
             LifeProfileTools lifeProfileTools,
             EpisodicMemoryTools episodicMemoryTools,
             ProactiveEngineTools proactiveEngineTools,
             HealthTrackerTools healthTrackerTools,
-            FinanceTrackerTools financeTrackerTools) {
+            FinanceTrackerTools financeTrackerTools,
+            HabitDetectionTools habitDetectionTools,
+            FeedbackLoopTools feedbackLoopTools,
+            SkillAutoCreateTools skillAutoCreateTools,
+            WindowManagerTools windowManagerTools,
+            SocialMonitorTools socialMonitorTools,
+            IntelligenceTools intelligenceTools,
+            RemotionVideoTools remotionVideoTools,
+            TrendScoutTools trendScoutTools,
+            GitHubTools gitHubTools) {
 
         this.directivesTools = directivesTools;
         this.directiveDataTools = directiveDataTools;
@@ -269,12 +289,22 @@ public class ToolRouter {
         this.clipboardHistoryTools = clipboardHistoryTools;
         this.wakeWordTools = wakeWordTools;
         this.autoPilotTools = autoPilotTools;
+        this.proactiveActionTools = proactiveActionTools;
         this.giftIdeaTools = giftIdeaTools;
         this.lifeProfileTools = lifeProfileTools;
         this.episodicMemoryTools = episodicMemoryTools;
         this.proactiveEngineTools = proactiveEngineTools;
         this.healthTrackerTools = healthTrackerTools;
         this.financeTrackerTools = financeTrackerTools;
+        this.habitDetectionTools = habitDetectionTools;
+        this.feedbackLoopTools = feedbackLoopTools;
+        this.skillAutoCreateTools = skillAutoCreateTools;
+        this.windowManagerTools = windowManagerTools;
+        this.socialMonitorTools = socialMonitorTools;
+        this.intelligenceTools = intelligenceTools;
+        this.remotionVideoTools = remotionVideoTools;
+        this.trendScoutTools = trendScoutTools;
+        this.gitHubTools = gitHubTools;
 
         // Count @Tool methods on every bean (once, via reflection)
         countToolsOnAllBeans();
@@ -396,9 +426,13 @@ public class ToolRouter {
                 sensoryToggleTools,
                 travelSearchTools, wordDocTools, appSwitchTools, globalHotkeyService, pluginLoaderService, systemTrayService,
                 codeAuditTools, backupConfigTools, musicControlTools,
-                videoDownloadTools, clipboardHistoryTools, wakeWordTools, autoPilotTools, giftIdeaTools,
+                videoDownloadTools, clipboardHistoryTools, wakeWordTools, autoPilotTools, proactiveActionTools, giftIdeaTools,
                 lifeProfileTools, episodicMemoryTools, proactiveEngineTools,
-                healthTrackerTools, financeTrackerTools
+                healthTrackerTools, financeTrackerTools,
+                habitDetectionTools, feedbackLoopTools, skillAutoCreateTools, windowManagerTools,
+                socialMonitorTools, intelligenceTools,
+                remotionVideoTools, trendScoutTools,
+                gitHubTools
         };
         for (Object bean : allBeans) {
             if (bean != null && !toolCounts.containsKey(bean)) {
@@ -489,12 +523,22 @@ public class ToolRouter {
         map.put("video_download", List.of(videoDownloadTools, downloadTools));
         map.put("clipboard_history", List.of(clipboardHistoryTools, clipboardTools));
         map.put("wake_word",      List.of(wakeWordTools));
-        map.put("autopilot",      List.of(autoPilotTools));
+        map.put("autopilot",      List.of(autoPilotTools, proactiveActionTools));
+        map.put("proactive_action", List.of(proactiveActionTools));
         map.put("gift_ideas",     List.of(giftIdeaTools, webSearchTools));
         map.put("episodic_memory", List.of(episodicMemoryTools));
         map.put("proactive",      List.of(proactiveEngineTools));
         map.put("health_tracker", List.of(healthTrackerTools));
         map.put("finance_tracker", List.of(financeTrackerTools));
+        map.put("habits",         List.of(habitDetectionTools));
+        map.put("feedback",       List.of(feedbackLoopTools));
+        map.put("auto_skills",    List.of(skillAutoCreateTools));
+        map.put("window_manager", List.of(windowManagerTools, systemTools));
+        map.put("social_monitor", List.of(socialMonitorTools, webSearchTools));
+        map.put("intelligence",   List.of(intelligenceTools, calendarTools, gmailApiTools, weatherTools, financeTrackerTools, healthTrackerTools, ttsTools, travelSearchTools));
+        map.put("video_creation", List.of(remotionVideoTools));
+        map.put("trend_scout",   List.of(trendScoutTools, webSearchTools));
+        map.put("github",        List.of(gitHubTools));
 
         return Collections.unmodifiableMap(map);
     }

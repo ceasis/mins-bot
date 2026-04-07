@@ -10,7 +10,9 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 
 import com.minsbot.agent.AutoPilotService;
+import com.minsbot.agent.ProactiveActionService;
 import com.minsbot.agent.tools.AudioListeningTools;
+import com.minsbot.agent.tools.IntelligenceTools;
 import com.minsbot.agent.tools.ScreenClickTools;
 import com.minsbot.agent.tools.ScreenWatchingTools;
 import com.minsbot.agent.tools.TtsTools;
@@ -32,13 +34,17 @@ public class ChatController {
     private final ScreenClickTools screenClickTools;
     private final TtsTools ttsTools;
     private final AutoPilotService autoPilotService;
+    private final ProactiveActionService proactiveActionService;
+    private final IntelligenceTools intelligenceTools;
 
     public ChatController(ChatService chatService, TranscriptService transcriptService,
                           ScreenWatchingTools screenWatchingTools,
                           AudioListeningTools audioListeningTools,
                           ScreenClickTools screenClickTools,
                           TtsTools ttsTools,
-                          AutoPilotService autoPilotService) {
+                          AutoPilotService autoPilotService,
+                          ProactiveActionService proactiveActionService,
+                          IntelligenceTools intelligenceTools) {
         this.chatService = chatService;
         this.transcriptService = transcriptService;
         this.screenWatchingTools = screenWatchingTools;
@@ -46,6 +52,8 @@ public class ChatController {
         this.screenClickTools = screenClickTools;
         this.ttsTools = ttsTools;
         this.autoPilotService = autoPilotService;
+        this.proactiveActionService = proactiveActionService;
+        this.intelligenceTools = intelligenceTools;
     }
 
     @GetMapping(value = "/version", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -372,5 +380,50 @@ public class ChatController {
     public Map<String, Object> autoPilotFeed() {
         List<String> suggestions = autoPilotService.drainSuggestions();
         return Map.of("suggestions", suggestions);
+    }
+
+    // ═══ Proactive Action Mode ═══
+
+    /** Toggle proactive action mode on/off from the UI. */
+    @PostMapping(value = "/proactive-action/toggle", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> toggleProactiveAction() {
+        if (proactiveActionService.isActive()) {
+            proactiveActionService.stop();
+            return Map.of("active", false, "message", "Proactive action mode disabled.");
+        } else {
+            proactiveActionService.start();
+            return Map.of("active", true, "message", "Proactive action mode enabled.");
+        }
+    }
+
+    /** Check proactive action mode status. */
+    @GetMapping(value = "/status/proactive-action", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> proactiveActionStatus() {
+        return proactiveActionService.getStatus();
+    }
+
+    // ═══ Daily Briefing (on-demand, works from mobile) ═══
+
+    /** Generate a daily briefing on demand. Accepts optional location in body. */
+    @PostMapping(value = "/briefing", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> generateBriefing(@RequestBody(required = false) Map<String, String> body) {
+        String location = body != null ? body.getOrDefault("location", "Manila") : "Manila";
+        try {
+            String briefing = intelligenceTools.generateDailyBriefing(location);
+            return Map.of("success", true, "briefing", briefing != null ? briefing : "");
+        } catch (Exception e) {
+            return Map.of("success", false, "error", e.getMessage());
+        }
+    }
+
+    /** GET version for easy mobile access. */
+    @GetMapping(value = "/briefing", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> getBriefing(@RequestParam(defaultValue = "Manila") String location) {
+        try {
+            String briefing = intelligenceTools.generateDailyBriefing(location);
+            return Map.of("success", true, "briefing", briefing != null ? briefing : "");
+        } catch (Exception e) {
+            return Map.of("success", false, "error", e.getMessage());
+        }
     }
 }

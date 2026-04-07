@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.web.bind.annotation.*;
 
 import java.security.MessageDigest;
@@ -17,6 +18,7 @@ import java.util.Arrays;
  */
 @RestController
 @RequestMapping("/api/wechat")
+@ConditionalOnProperty(name = "app.wechat.enabled", havingValue = "true")
 public class WeChatWebhookController {
 
     private static final Logger log = LoggerFactory.getLogger(WeChatWebhookController.class);

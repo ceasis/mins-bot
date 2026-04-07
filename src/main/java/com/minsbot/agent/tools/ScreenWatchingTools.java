@@ -1,5 +1,6 @@
 package com.minsbot.agent.tools;
 
+import com.minsbot.agent.AsyncMessageService;
 import com.minsbot.agent.GeminiVisionService;
 import com.minsbot.agent.ScreenMemoryService;
 import com.minsbot.agent.SystemControlService;
@@ -52,6 +53,7 @@ public class ScreenWatchingTools {
     private final GeminiVisionService geminiVisionService;
     private final VisionService visionService;
     private final ScreenMemoryService screenMemoryService;
+    private final AsyncMessageService asyncMessages;
 
     private volatile boolean watching = false;
     private volatile Thread watchThread;
@@ -76,6 +78,16 @@ public class ScreenWatchingTools {
 
     /** True when the user has granted keyboard/mouse control to the bot. */
     private volatile boolean controlEnabled = false;
+
+    /** When true, watch mode produces Jarvis-style conversational comments pushed to chat. */
+    private volatile boolean jarvisCommentaryEnabled = true;
+
+    /** Cooldown between Jarvis comments to avoid spamming the chat. */
+    private static final long COMMENTARY_COOLDOWN_MS = 10_000; // 10 seconds between comments
+    private volatile long lastCommentaryTime = 0;
+
+    /** Recent Jarvis comments — used for semantic deduplication so the bot doesn't repeat itself. */
+    private final java.util.List<String> recentCommentMessages = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
 
     /** Exposed for the status API endpoint. */
     public boolean isWatching() { return watching; }
@@ -102,12 +114,14 @@ public class ScreenWatchingTools {
                                SystemControlService systemControl,
                                GeminiVisionService geminiVisionService,
                                VisionService visionService,
-                               ScreenMemoryService screenMemoryService) {
+                               ScreenMemoryService screenMemoryService,
+                               AsyncMessageService asyncMessages) {
         this.notifier = notifier;
         this.systemControl = systemControl;
         this.geminiVisionService = geminiVisionService;
         this.visionService = visionService;
         this.screenMemoryService = screenMemoryService;
+        this.asyncMessages = asyncMessages;
     }
 
     @Tool(description = "Start continuously watching the screen in the background. "
@@ -137,6 +151,8 @@ public class ScreenWatchingTools {
 
         watching = true;
         recentReactMessages.clear();
+        recentCommentMessages.clear();
+        lastCommentaryTime = 0;
         latestObservation = null;
 
         watchThread = new Thread(() -> {
@@ -155,6 +171,18 @@ public class ScreenWatchingTools {
         return "Watch mode started (" + (clickMode ? "click" : "interval") + " mode). "
                 + modeDesc + " Purpose: " + safePurpose
                 + ". Observations will appear in chat. Say 'stop watching' to end.";
+    }
+
+    @Tool(description = "Toggle Jarvis-style commentary during watch mode. When enabled, "
+            + "the bot will actively comment on what it sees — like having Jarvis watch over your shoulder.")
+    public String toggleJarvisCommentary(
+            @ToolParam(description = "true to enable Jarvis commentary, false to disable") boolean enabled) {
+        this.jarvisCommentaryEnabled = enabled;
+        log.info("[WatchMode] Jarvis commentary {}", enabled ? "ENABLED" : "DISABLED");
+        return "Jarvis commentary " + (enabled ? "enabled" : "disabled")
+                + ". " + (enabled
+                ? "I'll actively comment on what I see — tips, observations, and insights."
+                : "I'll stay quiet and only observe passively.");
     }
 
     @Tool(description = "Stop the continuous screen watch mode. "
@@ -357,6 +385,36 @@ public class ScreenWatchingTools {
     private void routeObservation(String observation) {
         String text = observation.trim();
 
+        // Handle [SILENT] — nothing to do
+        if (text.toUpperCase().startsWith("[SILENT]") || text.equalsIgnoreCase("[SILENT]")) {
+            log.debug("[WatchMode] SILENT — no change detected");
+            return;
+        }
+
+        // Handle [COMMENT] — push as a real chat message via asyncMessages
+        if (text.toUpperCase().startsWith("[COMMENT]")) {
+            String comment = text.substring(9).trim();
+            // Also handle multi-line: take everything after [COMMENT]
+            if (comment.isEmpty()) {
+                // Maybe [COMMENT] is on its own line and the text is on the next
+                comment = text.replaceAll("(?si).*\\[COMMENT\\]\\s*", "").trim();
+            }
+            if (!comment.isEmpty() && !isSimilarToRecentComment(comment)) {
+                long now = System.currentTimeMillis();
+                if (now - lastCommentaryTime < COMMENTARY_COOLDOWN_MS) {
+                    log.debug("[WatchMode] COMMENT skipped — cooldown ({} ms remaining)",
+                            COMMENTARY_COOLDOWN_MS - (now - lastCommentaryTime));
+                    return;
+                }
+                lastCommentaryTime = now;
+                asyncMessages.push("\ud83d\udc41\ufe0f " + comment);
+                addToRecentComments(comment);
+                latestObservation = comment;
+                log.info("[WatchMode] COMMENT pushed to chat: {}", comment);
+            }
+            return;
+        }
+
         // Split into lines — multi-line REACT means multiple fields to fill
         String[] lines = text.split("\\r?\\n");
 
@@ -367,6 +425,25 @@ public class ScreenWatchingTools {
         for (String line : lines) {
             String trimmed = line.trim();
             if (trimmed.isEmpty()) continue;
+
+            // Skip [SILENT] lines in multi-line responses
+            if (trimmed.toUpperCase().startsWith("[SILENT]")) continue;
+
+            // Handle [COMMENT] lines in multi-line responses
+            if (trimmed.toUpperCase().startsWith("[COMMENT]")) {
+                String comment = trimmed.substring(9).trim();
+                if (!comment.isEmpty() && !isSimilarToRecentComment(comment)) {
+                    long now = System.currentTimeMillis();
+                    if (now - lastCommentaryTime >= COMMENTARY_COOLDOWN_MS) {
+                        lastCommentaryTime = now;
+                        asyncMessages.push("\ud83d\udc41\ufe0f " + comment);
+                        addToRecentComments(comment);
+                        latestObservation = comment;
+                        log.info("[WatchMode] COMMENT pushed to chat: {}", comment);
+                    }
+                }
+                continue;
+            }
 
             Matcher coordMatcher = REACT_WITH_COORDS.matcher(trimmed);
             Matcher noCoordMatcher = REACT_NO_COORDS.matcher(trimmed);
@@ -504,6 +581,35 @@ public class ScreenWatchingTools {
         }
     }
 
+    /** Check if a Jarvis comment is semantically similar to any recent comment. */
+    private boolean isSimilarToRecentComment(String message) {
+        Set<String> words = extractKeywords(message);
+        if (words.isEmpty()) return false;
+
+        synchronized (recentCommentMessages) {
+            for (String recent : recentCommentMessages) {
+                Set<String> recentWords = extractKeywords(recent);
+                if (recentWords.isEmpty()) continue;
+                double sim = jaccardSimilarity(words, recentWords);
+                if (sim >= SIMILARITY_THRESHOLD) {
+                    log.debug("[WatchMode] Comment similarity {} >= {} — duplicate",
+                            String.format("%.2f", sim), String.format("%.2f", SIMILARITY_THRESHOLD));
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private void addToRecentComments(String message) {
+        synchronized (recentCommentMessages) {
+            recentCommentMessages.add(message);
+            while (recentCommentMessages.size() > MAX_RECENT_MESSAGES) {
+                recentCommentMessages.remove(0);
+            }
+        }
+    }
+
     /** Extract lowercase keywords (3+ chars, no stop words). */
     private static Set<String> extractKeywords(String text) {
         Set<String> words = new java.util.HashSet<>();
@@ -595,6 +701,11 @@ public class ScreenWatchingTools {
 
     private String buildWatchPrompt(String purpose, int round) {
         java.awt.Dimension screen = java.awt.Toolkit.getDefaultToolkit().getScreenSize();
+
+        if (jarvisCommentaryEnabled) {
+            return buildJarvisWatchPrompt(purpose, round, screen.width, screen.height);
+        }
+
         return """
                 Observation #%d. Purpose: %s
                 Screen resolution: %dx%d
@@ -645,5 +756,55 @@ public class ScreenWatchingTools {
                 When in doubt, REACT — be helpful and participate!"""
                 .formatted(round, purpose, screen.width, screen.height,
                         screen.width, screen.height);
+    }
+
+    /**
+     * Enhanced Jarvis-style prompt that encourages proactive, conversational commentary.
+     */
+    private String buildJarvisWatchPrompt(String purpose, int round, int screenW, int screenH) {
+        return """
+                Observation #%d. You are JARVIS, actively watching the user's screen.
+                Screen resolution: %dx%d. Purpose: %s
+
+                YOUR ROLE: You are a real-time AI assistant observing the screen. Be helpful, \
+                proactive, and conversational — like Jarvis from Iron Man.
+
+                RESPOND WITH ONE OF:
+
+                [COMMENT] Your conversational observation or tip
+                  - Use this when you notice something interesting, can offer a tip, spot an issue, \
+                or just want to chat about what the user is doing
+                  - Be natural, brief (1-2 sentences), and helpful
+                  - Examples:
+                    "I see you're working on that spreadsheet — the SUM formula in B12 looks like \
+                it might be missing column C."
+                    "Looks like you have 47 unread emails. Want me to summarize the important ones?"
+                    "Nice code! Though that nested loop in line 34 could be O(n^2) — want me to \
+                suggest an optimization?"
+                    "I notice Chrome is using 2.3GB of RAM with 28 tabs open. Want me to help close some?"
+
+                [REACT x,y] text
+                  - Use this when you see a form, quiz, or prompt asking for input
+                  - x,y = pixel coordinates where to type
+
+                [OBSERVE] brief note
+                  - Use this when nothing interesting is happening — user is just reading, browsing passively
+                  - Keep it minimal: "Reading documentation" or "Browsing social media"
+
+                [SILENT]
+                  - Use this if the screen hasn't changed meaningfully since last observation
+                  - IMPORTANT: Use this often to avoid being annoying. Only comment when you have \
+                something genuinely useful or interesting to say.
+
+                RULES:
+                - Don't comment on the SAME thing twice. Check if this is new information.
+                - Don't interrupt active typing — if you see a text cursor blinking, prefer [SILENT] \
+                or [OBSERVE].
+                - Be genuinely helpful, not just narrating ("user is clicking" is useless).
+                - Personality: witty but professional. Brief. Like a good colleague glancing at your screen.
+                - If you see an error/warning on screen, ALWAYS comment on it.
+                - If you see the user struggling (multiple undo, repeated actions), offer help.
+                - Prefer [SILENT] over bland observations. Only [COMMENT] when you have real value to add."""
+                .formatted(round, screenW, screenH, purpose);
     }
 }

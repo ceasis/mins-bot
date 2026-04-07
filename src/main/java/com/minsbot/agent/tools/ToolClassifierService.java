@@ -55,11 +55,21 @@ public class ToolClassifierService {
             "clipboard_history",
             "wake_word",
             "autopilot",
+            "proactive_action",
             "gift_ideas",
             "episodic_memory",
             "proactive",
             "health_tracker",
-            "finance_tracker"
+            "finance_tracker",
+            "habits",
+            "feedback",
+            "auto_skills",
+            "window_manager",
+            "social_monitor",
+            "intelligence",
+            "video_creation",
+            "trend_scout",
+            "github"
     );
 
     private static final String SYSTEM_PROMPT = """
@@ -87,7 +97,7 @@ public class ToolClassifierService {
             - network: wifi, connect to wifi, disconnect wifi, network info, IP address, DNS, VPN, internet connection
             - printing: print file, print document, list printers, send to printer, default printer
             - excel: Excel spreadsheet, write cells, format cells, add sheet, read spreadsheet, workbook, xlsx, create spreadsheet
-            - screen_watching: watch screen, observe, guess drawing, guess what I'm drawing, monitor screen, continuous observation, watch me, drawing game, watch my screen, help me play, assist me with game, play game with me, listen to audio, hear what I'm listening, listen to my meeting, turn on ears, what song is this, listen mode, listen to what I'm hearing, listen to my speakers
+            - screen_watching: watch screen, observe, guess drawing, guess what I'm drawing, monitor screen, continuous observation, watch me, drawing game, watch my screen, help me play, assist me with game, play game with me, listen to audio, hear what I'm listening, listen to my meeting, turn on ears, what song is this, listen mode, listen to what I'm hearing, listen to my speakers, jarvis mode, jarvis commentary, toggle jarvis, comment on my screen
             - travel: flights, hotels, travel, trip, vacation, book flight, find hotel, airfare, accommodation, search flights, search hotels, travel research, plan trip
             - research: research and create report, compare options and make spreadsheet, research pricing and create Excel/PDF, multi-step research with output files, analyze and summarize into document, create comparison report, gather data from web and save to file
             - knowledge: knowledge base, uploaded documents, reference documents
@@ -103,11 +113,21 @@ public class ToolClassifierService {
             - clipboard_history: clipboard history, what did I copy, recent copies, search clipboard, find in clipboard, restore clipboard, clipboard log, past copies, clipboard stats, what was on my clipboard
             - wake_word: wake word, hey jarvis, voice activation, always listen, voice trigger, listen for my voice, voice command, hey computer, ok bot, enable wake word, voice wake, hands free, activate voice
             - autopilot: auto-pilot, autopilot, watch my screen and help, be proactive, help me as I work, proactive mode, smart assistant, context-aware help, auto pilot on, auto pilot off, stop auto-pilot, screen assistant
+            - proactive_action: proactive action, proactive action mode, act on my behalf, take action automatically, be my jarvis, jarvis mode, proactive action on, proactive action off, stop proactive actions, act automatically, fill forms automatically, auto-click, auto-fill, continuous action mode, hands-free mode
             - gift_ideas: gift ideas, what should I get, birthday gift, Christmas gift, present for, gift for mom, gift for dad, gift for friend, gift for partner, save contact interests, gift contacts, gift suggestions, gift budget, anniversary gift, wish list, gift history
             - episodic_memory: remember this, do you remember, recall, what happened, what do you know about, memory, memories, remember when, forget this, memory stats, what do you remember about, life events, episodes, journal
             - proactive: proactive engine, proactive notifications, proactive mode, proactive status, proactive rules, enable proactive, disable proactive, quiet hours, break reminders, hydration reminders, morning briefing, proactive check
             - health_tracker: log water, log meal, log exercise, log weight, log mood, log sleep, log medication, health summary, health trend, health goals, how much water, what did I eat, calories today, weight trend, mood tracker, sleep quality, medication reminder, fitness log, workout log, daily health
             - finance_tracker: log expense, log income, budget, spending, how much did I spend, monthly report, bills, upcoming bills, debt, savings goal, financial goal, expense category, track spending, money, income vs expenses, finance summary, set budget, add bill, debt overview
+            - habits: my habits, what are my patterns, what do I usually do, habit detection, behavior patterns, routine, daily routine, when do I usually, habit stats, track my habits, log habit
+            - feedback: rate suggestion, good suggestion, bad suggestion, feedback stats, how are your suggestions, are you learning, was that helpful, don't suggest that, feedback loop
+            - auto_skills: create skill, save as workflow, automate this, I do this every week, create workflow, my workflows, run skill, list skills, repeated actions, detect patterns, skill auto-create
+            - window_manager: side by side, split screen, snap window, snap left, snap right, arrange windows, tile windows, cascade windows, open and arrange, put these side by side, window layout, quadrants, move window, focus only
+            - social_monitor: social media, track mentions, birthdays, add contact, social contacts, who mentioned me, social update, track posts, important posts, facebook, twitter, instagram, linkedin, social profile, birthday reminders, social report, close contacts
+            - intelligence: daily briefing, morning briefing, brief me, start my day, should I buy this, can I afford this, purchase decision, calendar conflicts, overlapping meetings, schedule conflict, plan a trip, travel plan, trip planner, plan my vacation, decision helper, conflict detector
+            - video_creation: video, remotion, create video, render video, animation, slideshow, text video, video composition, make a video, generate video, animated text, video from images, programmatic video, react video, video project, setup remotion
+            - trend_scout: what's new, any updates, trending, what's happening with, latest news about, YouTube updates, track interest, my interests, scout topics, what should I know about, new release, what's trending, any news about, follow updates, tech news, product launch
+            - github: github, repository, repo, pull request, PR, issue, commit, branch, gist, CI, workflow, actions, git, github notifications, github activity, merge, fork, stars, github search
 
             Return at most 4 of the most relevant category names, comma-separated. If none match, return: none""";
 

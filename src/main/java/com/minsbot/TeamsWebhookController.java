@@ -7,12 +7,15 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+
 /**
  * Receives Microsoft Teams Bot Framework activity callbacks.
  * Set the Messaging Endpoint in Azure Bot registration to /api/teams/messages.
  * See https://learn.microsoft.com/en-us/azure/bot-service/rest-api/bot-framework-rest-connector-api-reference
  */
 @RestController
+@ConditionalOnProperty(name = "app.teams.enabled", havingValue = "true")
 @RequestMapping("/api/teams")
 public class TeamsWebhookController {
 

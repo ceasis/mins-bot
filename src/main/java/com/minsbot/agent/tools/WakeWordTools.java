@@ -59,7 +59,7 @@ public class WakeWordTools {
     private volatile String lastCommand = null;
     private volatile String startedAt = null;
 
-    public WakeWordTools(ChatService chatService,
+    public WakeWordTools(@org.springframework.context.annotation.Lazy ChatService chatService,
                          AsyncMessageService asyncMessages,
                          NotificationTools notificationTools,
                          TtsTools ttsTools,

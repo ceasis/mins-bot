@@ -161,6 +161,38 @@
 
   inputEl.addEventListener('mousedown', function () { focusInput(); });
 
+  // ═══ Global keyboard shortcuts (Ctrl+K, Ctrl+/, Ctrl+L) ═══
+  document.addEventListener('keydown', function (e) {
+    // Ctrl+K — Command Palette
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleCommandPalette();
+      return;
+    }
+    // Ctrl+/ — Shortcuts Overlay
+    if ((e.ctrlKey || e.metaKey) && e.key === '/') {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleShortcutsOverlay();
+      return;
+    }
+    // Ctrl+L — Clear Chat
+    if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
+      e.preventDefault();
+      e.stopPropagation();
+      if (clearBtn) clearBtn.click();
+      return;
+    }
+    // Escape — close palette or overlay
+    if (e.key === 'Escape') {
+      var cmdPalette = document.getElementById('command-palette');
+      var scOverlay = document.getElementById('shortcuts-overlay');
+      if (cmdPalette && !cmdPalette.hidden) { cmdPalette.hidden = true; e.preventDefault(); return; }
+      if (scOverlay && !scOverlay.hidden) { scOverlay.hidden = true; e.preventDefault(); return; }
+    }
+  }, true);
+
   // Auto-focus input when typing
   document.addEventListener('keydown', function (e) {
     if (!root.classList.contains('expanded')) return;
@@ -375,6 +407,7 @@
     el.textContent = text;
     messagesEl.appendChild(el);
     messagesEl.scrollTop = messagesEl.scrollHeight;
+    if (window._minsSound) window._minsSound.notification();
   }
 
   function clearStatusMessages() {
@@ -461,6 +494,7 @@
     savedInput = '';
     inputEl.value = '';
     appendMessage(msg, true);
+    if (window._minsSound) window._minsSound.sent();
     showThinking();
     startStatusPolling();
 
@@ -474,6 +508,7 @@
       stopStatusPolling();
       hideThinking();
       if (data.reply) appendMessage(data.reply, false);
+      if (data.reply && window._minsSound) window._minsSound.received();
       // After the first bot reply, check if TTS had a Fish Audio fallback (once)
       if (!window._ttsStartupChecked) {
         window._ttsStartupChecked = true;
@@ -493,6 +528,7 @@
       stopStatusPolling();
       hideThinking();
       appendMessage('Could not reach server.', false);
+      if (window._minsSound) window._minsSound.error();
     } finally {
       sendingMessage = false;
     }
@@ -754,6 +790,13 @@
       var data = await res.json();
       if (data.hasResult && data.reply) {
         appendMessage(data.reply, false, true);
+        // Add watch-comment styling for Jarvis watch mode messages (eye emoji prefix)
+        if (data.reply.startsWith('\ud83d\udc41')) {
+          var allMsgs = messagesEl.querySelectorAll('.message.bot');
+          if (allMsgs.length > 0) {
+            allMsgs[allMsgs.length - 1].classList.add('watch-comment');
+          }
+        }
       }
     } catch (e) { /* ignore */ }
   }, 2000);
@@ -989,9 +1032,16 @@
   tabs.forEach(function (tab) {
     tab.addEventListener('click', function () {
       tabs.forEach(function (t) { t.classList.remove('active'); });
-      tabContents.forEach(function (c) { c.classList.remove('active'); });
+      tabContents.forEach(function (c) { c.classList.remove('active'); c.classList.remove('tab-visible'); });
       tab.classList.add('active');
-      document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+      var newContent = document.getElementById('tab-' + tab.dataset.tab);
+      newContent.classList.add('active');
+      // Trigger reflow then animate in
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          newContent.classList.add('tab-visible');
+        });
+      });
       if (tab.dataset.tab === 'browser') startBrowserPolling();
       else stopBrowserPolling();
       if (tab.dataset.tab === 'agents') startAgentsPolling();
@@ -1711,13 +1761,55 @@
 
   // ═══ Schedules tab ═══
 
-  var schedulesContainer = document.getElementById('schedules-container');
+  var schedListEl = document.getElementById('sched-list');
+  var schedEditorTitle = document.getElementById('sched-editor-title');
+  var schedEditor = document.getElementById('sched-editor');
+  var schedSectionSelect = document.getElementById('sched-section-select');
+  var schedEntryInput = document.getElementById('sched-entry-input');
+  var schedSaveBtn = document.getElementById('sched-save-btn');
+  var schedDetail = document.getElementById('sched-detail');
+  var schedDetailSection = document.getElementById('sched-detail-section');
+  var schedDetailEntry = document.getElementById('sched-detail-entry');
+  var schedUpdateBtn = document.getElementById('sched-update-btn');
+  var schedDeleteBtn = document.getElementById('sched-delete-btn');
+  var schedDetailCancelBtn = document.getElementById('sched-detail-cancel-btn');
+  var schedRandomBtn = document.getElementById('sched-random-btn');
+  var schedRandomOutput = document.getElementById('sched-random-output');
+  var schedEditingSection = null;
+  var schedEditingEntry = null;
+
+  var RANDOM_SCHEDULES = [
+    { section: 'Daily checks', entry: 'Check email inbox at 9:00 AM' },
+    { section: 'Daily checks', entry: 'Review calendar for today at 8:30 AM' },
+    { section: 'Daily checks', entry: 'Check system disk space at noon' },
+    { section: 'Daily checks', entry: 'Backup important files at 6:00 PM' },
+    { section: 'Daily checks', entry: 'Run morning briefing at 8:00 AM' },
+    { section: 'Daily checks', entry: 'Check weather forecast at 7:00 AM' },
+    { section: 'Daily checks', entry: 'Monitor server status at 10:00 AM' },
+    { section: 'Daily checks', entry: 'Scan downloads folder for new files at noon' },
+    { section: 'Weekly checks', entry: 'Review budget vs spending every Monday' },
+    { section: 'Weekly checks', entry: 'Clean up Downloads folder every Friday' },
+    { section: 'Weekly checks', entry: 'Generate weekly productivity report every Sunday' },
+    { section: 'Weekly checks', entry: 'Check for software updates every Wednesday' },
+    { section: 'Weekly checks', entry: 'Review and archive old emails every Saturday' },
+    { section: 'Weekly checks', entry: 'Backup photos to external drive every Sunday' },
+    { section: 'Reminders', entry: 'Drink water every 2 hours' },
+    { section: 'Reminders', entry: 'Take a 5-minute break every hour' },
+    { section: 'Reminders', entry: 'Stand up and stretch every 45 minutes' },
+    { section: 'Reminders', entry: 'Review daily goals at 4:00 PM' },
+    { section: 'Reminders', entry: 'Prepare tomorrow\'s to-do list at 5:30 PM' },
+    { section: 'Other schedule', entry: 'Check OpenAI status page every 30 minutes' },
+    { section: 'Other schedule', entry: 'Monitor portfolio prices every hour during market hours' },
+    { section: 'Other schedule', entry: 'Sync notes to cloud every 4 hours' },
+    { section: 'Other schedule', entry: 'Check for new GitHub notifications every 2 hours' },
+    { section: 'Other schedule', entry: 'Run antivirus scan every Sunday at 2:00 AM' }
+  ];
 
   function loadSchedules() {
-    if (!schedulesContainer) return;
+    if (!schedListEl) return;
     fetch('/api/tabs/schedules').then(function (r) { return r.json(); }).then(function (sections) {
       if (!sections || sections.length === 0) {
-        schedulesContainer.innerHTML = '<div class="tab-empty">No schedules configured. Ask the bot to set up reminders.</div>';
+        schedListEl.innerHTML = '<div class="tab-empty">No schedules yet. Add one or click Random.</div>';
         return;
       }
       var html = '';
@@ -1726,15 +1818,139 @@
           + '<div class="schedule-title">' + escapeHtml(s.section) + '</div>'
           + '<ul class="schedule-entries">';
         s.entries.forEach(function (e) {
-          html += '<li>' + escapeHtml(e) + '</li>';
+          html += '<li onclick="window._schedSelect(\'' + escapeHtml(s.section).replace(/'/g, "\\'") + '\',\'' + escapeHtml(e).replace(/'/g, "\\'") + '\')">' + escapeHtml(e) + '</li>';
         });
         html += '</ul></div>';
       });
-      schedulesContainer.innerHTML = html;
+      schedListEl.innerHTML = html;
     }).catch(function () {
-      schedulesContainer.innerHTML = '<div class="tab-empty">Failed to load schedules.</div>';
+      schedListEl.innerHTML = '<div class="tab-empty">Failed to load schedules.</div>';
     });
   }
+
+  window._schedSelect = function (section, entry) {
+    document.querySelectorAll('.schedule-entries li').forEach(function (li) { li.classList.remove('selected'); });
+    document.querySelectorAll('.schedule-entries li').forEach(function (li) {
+      if (li.textContent === entry) li.classList.add('selected');
+    });
+    schedEditingSection = section;
+    schedEditingEntry = entry;
+    if (schedEditorTitle) schedEditorTitle.textContent = 'Edit Schedule';
+    if (schedDetailSection) schedDetailSection.textContent = section;
+    if (schedDetailEntry) schedDetailEntry.value = entry;
+    if (schedDetail) schedDetail.hidden = false;
+    if (schedEditor) schedEditor.style.display = 'none';
+    if (schedRandomOutput) schedRandomOutput.hidden = true;
+  };
+
+  if (schedSaveBtn) {
+    schedSaveBtn.addEventListener('click', function () {
+      var section = schedSectionSelect ? schedSectionSelect.value : '';
+      var entry = schedEntryInput ? schedEntryInput.value.trim() : '';
+      if (!entry) return;
+      fetch('/api/tabs/schedules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ section: section, entry: entry })
+      }).then(function () {
+        if (schedEntryInput) schedEntryInput.value = '';
+        loadSchedules();
+      });
+    });
+  }
+
+  if (schedUpdateBtn) {
+    schedUpdateBtn.addEventListener('click', function () {
+      if (!schedEditingSection || !schedEditingEntry) return;
+      var newEntry = schedDetailEntry ? schedDetailEntry.value.trim() : '';
+      if (!newEntry) return;
+      fetch('/api/tabs/schedules', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ section: schedEditingSection, oldEntry: schedEditingEntry, newEntry: newEntry })
+      }).then(function () {
+        schedEditingSection = null;
+        schedEditingEntry = null;
+        if (schedDetail) schedDetail.hidden = true;
+        if (schedEditor) schedEditor.style.display = '';
+        if (schedEditorTitle) schedEditorTitle.textContent = 'Add / Edit';
+        loadSchedules();
+      });
+    });
+  }
+
+  if (schedDeleteBtn) {
+    schedDeleteBtn.addEventListener('click', function () {
+      if (!schedEditingSection || !schedEditingEntry) return;
+      fetch('/api/tabs/schedules', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ section: schedEditingSection, entry: schedEditingEntry })
+      }).then(function () {
+        schedEditingSection = null;
+        schedEditingEntry = null;
+        if (schedDetail) schedDetail.hidden = true;
+        if (schedEditor) schedEditor.style.display = '';
+        if (schedEditorTitle) schedEditorTitle.textContent = 'Add / Edit';
+        loadSchedules();
+      });
+    });
+  }
+
+  if (schedDetailCancelBtn) {
+    schedDetailCancelBtn.addEventListener('click', function () {
+      schedEditingSection = null;
+      schedEditingEntry = null;
+      if (schedDetail) schedDetail.hidden = true;
+      if (schedEditor) schedEditor.style.display = '';
+      if (schedEditorTitle) schedEditorTitle.textContent = 'Add / Edit';
+      document.querySelectorAll('.schedule-entries li').forEach(function (li) { li.classList.remove('selected'); });
+    });
+  }
+
+  if (schedRandomBtn) {
+    schedRandomBtn.addEventListener('click', function () {
+      var idea = RANDOM_SCHEDULES[Math.floor(Math.random() * RANDOM_SCHEDULES.length)];
+      if (schedRandomOutput) {
+        schedRandomOutput.innerHTML = '<div class="skill-random-name">' + escapeHtml(idea.entry) + '</div>'
+          + '<div style="color:rgba(255,255,255,0.35);font-size:9px;margin:2px 0 6px">Section: ' + escapeHtml(idea.section) + '</div>'
+          + '<div class="skill-random-actions">'
+          + '<button class="action-btn publish" onclick="window._schedSaveRandom()">Save</button>'
+          + '<button class="action-btn" onclick="window._schedUseRandom()">Use in Form</button>'
+          + '<button class="action-btn" onclick="document.getElementById(\'sched-random-btn\').click()">Another One</button>'
+          + '</div>';
+        schedRandomOutput.hidden = false;
+        schedRandomOutput._idea = idea;
+      }
+    });
+  }
+
+  window._schedSaveRandom = function () {
+    if (!schedRandomOutput || !schedRandomOutput._idea) return;
+    var idea = schedRandomOutput._idea;
+    fetch('/api/tabs/schedules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ section: idea.section, entry: idea.entry })
+    }).then(function () {
+      schedRandomOutput.hidden = true;
+      loadSchedules();
+    });
+  };
+
+  window._schedUseRandom = function () {
+    if (!schedRandomOutput || !schedRandomOutput._idea) return;
+    var idea = schedRandomOutput._idea;
+    if (schedSectionSelect) {
+      for (var i = 0; i < schedSectionSelect.options.length; i++) {
+        if (schedSectionSelect.options[i].value === idea.section) { schedSectionSelect.selectedIndex = i; break; }
+      }
+    }
+    if (schedEntryInput) schedEntryInput.value = idea.entry;
+    schedRandomOutput.hidden = true;
+    if (schedDetail) schedDetail.hidden = true;
+    if (schedEditor) schedEditor.style.display = '';
+  };
 
   // ═══ Todo tab ═══
 
@@ -3290,6 +3506,31 @@
 
   refreshAutopilotStatus();
 
+  // ═══ Proactive Action Mode ═══
+
+  var headerProactive = document.getElementById('header-proactive');
+
+  function refreshProactiveStatus() {
+    fetch('/api/status/proactive-action').then(function (r) { return r.json(); }).then(function (d) {
+      if (headerProactive) {
+        headerProactive.classList.toggle('active', !!d.active);
+        headerProactive.title = d.active ? 'Proactive mode ON — auto-acting on screen, tasks & directives (click to disable)' : 'Proactive mode OFF (click to enable)';
+      }
+    }).catch(function () {});
+  }
+
+  if (headerProactive) {
+    headerProactive.addEventListener('click', function () {
+      fetch('/api/proactive-action/toggle', { method: 'POST' }).then(function (r) { return r.json(); }).then(function (d) {
+        headerProactive.classList.toggle('active', !!d.active);
+        appendMessage(d.message || (d.active ? 'Proactive action mode enabled.' : 'Proactive action mode disabled.'), false);
+        if (window._minsSound) window._minsSound.notification();
+      }).catch(function () {});
+    });
+  }
+
+  refreshProactiveStatus();
+
   // ═══ Multi-Agent Chat tab ═══
 
   var maConvId = null;
@@ -3477,4 +3718,286 @@
   // On startup: show clear chat with greeting (same as Clear button)
   messagesEl.innerHTML = '';
   appendMessage('Chat cleared. How can I help?', false);
+
+  // ═══ Chat Search (Ctrl+F) ═══
+  (function () {
+    var searchEl = document.getElementById('chat-search');
+    var searchInput = document.getElementById('chat-search-input');
+    var searchCount = document.getElementById('chat-search-count');
+    var searchPrev = document.getElementById('chat-search-prev');
+    var searchNext = document.getElementById('chat-search-next');
+    var searchClose = document.getElementById('chat-search-close');
+    var matches = [];
+    var currentIdx = -1;
+
+    function openSearch() { searchEl.hidden = false; searchInput.value = ''; searchInput.focus(); clearHighlights(); }
+    function closeSearch() { searchEl.hidden = true; clearHighlights(); }
+
+    function clearHighlights() {
+      matches = []; currentIdx = -1;
+      document.querySelectorAll('.search-match, .search-current').forEach(function(el) {
+        el.classList.remove('search-match', 'search-current');
+      });
+      searchCount.textContent = '';
+    }
+
+    function doSearch() {
+      clearHighlights();
+      var q = searchInput.value.trim().toLowerCase();
+      if (!q) return;
+      document.querySelectorAll('#messages .message-wrapper').forEach(function(w) {
+        var msg = w.querySelector('.message');
+        if (msg && msg.textContent.toLowerCase().indexOf(q) !== -1) {
+          w.classList.add('search-match');
+          matches.push(w);
+        }
+      });
+      if (matches.length > 0) { currentIdx = 0; goToCurrent(); }
+      updateCount();
+    }
+
+    function updateCount() {
+      if (matches.length === 0) { searchCount.textContent = searchInput.value.trim() ? 'No results' : ''; }
+      else { searchCount.textContent = (currentIdx + 1) + ' of ' + matches.length; }
+    }
+
+    function goToCurrent() {
+      document.querySelectorAll('.search-current').forEach(function(el) { el.classList.remove('search-current'); });
+      if (currentIdx >= 0 && currentIdx < matches.length) {
+        matches[currentIdx].classList.add('search-current');
+        matches[currentIdx].scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      updateCount();
+    }
+
+    function nextMatch() { if (matches.length === 0) return; currentIdx = (currentIdx + 1) % matches.length; goToCurrent(); }
+    function prevMatch() { if (matches.length === 0) return; currentIdx = (currentIdx - 1 + matches.length) % matches.length; goToCurrent(); }
+
+    searchInput.addEventListener('input', doSearch);
+    searchInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); if (e.shiftKey) prevMatch(); else nextMatch(); }
+      if (e.key === 'Escape') { e.preventDefault(); closeSearch(); }
+    });
+    searchPrev.addEventListener('click', prevMatch);
+    searchNext.addEventListener('click', nextMatch);
+    searchClose.addEventListener('click', closeSearch);
+
+    // Ctrl+F handler — needs to be registered to intercept browser default
+    document.addEventListener('keydown', function(e) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        // Only intercept if chat tab is active
+        var chatTab = document.getElementById('tab-chat');
+        if (chatTab && chatTab.classList.contains('active')) {
+          e.preventDefault();
+          openSearch();
+        }
+      }
+    }, true);
+  })();
+
+  // ═══ Sound Effects ═══
+  (function () {
+    var audioCtx = null;
+    var soundEnabled = localStorage.getItem('minsbot-sound') !== 'off';
+    var soundBtn = document.getElementById('sound-toggle');
+
+    function getCtx() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      return audioCtx;
+    }
+
+    function playTone(freq, duration, type, volume, ramp) {
+      if (!soundEnabled) return;
+      try {
+        var ctx = getCtx();
+        var osc = ctx.createOscillator();
+        var gain = ctx.createGain();
+        osc.type = type || 'sine';
+        osc.frequency.setValueAtTime(freq, ctx.currentTime);
+        if (ramp) osc.frequency.linearRampToValueAtTime(ramp, ctx.currentTime + duration);
+        gain.gain.setValueAtTime(volume || 0.08, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + duration);
+      } catch (e) { /* ignore audio errors */ }
+    }
+
+    window._minsSound = {
+      sent: function () { playTone(480, 0.12, 'sine', 0.06, 640); },
+      received: function () { playTone(640, 0.15, 'sine', 0.06, 480); },
+      notification: function () {
+        playTone(660, 0.1, 'sine', 0.07);
+        setTimeout(function () { playTone(880, 0.15, 'sine', 0.07); }, 120);
+      },
+      error: function () { playTone(200, 0.2, 'triangle', 0.05); }
+    };
+
+    function updateBtn() {
+      if (soundBtn) {
+        soundBtn.classList.toggle('muted', !soundEnabled);
+        soundBtn.title = soundEnabled ? 'Sound effects on' : 'Sound effects off';
+        var icon = soundBtn.querySelector('.sound-icon');
+        if (icon) {
+          icon.className = 'fa-solid sound-icon ' + (soundEnabled ? 'fa-volume-high' : 'fa-volume-xmark');
+        }
+      }
+    }
+
+    if (soundBtn) {
+      soundBtn.addEventListener('click', function () {
+        soundEnabled = !soundEnabled;
+        localStorage.setItem('minsbot-sound', soundEnabled ? 'on' : 'off');
+        updateBtn();
+      });
+    }
+    updateBtn();
+  })();
+
+  // ═══ Command Palette (Ctrl+K) ═══
+  (function () {
+    var paletteEl = document.getElementById('command-palette');
+    var paletteInput = document.getElementById('cmd-palette-input');
+    var paletteList = document.getElementById('cmd-palette-list');
+    if (!paletteEl || !paletteInput || !paletteList) return;
+
+    var commands = [
+      { label: 'Go to Chat', action: function () { clickTab('chat'); } },
+      { label: 'Go to Browser', action: function () { clickTab('browser'); } },
+      { label: 'Go to Agents', action: function () { clickTab('agents'); } },
+      { label: 'Go to Setup', action: function () { clickTab('setup'); } },
+      { label: 'Go to Skills', action: function () { clickTab('skills'); } },
+      { label: 'Go to Schedules', action: function () { clickTab('schedules'); } },
+      { label: 'Go to Todo', action: function () { clickTab('todos'); } },
+      { label: 'Go to Directives', action: function () { clickTab('directives'); } },
+      { label: 'Go to Personality', action: function () { clickTab('personality'); } },
+      { label: 'Go to Knowledge', action: function () { clickTab('knowledge'); } },
+      { label: 'Go to Voice', action: function () { clickTab('voice'); } },
+      { label: 'Go to Calibration', action: function () { clickTab('calibration'); } },
+      { label: 'Go to Workflows', action: function () { clickTab('workflows'); } },
+      { label: 'Go to Templates', action: function () { clickTab('templates'); } },
+      { label: 'Go to Marketplace', action: function () { clickTab('marketplace'); } },
+      { label: 'Go to Dashboard', action: function () { clickTab('dashboard'); } },
+      { label: 'Go to Multi-Agent', action: function () { clickTab('multiagent'); } },
+      { label: 'Go to Automations', action: function () { clickTab('automations'); } },
+      { label: 'Go to Integrations', action: function () { clickTab('integrations'); } },
+      { label: 'Clear Chat', shortcut: 'Ctrl+L', action: function () { if (clearBtn) clearBtn.click(); } },
+      { label: 'Toggle Voice', action: function () { if (voiceBtn) voiceBtn.click(); } },
+      { label: 'Toggle Watch Mode', action: function () { if (headerWatchEl) headerWatchEl.click(); } },
+      { label: 'Toggle Keyboard Control', action: function () { if (headerControlEl) headerControlEl.click(); } },
+      { label: 'Toggle Audio Listen', action: function () { if (headerListenEl) headerListenEl.click(); } },
+      { label: 'Toggle Auto-pilot', action: function () { var ap = document.getElementById('header-autopilot'); if (ap) ap.click(); } },
+      { label: 'Focus Input', action: function () { focusInput(); } }
+    ];
+
+    function clickTab(tabId) {
+      var tab = document.querySelector('.tab[data-tab="' + tabId + '"]');
+      if (tab) tab.click();
+    }
+
+    var activeIdx = 0;
+    var filteredCmds = commands.slice();
+
+    function render() {
+      paletteList.innerHTML = '';
+      if (filteredCmds.length === 0) {
+        paletteList.innerHTML = '<div class="cmd-palette-empty">No matching commands</div>';
+        return;
+      }
+      filteredCmds.forEach(function (cmd, i) {
+        var div = document.createElement('div');
+        div.className = 'cmd-palette-item' + (i === activeIdx ? ' active' : '');
+        var span = document.createElement('span');
+        span.textContent = cmd.label;
+        div.appendChild(span);
+        if (cmd.shortcut) {
+          var sc = document.createElement('span');
+          sc.className = 'cmd-shortcut';
+          sc.textContent = cmd.shortcut;
+          div.appendChild(sc);
+        }
+        div.addEventListener('click', function () { executeCommand(cmd); });
+        div.addEventListener('mouseenter', function () {
+          activeIdx = i;
+          updateActive();
+        });
+        paletteList.appendChild(div);
+      });
+    }
+
+    function updateActive() {
+      var items = paletteList.querySelectorAll('.cmd-palette-item');
+      items.forEach(function (el, i) {
+        el.classList.toggle('active', i === activeIdx);
+      });
+      if (items[activeIdx]) items[activeIdx].scrollIntoView({ block: 'nearest' });
+    }
+
+    function executeCommand(cmd) {
+      paletteEl.hidden = true;
+      paletteInput.value = '';
+      cmd.action();
+    }
+
+    function openPalette() {
+      paletteEl.hidden = false;
+      paletteInput.value = '';
+      activeIdx = 0;
+      filteredCmds = commands.slice();
+      render();
+      setTimeout(function () { paletteInput.focus(); }, 30);
+    }
+
+    function closePalette() {
+      paletteEl.hidden = true;
+      paletteInput.value = '';
+    }
+
+    // Expose toggle for the global keydown handler
+    window.toggleCommandPalette = function () {
+      if (paletteEl.hidden) openPalette();
+      else closePalette();
+    };
+
+    paletteInput.addEventListener('input', function () {
+      var q = paletteInput.value.toLowerCase().trim();
+      filteredCmds = q ? commands.filter(function (c) { return c.label.toLowerCase().indexOf(q) !== -1; }) : commands.slice();
+      activeIdx = 0;
+      render();
+    });
+
+    paletteInput.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (filteredCmds.length) { activeIdx = (activeIdx + 1) % filteredCmds.length; updateActive(); }
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (filteredCmds.length) { activeIdx = (activeIdx - 1 + filteredCmds.length) % filteredCmds.length; updateActive(); }
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (filteredCmds[activeIdx]) executeCommand(filteredCmds[activeIdx]);
+      }
+    });
+
+    // Close on backdrop click
+    paletteEl.querySelector('.cmd-palette-backdrop').addEventListener('click', closePalette);
+  })();
+
+  // ═══ Keyboard Shortcuts Overlay (Ctrl+/) ═══
+  (function () {
+    var overlayEl = document.getElementById('shortcuts-overlay');
+    if (!overlayEl) return;
+
+    window.toggleShortcutsOverlay = function () {
+      overlayEl.hidden = !overlayEl.hidden;
+    };
+
+    overlayEl.querySelector('.shortcuts-backdrop').addEventListener('click', function () {
+      overlayEl.hidden = true;
+    });
+  })();
 })();

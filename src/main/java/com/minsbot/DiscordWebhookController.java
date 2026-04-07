@@ -7,6 +7,8 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+
 /**
  * Receives Discord Interactions (slash commands, messages via webhook).
  * Set the Interactions Endpoint URL in the Discord Developer Portal to /api/discord/interactions.
@@ -14,6 +16,7 @@ import java.util.Map;
  */
 @RestController
 @RequestMapping("/api/discord")
+@ConditionalOnProperty(name = "app.discord.enabled", havingValue = "true")
 public class DiscordWebhookController {
 
     private static final Logger log = LoggerFactory.getLogger(DiscordWebhookController.class);

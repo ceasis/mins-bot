@@ -7,12 +7,15 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+
 /**
  * Receives Viber webhook callbacks. Must be exposed at a public HTTPS URL for Viber to reach it.
  * Use ngrok or similar for local development.
  */
 @RestController
 @RequestMapping("/api/viber")
+@ConditionalOnProperty(name = "app.viber.enabled", havingValue = "true")
 public class ViberWebhookController {
 
     private static final Logger log = LoggerFactory.getLogger(ViberWebhookController.class);

@@ -7,6 +7,8 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+
 /**
  * Receives Slack Events API callbacks.
  * Set the Request URL in Slack App config to /api/slack/events.
@@ -14,6 +16,7 @@ import java.util.Map;
  */
 @RestController
 @RequestMapping("/api/slack")
+@ConditionalOnProperty(name = "app.slack.enabled", havingValue = "true")
 public class SlackEventController {
 
     private static final Logger log = LoggerFactory.getLogger(SlackEventController.class);

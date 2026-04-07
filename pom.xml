@@ -133,6 +133,12 @@
             <artifactId>poi-ooxml</artifactId>
             <version>5.2.5</version>
         </dependency>
+        <!-- Test -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <!-- Platform-specific JavaFX natives (required for WebView / jfxwebkit) -->
@@ -260,6 +266,58 @@
                 </plugins>
             </build>
         </profile>
+        <!-- Windows installer via jpackage (JDK 17+) -->
+        <!-- Usage: mvn clean package -DskipTests -Pinstaller -->
+        <!-- Requires WiX Toolset 3.x on PATH for MSI output -->
+        <profile>
+            <id>installer</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>exec-maven-plugin</artifactId>
+                        <version>3.1.0</version>
+                        <executions>
+                            <execution>
+                                <id>jpackage</id>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>exec</goal>
+                                </goals>
+                                <configuration>
+                                    <executable>jpackage</executable>
+                                    <arguments>
+                                        <argument>--input</argument>
+                                        <argument>${project.build.directory}</argument>
+                                        <argument>--name</argument>
+                                        <argument>MinsBot</argument>
+                                        <argument>--main-jar</argument>
+                                        <argument>${project.build.finalName}.jar</argument>
+                                        <argument>--main-class</argument>
+                                        <argument>com.minsbot.FloatingAppLauncher</argument>
+                                        <argument>--type</argument>
+                                        <argument>msi</argument>
+                                        <argument>--dest</argument>
+                                        <argument>${project.build.directory}/installer</argument>
+                                        <argument>--app-version</argument>
+                                        <argument>1.0.0</argument>
+                                        <argument>--vendor</argument>
+                                        <argument>MinsBot</argument>
+                                        <argument>--description</argument>
+                                        <argument>MinsBot - Your AI Desktop Assistant</argument>
+                                        <argument>--win-menu</argument>
+                                        <argument>--win-shortcut</argument>
+                                        <argument>--win-dir-chooser</argument>
+                                        <argument>--java-options</argument>
+                                        <argument>-Xmx512m --add-modules javafx.controls,javafx.web,javafx.fxml --add-opens javafx.web/javafx.scene.web=ALL-UNNAMED --add-opens javafx.web/com.sun.webkit=ALL-UNNAMED</argument>
+                                    </arguments>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
     </profiles>
 
     <build>
@@ -317,6 +375,14 @@
                 <version>0.0.8</version>
                 <configuration>
                     <mainClass>com.minsbot.FloatingAppLauncher</mainClass>
+                </configuration>
+            </plugin>
+            <!-- Surefire — allow Unsafe access for tests that redirect static final paths -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>--add-opens java.base/sun.misc=ALL-UNNAMED --add-opens java.base/java.lang=ALL-UNNAMED</argLine>
                 </configuration>
             </plugin>
         </plugins>

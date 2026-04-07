@@ -65,6 +65,39 @@ public class TabsController {
         return sections;
     }
 
+    @PostMapping("/schedules")
+    public Map<String, String> addScheduleEntry(@RequestBody Map<String, String> body) {
+        String section = body.get("section");
+        String entry = body.get("entry");
+        if (section == null || section.isBlank()) return Map.of("error", "Section is required");
+        if (entry == null || entry.isBlank()) return Map.of("error", "Entry is required");
+        String result = cronConfigTools.appendCronEntry(section.trim(), entry.trim());
+        return Map.of("result", result);
+    }
+
+    @PutMapping("/schedules")
+    public Map<String, String> updateScheduleEntry(@RequestBody Map<String, String> body) {
+        String section = body.get("section");
+        String oldEntry = body.get("oldEntry");
+        String newEntry = body.get("newEntry");
+        if (section == null || oldEntry == null || newEntry == null) {
+            return Map.of("error", "section, oldEntry, and newEntry are required");
+        }
+        // Remove old, add new
+        cronConfigTools.removeCronEntry(section.trim(), oldEntry.trim());
+        String result = cronConfigTools.appendCronEntry(section.trim(), newEntry.trim());
+        return Map.of("result", result);
+    }
+
+    @DeleteMapping("/schedules")
+    public Map<String, String> deleteScheduleEntry(@RequestBody Map<String, String> body) {
+        String section = body.get("section");
+        String entry = body.get("entry");
+        if (section == null || entry == null) return Map.of("error", "section and entry are required");
+        String result = cronConfigTools.removeCronEntry(section.trim(), entry.trim());
+        return Map.of("result", result);
+    }
+
     private void addSection(List<Map<String, Object>> sections, String name, List<String> entries) {
         if (entries.isEmpty()) return;
         Map<String, Object> section = new LinkedHashMap<>();

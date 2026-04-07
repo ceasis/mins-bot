@@ -8,6 +8,8 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+
 /**
  * Receives LINE Messaging API webhook events.
  * Set the Webhook URL in LINE Developer Console to /api/line/webhook.
@@ -15,6 +17,7 @@ import java.util.Map;
  */
 @RestController
 @RequestMapping("/api/line")
+@ConditionalOnProperty(name = "app.line.enabled", havingValue = "true")
 public class LineWebhookController {
 
     private static final Logger log = LoggerFactory.getLogger(LineWebhookController.class);

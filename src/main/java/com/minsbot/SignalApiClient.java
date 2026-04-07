@@ -1,6 +1,7 @@
 package com.minsbot;
 
 import org.springframework.http.*;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
@@ -13,6 +14,7 @@ import java.util.Map;
  * See https://github.com/bbernhard/signal-cli-rest-api
  */
 @Component
+@ConditionalOnProperty(name = "app.signal.enabled", havingValue = "true")
 public class SignalApiClient {
 
     private final RestTemplate restTemplate;

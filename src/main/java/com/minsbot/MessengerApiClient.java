@@ -6,11 +6,14 @@ import org.springframework.web.client.RestTemplate;
 
 import java.util.Map;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+
 /**
  * Client for Facebook Messenger Platform Send API.
  * See https://developers.facebook.com/docs/messenger-platform/send-messages
  */
 @Component
+@ConditionalOnProperty(name = "app.messenger.enabled", havingValue = "true")
 public class MessengerApiClient {
 
     private static final String API_BASE = "https://graph.facebook.com/v21.0/me/messages";

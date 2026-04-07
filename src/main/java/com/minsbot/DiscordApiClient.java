@@ -6,11 +6,14 @@ import org.springframework.web.client.RestTemplate;
 
 import java.util.Map;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+
 /**
  * Client for Discord Bot API (send channel messages, interaction responses).
  * See https://discord.com/developers/docs/intro
  */
 @Component
+@ConditionalOnProperty(name = "app.discord.enabled", havingValue = "true")
 public class DiscordApiClient {
 
     private static final String API_BASE = "https://discord.com/api/v10";

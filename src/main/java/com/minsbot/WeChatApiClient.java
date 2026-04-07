@@ -3,6 +3,7 @@ package com.minsbot;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.*;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
@@ -13,6 +14,7 @@ import java.util.Map;
  * See https://developers.weixin.qq.com/doc/offiaccount/en/Message_Management/Service_Center_messages.html
  */
 @Component
+@ConditionalOnProperty(name = "app.wechat.enabled", havingValue = "true")
 public class WeChatApiClient {
 
     private static final Logger log = LoggerFactory.getLogger(WeChatApiClient.class);

@@ -81,6 +81,17 @@ public class ProactiveEngineService {
     private volatile int totalCheckCount;
     private volatile int totalNotificationsSent;
 
+    /** Lazy-injected — avoids circular dependency. */
+    @Autowired(required = false)
+    private com.minsbot.agent.tools.IntelligenceTools intelligenceTools;
+
+    @Autowired(required = false)
+    private com.minsbot.agent.tools.TtsTools ttsTools;
+
+    /** Weather location for morning briefing (read from personal config). */
+    @Value("${app.proactive.weather-location:Manila}")
+    private String weatherLocation;
+
     public ProactiveEngineService(AsyncMessageService asyncMessages) {
         this.asyncMessages = asyncMessages;
         loadCustomRules();
@@ -128,6 +139,20 @@ public class ProactiveEngineService {
         if (now.getHour() != morningBriefingHour) return;
         if (wasRecentlySent("morning-briefing", 720)) return; // once per 12 hours
 
+        // Use the full IntelligenceTools briefing if available (weather + calendar + email + tasks + health + bills)
+        if (intelligenceTools != null) {
+            try {
+                String fullBriefing = intelligenceTools.generateDailyBriefing(weatherLocation);
+                if (fullBriefing != null && !fullBriefing.isBlank()) {
+                    pushNotification("morning-briefing", fullBriefing);
+                    return;
+                }
+            } catch (Exception e) {
+                log.warn("[ProactiveEngine] Full briefing failed, falling back to AI: {}", e.getMessage());
+            }
+        }
+
+        // Fallback: generic AI briefing
         String context = loadContext();
         String briefing = generateAiContent(
                 "Generate a concise morning briefing for the user. Include a greeting, " +
@@ -437,6 +462,17 @@ public class ProactiveEngineService {
         asyncMessages.push(message);
         log.info("[ProactiveEngine] Sent [{}]: {}", type,
                 message.substring(0, Math.min(80, message.length())));
+
+        // Speak the notification aloud (skip morning briefing — it already speaks via IntelligenceTools)
+        if (ttsTools != null && !"morning-briefing".equals(type)) {
+            try {
+                // Keep spoken version short
+                String spoken = message.length() > 300 ? message.substring(0, 300) : message;
+                ttsTools.speak(spoken);
+            } catch (Exception e) {
+                log.debug("[ProactiveEngine] TTS failed: {}", e.getMessage());
+            }
+        }
     }
 
     private String generateAiContent(String prompt) {

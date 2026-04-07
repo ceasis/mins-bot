@@ -7,12 +7,15 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+
 /**
  * Receives Telegram webhook updates. Expose at a public HTTPS URL.
  * See https://core.telegram.org/bots/api#setwebhook
  */
 @RestController
 @RequestMapping("/api/telegram")
+@ConditionalOnProperty(name = "app.telegram.enabled", havingValue = "true")
 public class TelegramWebhookController {
 
     private static final Logger log = LoggerFactory.getLogger(TelegramWebhookController.class);

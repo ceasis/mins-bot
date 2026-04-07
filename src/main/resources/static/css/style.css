@@ -453,6 +453,12 @@ html, body {
   color: #fbbf24;
 }
 
+/* Sound toggle */
+.btn-sound .sound-icon { font-size: 13px; transition: color 0.2s; }
+.btn-sound.muted .sound-icon { color: #52525b; }
+.btn-sound.muted::after { content: ''; position: absolute; width: 2px; height: 18px; background: #52525b; transform: rotate(45deg); top: 3px; right: 10px; }
+.btn-sound { position: relative; }
+
 /* ─── Tab bar ─── */
 .tab-bar {
   flex-shrink: 0;
@@ -1049,10 +1055,18 @@ body.embedded-minsbot .tab-bar {
   flex: 1;
   flex-direction: column;
   min-height: 0;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
 .tab-content.active {
   display: flex;
+}
+
+.tab-content.tab-visible {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 @media (min-width: 1200px) {
@@ -1720,6 +1734,54 @@ body.embedded-minsbot .tab-bar {
 }
 
 /* ─── Schedules tab ─── */
+.sched-layout {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sched-left {
+  width: 40%;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 10px 8px 10px 12px;
+  gap: 6px;
+  overflow-y: auto;
+  border-right: 1px solid rgba(255,255,255,0.06);
+}
+
+.sched-left-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.sched-right {
+  width: 60%;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px 10px 8px;
+  gap: 8px;
+  overflow-y: auto;
+}
+
+.sched-right-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.sched-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .schedule-card {
   background: rgba(255,255,255,0.04);
   border: 1px solid rgba(255,255,255,0.06);
@@ -1743,8 +1805,20 @@ body.embedded-minsbot .tab-bar {
 .schedule-entries li {
   color: rgba(255,255,255,0.65);
   font-size: 10px;
-  padding: 2px 0 2px 12px;
+  padding: 3px 0 3px 12px;
   position: relative;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.12s;
+}
+
+.schedule-entries li:hover {
+  background: rgba(99,102,241,0.08);
+}
+
+.schedule-entries li.selected {
+  background: rgba(99,102,241,0.12);
+  color: #e4e4e7;
 }
 
 .schedule-entries li::before {
@@ -1752,6 +1826,43 @@ body.embedded-minsbot .tab-bar {
   position: absolute;
   left: 2px;
   color: rgba(255,255,255,0.3);
+}
+
+.sched-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sched-section-select {
+  font-size: 10px !important;
+}
+
+.sched-editor-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.sched-detail {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sched-detail-section {
+  color: #a5b4fc;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.sched-detail-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 2px;
 }
 
 /* ─── Todo tab ─── */
@@ -1955,6 +2066,11 @@ body.embedded-minsbot .tab-bar {
   background: rgba(55, 55, 60, 0.85);
   border: 1px solid rgba(255,255,255,0.05);
   border-bottom-left-radius: 4px;
+}
+
+.message.bot.watch-comment {
+  border-left: 2px solid rgba(239, 68, 68, 0.5);
+  background: rgba(239, 68, 68, 0.06);
 }
 
 .message-time {
@@ -3770,3 +3886,300 @@ body.embedded-minsbot .tab-bar {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.6; }
 }
+
+/* ═══ Styled tooltips for header buttons ═══ */
+.header-watch-btn,
+.header-control-btn,
+.header-listen-btn,
+.header-mouth-btn,
+.header-autopilot-btn,
+.header-proactive-btn,
+.btn-sound,
+.btn-clear {
+  position: relative;
+}
+.header-watch-btn::after,
+.header-control-btn::after,
+.header-listen-btn::after,
+.header-mouth-btn::after,
+.header-autopilot-btn::after,
+.header-proactive-btn::after,
+.btn-sound::after,
+.btn-clear::after {
+  content: attr(title);
+  position: absolute;
+  bottom: -28px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 8px;
+  background: #27272a;
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 5px;
+  color: #e4e4e7;
+  font-size: 10px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 999;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-weight: 400;
+  letter-spacing: 0;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+.header-watch-btn:hover::after,
+.header-control-btn:hover::after,
+.header-listen-btn:hover::after,
+.header-mouth-btn:hover::after,
+.header-autopilot-btn:hover::after,
+.header-proactive-btn:hover::after,
+.btn-sound:hover::after,
+.btn-clear:hover::after {
+  opacity: 1;
+}
+
+/* ═══ Proactive Action Mode button (lightning bolt) ═══ */
+.header-proactive-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  margin-left: 2px;
+  transition: background 0.15s;
+}
+.header-proactive-btn:hover {
+  background: rgba(255,255,255,0.08);
+}
+.proactive-icon {
+  font-size: 14px;
+  color: #52525b;
+  transition: color 0.2s, filter 0.2s;
+}
+.header-proactive-btn:hover .proactive-icon {
+  color: #71717a;
+}
+.header-proactive-btn.active .proactive-icon {
+  color: #facc15;
+  filter: drop-shadow(0 0 4px rgba(250, 204, 21, 0.7));
+  animation: proactive-pulse 1.5s ease-in-out infinite;
+}
+@keyframes proactive-pulse {
+  0%, 100% { opacity: 1; filter: drop-shadow(0 0 4px rgba(250, 204, 21, 0.5)); }
+  50% { opacity: 0.7; filter: drop-shadow(0 0 8px rgba(250, 204, 21, 1)); }
+}
+
+/* ═══ Mobile / Responsive ═══ */
+
+/* When accessed from a phone browser (not embedded in JavaFX) the full UI should be usable */
+@media (max-width: 600px) {
+  body:not(.embedded-minsbot),
+  body:not(.embedded-minsbot) html {
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  body:not(.embedded-minsbot) #root {
+    overflow: auto;
+    height: auto;
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+
+  body:not(.embedded-minsbot) .title-bar { display: none; }
+
+  body:not(.embedded-minsbot) .panel {
+    height: auto;
+    min-height: calc(100vh - 40px);
+    min-height: calc(100dvh - 40px);
+  }
+
+  .panel-header {
+    padding: 8px 10px;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .panel-header > div:first-child {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .tab-bar {
+    flex-wrap: wrap;
+    padding: 4px 6px;
+    gap: 2px;
+  }
+
+  .tab {
+    font-size: 10px;
+    padding: 4px 8px;
+  }
+
+  .tab-extra {
+    display: inline-flex !important;
+  }
+
+  .chat-area {
+    min-height: 300px;
+    max-height: none;
+  }
+
+  .messages {
+    max-height: none;
+    min-height: 250px;
+  }
+
+  .input-row {
+    position: sticky;
+    bottom: 0;
+    z-index: 10;
+    background: #18181b;
+    padding: 6px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+  }
+
+  .input {
+    font-size: 16px; /* prevents iOS zoom on focus */
+  }
+
+  /* Dashboard grid: 2 columns on mobile */
+  .dashboard-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .dash-card-value {
+    font-size: 14px;
+  }
+
+  /* Multi-agent: full width messages */
+  .ma-msg {
+    max-width: 100%;
+  }
+
+  .ma-add-persona {
+    flex-wrap: wrap;
+  }
+
+  /* Automations builder: stack vertically */
+  .auto-builder-row {
+    flex-wrap: wrap;
+  }
+
+  .auto-select {
+    width: 100%;
+  }
+
+  /* Listen model select: smaller */
+  .listen-model-select {
+    font-size: 10px;
+    max-width: 100px;
+  }
+
+  .listen-dur-btn,
+  .listen-dur-label {
+    font-size: 10px;
+  }
+
+  /* Integration cards: single column */
+  .integrations-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Tablet (600-900px) — minor tweaks */
+@media (min-width: 601px) and (max-width: 900px) {
+  .dashboard-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .integrations-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
+
+/* ═══ Command Palette ═══ */
+.cmd-palette { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: flex-start; justify-content: center; padding-top: 80px; }
+.cmd-palette[hidden] { display: none !important; }
+.cmd-palette-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.5); }
+.cmd-palette-dialog { position: relative; width: 340px; max-width: 90%; background: #1e1e22; border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,0.5); overflow: hidden; animation: cmdIn 0.15s ease-out; }
+@keyframes cmdIn { from { opacity: 0; transform: translateY(-8px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+.cmd-palette-input { width: 100%; box-sizing: border-box; padding: 12px 16px; border: none; border-bottom: 1px solid rgba(255,255,255,0.1); background: transparent; color: #e4e4e7; font-size: 14px; font-family: inherit; outline: none; }
+.cmd-palette-input::placeholder { color: #52525b; }
+.cmd-palette-list { max-height: 280px; overflow-y: auto; }
+.cmd-palette-item { padding: 8px 16px; font-size: 13px; color: #a1a1aa; cursor: pointer; display: flex; align-items: center; gap: 10px; transition: background 0.1s, color 0.1s; }
+.cmd-palette-item:hover, .cmd-palette-item.active { background: rgba(99,102,241,0.15); color: #e4e4e7; }
+.cmd-palette-item .cmd-shortcut { margin-left: auto; font-size: 10px; color: #52525b; font-family: ui-monospace, monospace; }
+.cmd-palette-empty { padding: 16px; text-align: center; color: #52525b; font-size: 12px; }
+
+/* ═══ Keyboard Shortcuts Overlay ═══ */
+.shortcuts-overlay { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: flex-start; justify-content: center; padding-top: 80px; }
+.shortcuts-overlay[hidden] { display: none !important; }
+.shortcuts-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.5); }
+.shortcuts-dialog { position: relative; width: 320px; max-width: 90%; background: #1e1e22; border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,0.5); overflow: hidden; animation: cmdIn 0.15s ease-out; padding: 20px; }
+.shortcuts-title { font-size: 15px; font-weight: 600; color: #e4e4e7; margin-bottom: 16px; text-align: center; }
+.shortcuts-grid { display: flex; flex-direction: column; gap: 10px; }
+.shortcut-row { display: flex; align-items: center; justify-content: space-between; font-size: 13px; color: #a1a1aa; }
+.shortcut-row kbd { display: inline-block; padding: 3px 8px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); border-radius: 5px; font-size: 11px; font-family: ui-monospace, SFMono-Regular, monospace; color: #d4d4d8; min-width: 28px; text-align: center; }
+.shortcut-row span { color: #a1a1aa; }
+
+/* Chat Search */
+.chat-search {
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  background: rgba(30,30,34,0.95);
+  animation: searchSlideIn 0.15s ease-out;
+}
+.chat-search[hidden] { display: none !important; }
+@keyframes searchSlideIn { from { opacity: 0; transform: translateY(-100%); } to { opacity: 1; transform: translateY(0); } }
+.chat-search-inner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+}
+.chat-search-icon { color: #52525b; flex-shrink: 0; }
+.chat-search-input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 6px;
+  background: rgba(39,39,42,0.9);
+  color: #e4e4e7;
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+}
+.chat-search-input:focus { border-color: rgba(99,102,241,0.5); }
+.chat-search-count { font-size: 11px; color: #71717a; min-width: 40px; text-align: center; }
+.chat-search-nav {
+  background: none;
+  border: 1px solid rgba(255,255,255,0.1);
+  color: #a1a1aa;
+  border-radius: 4px;
+  width: 24px;
+  height: 24px;
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.chat-search-nav:hover { background: rgba(255,255,255,0.08); color: #e4e4e7; }
+.chat-search-close {
+  background: none;
+  border: none;
+  color: #71717a;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.chat-search-close:hover { color: #e4e4e7; }
+
+/* Search highlight on messages */
+.message-wrapper.search-match .message { box-shadow: 0 0 0 1px rgba(99,102,241,0.5); }
+.message-wrapper.search-current .message { box-shadow: 0 0 0 2px #6366f1; background: rgba(99,102,241,0.15); }

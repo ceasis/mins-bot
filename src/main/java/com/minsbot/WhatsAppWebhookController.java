@@ -8,6 +8,8 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+
 /**
  * Receives WhatsApp Cloud API webhooks.
  * Set the callback URL in Meta Developer Portal to /api/whatsapp/webhook.
@@ -15,6 +17,7 @@ import java.util.Map;
  */
 @RestController
 @RequestMapping("/api/whatsapp")
+@ConditionalOnProperty(name = "app.whatsapp.enabled", havingValue = "true")
 public class WhatsAppWebhookController {
 
     private static final Logger log = LoggerFactory.getLogger(WhatsAppWebhookController.class);

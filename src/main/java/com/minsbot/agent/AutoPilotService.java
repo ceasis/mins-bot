@@ -82,6 +82,9 @@ public class AutoPilotService {
 
             Previous context (to avoid repeating): %s""";
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.minsbot.agent.tools.TtsTools ttsTools;
+
     public AutoPilotService(SystemControlService systemControl,
                             GeminiVisionService geminiVision,
                             ScreenMemoryService screenMemory) {
@@ -185,6 +188,11 @@ public class AutoPilotService {
                     suggestions.add("\uD83E\uDD16 **Auto-pilot:** " + suggestion);
                     lastSuggestionTime = System.currentTimeMillis();
                     lastContext = suggestion;
+                    // Speak the suggestion aloud
+                    if (ttsTools != null) {
+                        try { ttsTools.speak(suggestion); }
+                        catch (Exception e) { log.debug("[AutoPilot] TTS failed: {}", e.getMessage()); }
+                    }
                 }
 
                 Thread.sleep(intervalMs);

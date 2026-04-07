@@ -8,11 +8,14 @@ import org.springframework.web.client.RestTemplate;
 
 import java.util.Map;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+
 /**
  * Client for Microsoft Teams Bot Framework (OAuth token + reply to activity).
  * See https://learn.microsoft.com/en-us/azure/bot-service/rest-api/bot-framework-rest-connector-send-and-receive-messages
  */
 @Component
+@ConditionalOnProperty(name = "app.teams.enabled", havingValue = "true")
 public class TeamsApiClient {
 
     private static final String TOKEN_URL = "https://login.microsoftonline.com/botframework.com/oauth2/v2.0/token";

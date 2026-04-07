@@ -8,6 +8,8 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+
 /**
  * Receives Facebook Messenger webhook callbacks.
  * Set the callback URL in the Meta Developer Portal to /api/messenger/webhook.
@@ -15,6 +17,7 @@ import java.util.Map;
  */
 @RestController
 @RequestMapping("/api/messenger")
+@ConditionalOnProperty(name = "app.messenger.enabled", havingValue = "true")
 public class MessengerWebhookController {
 
     private static final Logger log = LoggerFactory.getLogger(MessengerWebhookController.class);
