@@ -157,7 +157,7 @@ public class BackgroundAgentService {
         this.toolRouter = toolRouter;
         this.toolNotifier = toolNotifier;
         this.transcriptService = transcriptService;
-        this.maxConcurrent = Math.max(1, Math.min(maxConcurrent, 16));
+        this.maxConcurrent = Math.max(1, Math.min(maxConcurrent, 24));
     }
 
     /**

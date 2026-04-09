@@ -151,6 +151,43 @@ public class VisionService {
         return analyzeWithPrompt(imagePath, prompt, null);
     }
 
+    /** Analyze with raw image bytes (in-memory, no disk I/O). */
+    public String analyzeWithPrompt(byte[] imageBytes, String prompt) {
+        return analyzeWithPrompt(imageBytes, prompt, null);
+    }
+
+    /** Analyze with raw image bytes (in-memory, no disk I/O). */
+    public String analyzeWithPrompt(byte[] imageBytes, String prompt, String modelOverride) {
+        if (!isAvailable() || imageBytes == null || imageBytes.length == 0) return null;
+        try {
+            String useModel = (modelOverride != null && !modelOverride.isBlank()) ? modelOverride : model;
+            String base64 = Base64.getEncoder().encodeToString(imageBytes);
+            String mediaType = "image/png";
+            String requestBody = buildVisionRequestWithModel(base64, prompt, mediaType, useModel);
+            String url = baseUrl.endsWith("/")
+                    ? baseUrl + "v1/chat/completions"
+                    : baseUrl + "/v1/chat/completions";
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", "Bearer " + apiKey)
+                    .timeout(Duration.ofSeconds(10))
+                    .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+                    .build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) {
+                log.warn("[Vision] analyzeWithPrompt(bytes) — HTTP {}", response.statusCode());
+                return null;
+            }
+            String content = extractContent(response.body());
+            if (content != null && !content.isBlank() && moduleStats != null) moduleStats.recordVisionCall(useModel);
+            return content;
+        } catch (Exception e) {
+            log.warn("[Vision] analyzeWithPrompt(bytes) — FAILED: {}", e.getMessage());
+            return null;
+        }
+    }
+
     public String analyzeWithPrompt(Path imagePath, String prompt, String modelOverride) {
         if (!isAvailable()) return null;
         if (imagePath == null || !Files.exists(imagePath)) return null;

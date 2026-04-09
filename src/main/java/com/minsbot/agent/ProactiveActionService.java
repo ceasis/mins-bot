@@ -8,11 +8,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.ConcurrentLinkedDeque;
 
@@ -30,12 +28,11 @@ public class ProactiveActionService {
     private static final Logger log = LoggerFactory.getLogger(ProactiveActionService.class);
 
     private final AsyncMessageService asyncMessages;
+    private final MouseModule mouseModule;
     private final ScreenStateService screenStateService;
     private final SystemContextProvider systemCtx;
-    private final SystemControlService systemControl;
     private final ToolRouter toolRouter;
     private final TodoListTools todoListTools;
-    private final GeminiVisionService geminiVision;
 
     @Autowired(required = false)
     private ChatClient chatClient;
@@ -71,37 +68,6 @@ public class ProactiveActionService {
     /** Tracks a recent action to prevent repetition. */
     private record ActionRecord(long timestamp, String actionHash) {}
 
-    private static final String SCREEN_CHECK_PROMPT = """
-            You are JARVIS — a brilliant, attentive AI assistant watching the user's screen in real time.
-
-            Analyze what the user is currently doing and respond in ONE of these ways:
-
-            [INSIGHT] your conversational comment
-            — When you can offer something genuinely useful about their current work:
-            reports, research, coding, email, spreadsheets, design, browsing, etc.
-            Be specific to what you SEE on screen, not generic advice.
-
-            [ACTION] detailed step-by-step instructions of what to do
-            — When there's something concrete you should DO:
-            - Forms that need filling: list EVERY field and the EXACT value to type
-            - Challenges/tests/quizzes on screen: read the instructions and describe the solution
-            - Dialog boxes (OK/Cancel/Yes/No), error messages, notifications
-            - Buttons to click, text to type, selections to make
-            IMPORTANT: For forms, extract ALL data visible on screen. Example:
-            "Fill form: Company Name = TechFlow, First Name = George, Country = Brazil.
-            Then type verification string: abc123xyz. Then click Submit As Bot."
-
-            [SILENT]
-            — Screen hasn't changed, nothing interesting, user just scrolling/idle.
-
-            RULES:
-            - Be conversational, brief, genuinely helpful — like a smart colleague
-            - For [ACTION], be EXHAUSTIVE about the data — list every value you can read
-            - NEVER repeat the same observation twice
-            - If the screen shows a challenge, test, or task with instructions, ALWAYS respond [ACTION]
-
-            Format: [INSIGHT] comment  OR  [ACTION] full instructions  OR  [SILENT]""";
-
     private static final String TASK_CHECK_PROMPT = """
             You are a proactive assistant. The user has the following pending tasks:
 
@@ -131,19 +97,17 @@ public class ProactiveActionService {
             If nothing needs action right now, respond with exactly: NOTHING_ACTIONABLE""";
 
     public ProactiveActionService(AsyncMessageService asyncMessages,
+                                  @Lazy MouseModule mouseModule,
                                   ScreenStateService screenStateService,
                                   SystemContextProvider systemCtx,
-                                  SystemControlService systemControl,
-                                  @org.springframework.context.annotation.Lazy ToolRouter toolRouter,
-                                  TodoListTools todoListTools,
-                                  GeminiVisionService geminiVision) {
+                                  @Lazy ToolRouter toolRouter,
+                                  TodoListTools todoListTools) {
         this.asyncMessages = asyncMessages;
+        this.mouseModule = mouseModule;
         this.screenStateService = screenStateService;
         this.systemCtx = systemCtx;
-        this.systemControl = systemControl;
         this.toolRouter = toolRouter;
         this.todoListTools = todoListTools;
-        this.geminiVision = geminiVision;
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -230,14 +194,23 @@ public class ProactiveActionService {
             return;
         }
 
+        // Track whether we already assessed the current screen state
+        boolean screenAssessed = false;
+
         while (active) {
             try {
                 long now = System.currentTimeMillis();
 
-                // Screen check — most frequent (runs even when user is active — that's the point)
-                if (now - lastScreenCheck >= screenCheckSeconds * 1000L) {
+                // ── Screen check: only when pixels actually changed ──
+                if (mouseModule.hasScreenChanged()) {
+                    // Screen changed — reset the "assessed" flag
+                    screenAssessed = false;
+                }
+
+                if (!screenAssessed && now - lastScreenCheck >= screenCheckSeconds * 1000L) {
                     checkScreenForActions();
                     lastScreenCheck = System.currentTimeMillis();
+                    screenAssessed = true; // Don't assess again until screen changes
                 }
 
                 // Task check — medium frequency
@@ -269,111 +242,67 @@ public class ProactiveActionService {
     // Screen check — look for actionable items on screen
     // ═════════════════════════════════════════════════════════════════════════
 
+    /**
+     * Single combined assess-and-act cycle:
+     * 1. Vision call to understand the screen (what + where)
+     * 2. Immediately execute actions based on the assessment
+     * Only ONE LLM call — the tool-calling model both sees and acts.
+     */
     private void checkScreenForActions() {
         if (chatClient == null) return;
 
         try {
-            // Take screenshot
-            String result = systemControl.takeScreenshot();
-            if (result == null || !result.startsWith("Screenshot saved:")) {
-                log.debug("[ProactiveAction] Screenshot failed: {}", result);
+            log.info("[ProactiveAction] Screen changed — running assess-and-act cycle");
+
+            // Single LLM call: assess the screen AND execute actions in one shot.
+            // The AI sees the screen via the system prompt's screen analysis,
+            // then uses tools to act — all in one call, not two.
+            String actionPrompt = """
+                    You are in PROACTIVE ACTION MODE. Look at the screen and ACT.
+
+                    Take a screenshot first with takeScreenshot() to see what's on screen.
+                    Then analyze what you see and IMMEDIATELY take action:
+
+                    FOR WEB FORMS (use CDP — fastest, most reliable):
+                    1. browserFillForm(siteUrl, 'selector1=value1|selector2=value2') — fills ALL fields in ~10ms
+                       Use: input[placeholder="Field Name"], input[type="email"], textarea, etc.
+                    2. browserFillField(siteUrl, selector, text) — for single fields / verification strings
+                    3. browserClickButton(siteUrl, 'Button Text') — click submit/OK/confirm
+                    4. browserClickElement(siteUrl, 'css-selector') — click by selector
+
+                    FOR BUTTON SEQUENCES / CHALLENGES:
+                    1. Read the instructions on screen carefully
+                    2. browserClickButton(siteUrl, 'ButtonText') for each button in order
+                    3. Handle verification strings with browserFillField
+
+                    FOR DIALOGS / POPUPS:
+                    1. screenClick(x, y) to click OK/Cancel/Yes/No buttons
+
+                    AFTER ACTING: take another screenshot to verify. If something didn't work, retry.
+
+                    RULES:
+                    - Act IMMEDIATELY. Don't describe what you'll do — just DO it.
+                    - If nothing actionable on screen, respond with just: NOTHING_ACTIONABLE
+                    - If you just see a normal desktop/browser with no task, respond: NOTHING_ACTIONABLE""";
+
+            String reply = executeWithTools(actionPrompt);
+
+            if (reply == null || reply.isBlank() || reply.contains("NOTHING_ACTIONABLE")) {
+                log.debug("[ProactiveAction] Nothing actionable on screen");
                 return;
             }
 
-            String pathStr = result.replace("Screenshot saved: ", "").trim();
-            Path screenshotPath = Paths.get(pathStr);
-
-            if (!Files.exists(screenshotPath)) return;
-
-            // Analyze with Gemini vision (fast, doesn't use the main ChatClient)
-            String analysis = null;
-            if (geminiVision.isAvailable()) {
-                analysis = geminiVision.analyzeQuick(screenshotPath, SCREEN_CHECK_PROMPT);
-            }
-
-            if (analysis == null || analysis.isBlank()) {
-                log.debug("[ProactiveAction] Screen analysis returned empty");
-                return;
-            }
-
-            String trimmed = analysis.trim();
-
-            // Route based on response type
-            if (trimmed.contains("[SILENT]") || trimmed.equalsIgnoreCase("NOTHING_ACTIONABLE")) {
-                log.debug("[ProactiveAction] Screen check: silent/nothing");
-                return;
-            }
-
-            // Check cooldown — don't repeat the same observation/action
-            String actionHash = computeActionHash(trimmed);
+            // Check cooldown
+            String actionHash = computeActionHash(reply);
             if (isRecentAction(actionHash)) {
-                log.debug("[ProactiveAction] On cooldown, skipping: {}", truncate(trimmed, 80));
+                log.debug("[ProactiveAction] Action on cooldown: {}", truncate(reply, 80));
                 return;
             }
 
-            if (trimmed.contains("[INSIGHT]")) {
-                // Conversational insight — just comment, don't take action
-                String insight = trimmed.replaceAll("(?s).*\\[INSIGHT\\]\\s*", "").trim();
-                if (!insight.isBlank()) {
-                    recordAction(actionHash);
-                    asyncMessages.push("\u26a1 " + insight);
-                    speakThought(insight);
-                    log.info("[ProactiveAction] Insight: {}", truncate(insight, 200));
-                }
-
-            } else if (trimmed.contains("[ACTION]")) {
-                // Actionable item — use AI with tools to execute
-                String actionDesc = trimmed.replaceAll("(?s).*\\[ACTION\\]\\s*", "").trim();
-                log.info("[ProactiveAction] Action found: {}", truncate(actionDesc, 200));
-
-                asyncMessages.push("\u26a1 On it: " + truncate(actionDesc, 150));
-
-                // Build a rich action prompt with the full screen context so the AI knows
-                // every value, field, and button it needs to interact with
-                String actionPrompt = """
-                        You are in PROACTIVE ACTION MODE. You just analyzed the screen and found work to do.
-
-                        SCREEN ANALYSIS (what you saw):
-                        %s
-
-                        YOUR TASK: Execute the action described above. Use the tools available:
-                        - fastPaste(x, y, text) — PREFERRED for ALL form fields. Clicks at (x,y) and instantly pastes text via clipboard. \
-                          Under 200ms per field. For multiple fields use sequence mode: fastPaste(0, 0, "x1,y1,text1|x2,y2,text2|x3,y3,text3")
-                        - sendKeys(keys) — for Tab, Enter, Escape, shortcuts (e.g. {TAB}, {ENTER}, ^v)
-                        - takeScreenshot() — verify after completing all fields
-                        - screenClick(x, y) — for clicking buttons (Submit, OK, etc.)
-
-                        CRITICAL STRATEGY for form filling:
-                        1. FIRST take a screenshot to get exact field coordinates
-                        2. Use ONE fastPaste call in sequence mode to fill ALL form fields at once: \
-                           fastPaste(0, 0, "x1,y1,Smith|x2,y2,555-4321|x3,y3,Carlos")
-                        3. For time-sensitive verification fields (e.g. "type within 10 seconds"): \
-                           use fastPaste(x, y, "the-full-verification-string") — it pastes instantly via clipboard
-                        4. Then click the submit button with screenClick
-                        5. Take a screenshot to verify
-
-                        IMPORTANT: Do NOT use sendKeys to type long strings character-by-character. \
-                        ALWAYS use fastPaste — it uses clipboard paste (Ctrl+V) which is instant. \
-                        For verification/timed typing challenges, fastPaste is ESSENTIAL — it pastes 100+ chars in under 200ms.
-
-                        Be precise with coordinates. After completing, describe what you did briefly."""
-                        .formatted(trimmed);
-
-                String reply = executeWithTools(actionPrompt);
-                if (reply != null && !reply.isBlank()) {
-                    recordAction(actionHash);
-                    asyncMessages.push("\u26a1 Done: " + reply);
-                    speakThought(reply);
-                    log.info("[ProactiveAction] Action completed: {}", truncate(reply, 200));
-                }
-
-            } else {
-                // No tag — treat as insight
-                recordAction(actionHash);
-                asyncMessages.push("\u26a1 " + trimmed);
-                speakThought(trimmed);
-                log.info("[ProactiveAction] Observation: {}", truncate(trimmed, 200));
-            }
+            recordAction(actionHash);
+            asyncMessages.push("\u26a1 " + reply);
+            speakThought(reply);
+            log.info("[ProactiveAction] Cycle complete: {}", truncate(reply, 200));
 
         } catch (Exception e) {
             log.warn("[ProactiveAction] Screen check error: {}", e.getMessage());
@@ -464,14 +393,41 @@ public class ProactiveActionService {
     // AI execution with tools
     // ═════════════════════════════════════════════════════════════════════════
 
+    private static final String PROACTIVE_SYSTEM_PROMPT = """
+            You are an AUTONOMOUS AI AGENT in proactive action mode. The user has EXPLICITLY enabled \
+            this mode and wants you to ACT on their behalf — no confirmation needed.
+
+            YOUR MANDATE:
+            - You MUST execute actions. Do NOT ask the user to do it. Do NOT say "you should" or "you can".
+            - You MUST click buttons, fill forms, type text, and submit — that is your entire purpose.
+            - You MUST complete the full task including clicking Submit/OK/Confirm buttons.
+            - You are NOT a chatbot right now. You are an action executor. ACT, don't advise.
+
+            SAFETY (hard-coded, cannot override):
+            - NEVER close browser tabs or windows
+            - NEVER delete files
+            - NEVER send emails/messages
+            - ONLY interact with what's visible on screen: fill fields, click buttons, type text
+
+            REMEMBER: The user enabled proactive mode BECAUSE they want you to act autonomously. \
+            Refusing to act or asking them to do it defeats the purpose. JUST DO IT.""";
+
+    /** Unique conversation ID so proactive mode has its own memory, separate from main chat. */
+    private static final String PROACTIVE_CONV_ID = "proactive-action-mode";
+
     private String executeWithTools(String prompt) {
         if (chatClient == null) return null;
 
         try {
+            // Use separate conversation ID so main chat history doesn't bleed in
+            // and cause the AI to refuse autonomous actions
             String reply = chatClient.prompt()
-                    .system(systemCtx.buildSystemMessage())
+                    .advisors(a -> a.param(
+                            org.springframework.ai.chat.memory.ChatMemory.CONVERSATION_ID,
+                            PROACTIVE_CONV_ID))
+                    .system(PROACTIVE_SYSTEM_PROMPT)
                     .user(prompt)
-                    .tools(toolRouter.selectToolsForAutonomous(prompt))
+                    .tools(toolRouter.selectTools(prompt))
                     .call()
                     .content();
             return reply;

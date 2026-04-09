@@ -13,9 +13,9 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Takes a fresh screenshot on every user message, analyzes it with Gemini reasoning,
+ * Takes a fresh screenshot on every user message, analyzes it with GPT Vision,
  * and returns the analysis for injection into the AI system message.
- * Falls back to OCR/Textract word listing if Gemini is unavailable.
+ * Falls back to OCR word listing if vision is unavailable.
  */
 @Component
 public class ScreenStateService {
@@ -25,7 +25,6 @@ public class ScreenStateService {
     private final SystemControlService systemControl;
     private final ScreenMemoryService screenMemoryService;
     private final TextractService textractService;
-    private final GeminiVisionService geminiVisionService;
     private final VisionService visionService;
     private final VisionModelConfig visionModelConfig;
     private final ToolExecutionNotifier toolNotifier;
@@ -33,20 +32,18 @@ public class ScreenStateService {
     public ScreenStateService(SystemControlService systemControl,
                               ScreenMemoryService screenMemoryService,
                               TextractService textractService,
-                              GeminiVisionService geminiVisionService,
                               VisionService visionService,
                               VisionModelConfig visionModelConfig,
                               ToolExecutionNotifier toolNotifier) {
         this.systemControl = systemControl;
         this.screenMemoryService = screenMemoryService;
         this.textractService = textractService;
-        this.geminiVisionService = geminiVisionService;
         this.visionService = visionService;
         this.visionModelConfig = visionModelConfig;
         this.toolNotifier = toolNotifier;
     }
 
-    private static final String GEMINI_SCREEN_PROMPT = """
+    private static final String VISION_SCREEN_PROMPT = """
             You are analyzing a Windows desktop screenshot. List EVERY visible item precisely:
 
             1. FILES: List every file name you can see (e.g. "ANIMALS.txt", "report.docx")
@@ -57,7 +54,7 @@ public class ScreenStateService {
             Be EXACT with names — spell them exactly as they appear on screen.
             Format as a concise list, one item per line. Do NOT add commentary.""";
 
-    private static final String GEMINI_TASK_PROMPT = """
+    private static final String VISION_TASK_PROMPT = """
             You are analyzing a Windows desktop screenshot for a user who wants to: %s
 
             1. List EVERY file and folder visible on the desktop (exact names as shown on screen).
@@ -139,7 +136,7 @@ public class ScreenStateService {
                 log.info("[ScreenState] GPT Vision available — analyzing...");
                 toolNotifier.notify("__vision__Checking screen with GPT Vision...");
                 String prompt = (userMessage != null && !userMessage.isBlank() && looksLikeScreenTask(userMessage))
-                        ? GEMINI_TASK_PROMPT.formatted(userMessage) : GEMINI_SCREEN_PROMPT;
+                        ? VISION_TASK_PROMPT.formatted(userMessage) : VISION_SCREEN_PROMPT;
                 prompt += ignoreHint;
                 String gptResult = visionService.analyzeWithPrompt(screenshotPath, prompt, visionModelConfig.getPrimaryModel());
                 if (gptResult != null && !gptResult.isBlank()) {
@@ -165,30 +162,6 @@ public class ScreenStateService {
         }
     }
 
-    /** Use Gemini to provide intelligent, context-aware screen analysis. */
-    private String analyzeWithGemini(Path screenshotPath, String userMessage, String ignoreHint) {
-        try {
-            String prompt;
-            if (userMessage != null && !userMessage.isBlank()
-                    && looksLikeScreenTask(userMessage)) {
-                prompt = GEMINI_TASK_PROMPT.formatted(userMessage);
-                log.info("[ScreenState] Using TASK prompt");
-            } else {
-                prompt = GEMINI_SCREEN_PROMPT;
-                log.info("[ScreenState] Using SCREEN prompt");
-            }
-            if (ignoreHint != null && !ignoreHint.isBlank()) prompt += ignoreHint;
-
-            String result = geminiVisionService.analyze(screenshotPath, prompt);
-            if (result == null || result.isBlank()) {
-                log.warn("[ScreenState] Gemini analyze() returned null/empty");
-            }
-            return result;
-        } catch (Exception e) {
-            log.warn("[ScreenState] Gemini EXCEPTION: {}", e.getMessage(), e);
-            return null;
-        }
-    }
 
     /** Check if the user message looks like it involves interacting with screen items. */
     private boolean looksLikeScreenTask(String msg) {

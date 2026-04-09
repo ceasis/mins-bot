@@ -3,7 +3,8 @@
     "allow": [
       "Bash(ls src/main/java/com/minsbot/*.java)",
       "Bash(xargs -I {} basename {})",
-      "Bash(xargs grep:*)"
+      "Bash(xargs grep:*)",
+      "Bash(mvn test:*)"
     ]
   }
 }

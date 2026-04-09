@@ -2,7 +2,7 @@ package com.minsbot.agent.tools;
 
 import com.minsbot.agent.ClaudeVisionService;
 import com.minsbot.agent.DocumentAiService;
-import com.minsbot.agent.GeminiVisionService;
+import com.minsbot.agent.MouseModule;
 import com.minsbot.agent.RekognitionService;
 import com.minsbot.agent.ScreenMemoryService;
 import com.minsbot.agent.TextractService;
@@ -50,7 +50,6 @@ public class ScreenClickTools {
 
     private final SystemControlService systemControl;
     private final ScreenMemoryService screenMemoryService;
-    private final GeminiVisionService geminiVisionService;
     private final DocumentAiService documentAiService;
     private final TextractService textractService;
     private final RekognitionService rekognitionService;
@@ -58,6 +57,8 @@ public class ScreenClickTools {
     private final ClaudeVisionService claudeVisionService;
     private final VisionModelConfig visionModelConfig;
     private final ToolExecutionNotifier notifier;
+    private final MouseModule mouseModule;
+    private final com.minsbot.agent.CursorDetector cursorDetector;
 
     private static final Path NAV_DIR = Paths.get(
             System.getProperty("user.home"), "mins_bot_data", "navigation_screenshots");
@@ -74,22 +75,23 @@ public class ScreenClickTools {
     private static final int MAX_RETRIES = 3;
 
     // Engine priority for screenClick — tried in order, first success wins
+    // (gemini and textract removed — using GPT Vision only for coordinate detection)
     private volatile List<String> enginePriority = new ArrayList<>(List.of(
-            "gpt5.4", "gpt4o-mini", "ocr", "textract", "claude", "rek", "docai", "gemini", "gemini3"
+            "gpt5.4", "gpt4o-mini", "ocr", "claude", "rek", "docai"
     ));
 
     // Calibration engine checkboxes — which engines are selected for calibration runs
     private volatile List<String> calibrationEngines = new ArrayList<>(List.of(
-            "gpt5.4", "gemini3", "claude"
+            "gpt5.4", "claude"
     ));
 
     // Per-engine enabled/disabled toggle — disabled engines are skipped in screenClick + navigate
     private static final List<String> ALL_ENGINE_KEYS = List.of(
-            "gpt5.4", "gpt4o-mini", "ocr", "textract", "gemini", "claude", "gemini3", "rek", "docai"
+            "gpt5.4", "gpt4o-mini", "ocr", "claude", "rek", "docai"
     );
     private volatile Map<String, Boolean> engineEnabled = new HashMap<>(Map.of(
-            "gpt5.4", true, "gpt4o-mini", false, "ocr", true, "textract", true, "gemini", false,
-            "claude", true, "gemini3", false, "rek", true, "docai", true
+            "gpt5.4", true, "gpt4o-mini", false, "ocr", true,
+            "claude", true, "rek", true, "docai", true
     ));
     // Priority order per engine (1 = highest) — used to rebuild enginePriority from config
     private volatile Map<String, Integer> enginePriorityOrder = new HashMap<>();
@@ -138,17 +140,17 @@ public class ScreenClickTools {
 
     public ScreenClickTools(SystemControlService systemControl,
                             ScreenMemoryService screenMemoryService,
-                            GeminiVisionService geminiVisionService,
                             DocumentAiService documentAiService,
                             TextractService textractService,
                             RekognitionService rekognitionService,
                             VisionService visionService,
                             ClaudeVisionService claudeVisionService,
                             VisionModelConfig visionModelConfig,
-                            ToolExecutionNotifier notifier) {
+                            ToolExecutionNotifier notifier,
+                            MouseModule mouseModule,
+                            com.minsbot.agent.CursorDetector cursorDetector) {
         this.systemControl = systemControl;
         this.screenMemoryService = screenMemoryService;
-        this.geminiVisionService = geminiVisionService;
         this.documentAiService = documentAiService;
         this.textractService = textractService;
         this.rekognitionService = rekognitionService;
@@ -156,6 +158,8 @@ public class ScreenClickTools {
         this.claudeVisionService = claudeVisionService;
         this.visionModelConfig = visionModelConfig;
         this.notifier = notifier;
+        this.mouseModule = mouseModule;
+        this.cursorDetector = cursorDetector;
     }
 
     @PostConstruct
@@ -390,7 +394,7 @@ public class ScreenClickTools {
 
                 notifier.notify("Left button clicked '" + search + "' at (" + targetX + ", " + targetY + ")");
                 BufferedImage before = captureRegion(targetX, targetY);
-                String clickResult = systemControl.mouseClick(targetX, targetY, "left");
+                mouseModule.click(targetX, targetY);
 
                 try { Thread.sleep(500); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
 
@@ -401,7 +405,7 @@ public class ScreenClickTools {
                 if (changePercent > 5.0) {
                     notifier.notify("'" + search + "' clicked — screen changed " + String.format("%.0f", changePercent) + "%");
                     return "OK: Clicked '" + search + "' at (" + targetX + ", " + targetY
-                            + "), screen changed " + String.format("%.0f", changePercent) + "%. " + clickResult;
+                            + "), screen changed " + String.format("%.0f", changePercent) + "%.";
                 }
 
                 notifier.notify("Click at (" + targetX + ", " + targetY + ") no screen change — retrying...");
@@ -467,11 +471,15 @@ public class ScreenClickTools {
                     continue;
                 }
 
-                // Clear any existing content: Ctrl+A then type
-                robot.keyPress(java.awt.event.KeyEvent.VK_CONTROL);
-                robot.keyPress(java.awt.event.KeyEvent.VK_A);
-                robot.keyRelease(java.awt.event.KeyEvent.VK_A);
-                robot.keyRelease(java.awt.event.KeyEvent.VK_CONTROL);
+                // Triple-click to select field content (safer than Ctrl+A which selects the whole page)
+                robot.mousePress(java.awt.event.InputEvent.BUTTON1_DOWN_MASK);
+                robot.mouseRelease(java.awt.event.InputEvent.BUTTON1_DOWN_MASK);
+                Thread.sleep(20);
+                robot.mousePress(java.awt.event.InputEvent.BUTTON1_DOWN_MASK);
+                robot.mouseRelease(java.awt.event.InputEvent.BUTTON1_DOWN_MASK);
+                Thread.sleep(20);
+                robot.mousePress(java.awt.event.InputEvent.BUTTON1_DOWN_MASK);
+                robot.mouseRelease(java.awt.event.InputEvent.BUTTON1_DOWN_MASK);
                 Thread.sleep(50);
 
                 // Paste via clipboard (much faster and supports special chars)
@@ -632,7 +640,7 @@ public class ScreenClickTools {
             if (engineSet == null || engineSet.contains("gemini")) {
                 try {
                     long t0 = System.currentTimeMillis();
-                    int[] gc = askGeminiForCoords(screenshot, searchLabel, imgW, imgH, 1);
+                    int[] gc = askVisionForCoords(screenshot, searchLabel, imgW, imgH, 1);
                     long geminiMs = System.currentTimeMillis() - t0;
                     entry.put("geminiMs", geminiMs);
                     if (gc != null) {
@@ -775,7 +783,7 @@ public class ScreenClickTools {
             if (engineSet == null || engineSet.contains("gemini3")) {
                 try {
                     long t0 = System.currentTimeMillis();
-                    int[] g3Coords = askGeminiForCoords(screenshot, searchLabel, imgW, imgH, 1, "gemini-3.1-pro-preview");
+                    int[] g3Coords = askVisionForCoords(screenshot, searchLabel, imgW, imgH, 1, "gemini-3.1-pro-preview");
                     long g3Ms = System.currentTimeMillis() - t0;
                     entry.put("gemini3Ms", g3Ms);
                     if (g3Coords != null) {
@@ -844,8 +852,8 @@ public class ScreenClickTools {
             g.setStroke(new java.awt.BasicStroke(3f));
 
             List<Map<String, Object>> details = new ArrayList<>();
-            String[] engines = {"gemini", "docai", "textract", "rek", "ocr", "gpt5.4", "gpt4o-mini", "gemini3", "claude"};
-            String[] engineLabels = {"Gemini 2.5", "Document AI", "Textract", "Rekognition", "Windows OCR", "GPT-5.4", "GPT-4o Mini", "Gemini 3.1", "Claude Opus 4.6"};
+            String[] engines = {"docai", "rek", "ocr", "gpt5.4", "gpt4o-mini", "claude"};
+            String[] engineLabels = {"Document AI", "Rekognition", "Windows OCR", "GPT-5.4", "GPT-4o Mini", "Claude Opus 4.6"};
             java.awt.Color[] engineColors = {
                 java.awt.Color.RED,
                 new java.awt.Color(255, 165, 0),   // orange
@@ -1410,12 +1418,12 @@ public class ScreenClickTools {
     }
 
     /**
-     * Move mouse to (x,y), wait for hover effect, capture a small region and compare.
-     * Returns {x,y} if hover change detected (>0.5% pixel change in 50px radius), null otherwise.
+     * Move mouse to (x,y), wait for hover effect, check cursor type AND pixel changes.
+     * Returns {x,y} if interactive cursor detected (hand/ibeam) or pixel change >0.5%.
      */
     private int[] probeAt(Robot robot, int x, int y, java.awt.Dimension screen) {
         try {
-            int regionSize = 100; // 50px radius = 100x100 region
+            int regionSize = 100;
             int rx = Math.max(0, Math.min(x - regionSize / 2, screen.width - regionSize));
             int ry = Math.max(0, Math.min(y - regionSize / 2, screen.height - regionSize));
 
@@ -1425,19 +1433,28 @@ public class ScreenClickTools {
 
             // Move mouse to the probe point
             robot.mouseMove(x, y);
-            robot.delay(150); // wait for hover effect to render
+            robot.delay(150); // wait for hover effect + cursor change
 
-            // Capture AFTER hover
+            // Check cursor type via native Win32 API (most reliable signal)
+            if (cursorDetector.isAvailable()) {
+                var cursorType = cursorDetector.getCurrentCursor();
+                if (cursorType == com.minsbot.agent.CursorDetector.CursorType.HAND) {
+                    log.info("[hoverProbe] HAND cursor at ({},{}) — clickable button/link", x, y);
+                    return new int[]{x, y};
+                }
+                if (cursorType == com.minsbot.agent.CursorDetector.CursorType.IBEAM) {
+                    log.info("[hoverProbe] IBEAM cursor at ({},{}) — text input field", x, y);
+                    return new int[]{x, y};
+                }
+            }
+
+            // Fallback: pixel comparison for hover effects (color/highlight changes)
             BufferedImage after = robot.createScreenCapture(
                     new Rectangle(rx, ry, regionSize, regionSize));
-
-            // Compare
             double change = compareSmallRegion(before, after);
 
-            // Also check cursor shape change via pixel sampling around cursor tip
-            // (hand cursor vs arrow cursor produces different pixels)
             if (change > 0.5) {
-                log.debug("[hoverProbe] Hover change at ({},{}): {}%", x, y, String.format("%.1f", change));
+                log.debug("[hoverProbe] Hover pixel change at ({},{}): {}%", x, y, String.format("%.1f", change));
                 return new int[]{x, y};
             }
 
@@ -1709,11 +1726,11 @@ public class ScreenClickTools {
      * Ask Gemini to find an element and return its coordinates.
      * Uses analyze() directly with a precise prompt (avoids double-prompt issue in findElementCoordinates).
      */
-    private int[] askGeminiForCoords(Path screenshot, String target, int width, int height, int attempt) {
-        return askGeminiForCoords(screenshot, target, width, height, attempt, null);
+    private int[] askVisionForCoords(Path screenshot, String target, int width, int height, int attempt) {
+        return askVisionForCoords(screenshot, target, width, height, attempt, null);
     }
 
-    private int[] askGeminiForCoords(Path screenshot, String target, int width, int height, int attempt, String modelOverride) {
+    private int[] askVisionForCoords(Path screenshot, String target, int width, int height, int attempt, String modelOverride) {
         String retryHint = attempt > 1
                 ? " The previous click didn't work. Find a DIFFERENT '" + target
                 + "' — a button, link, or clickable menu item, NOT a label or heading."
@@ -1732,10 +1749,36 @@ public class ScreenClickTools {
                 + "- If not found, return: NOT_FOUND\n"
                 + retryHint;
 
-        String response = modelOverride != null
-                ? geminiVisionService.analyze(screenshot, prompt, modelOverride)
-                : geminiVisionService.analyze(screenshot, prompt);
-        if (response == null || response.isBlank() || response.contains("NOT_FOUND")) return null;
+        String modelName = modelOverride != null ? modelOverride : visionModelConfig.getPrimaryModel();
+
+        log.info("\n══════════════════════════════════════\n"
+                + "  LOCATING ELEMENT\n"
+                + "  * Using: {}\n"
+                + "  * Target: {}\n"
+                + "  * Attempt: {}\n"
+                + "  * Image: {}x{}\n"
+                + "  * Prompt: {}\n"
+                + "══════════════════════════════════════",
+                modelName, target, attempt, width, height,
+                prompt.replace("\n", " ").trim());
+
+        // Use GPT Vision only
+        String response = null;
+        if (visionService.isAvailable()) {
+            response = modelOverride != null
+                    ? visionService.analyzeWithPrompt(screenshot, prompt, modelOverride)
+                    : visionService.analyzeWithPrompt(screenshot, prompt);
+        }
+
+        if (response == null || response.isBlank() || response.contains("NOT_FOUND")) {
+            log.info("\n  LOCATING ELEMENT — RESULT\n"
+                    + "  * Target: {}\n"
+                    + "  * Coordinates: NOT FOUND\n"
+                    + "  * Raw response: {}\n"
+                    + "══════════════════════════════════════",
+                    target, response == null ? "(null)" : response.trim());
+            return null;
+        }
 
         for (String line : response.trim().split("\\r?\\n")) {
             line = line.trim();
@@ -1745,22 +1788,46 @@ public class ScreenClickTools {
                     try {
                         int x = Integer.parseInt(parts[0].trim());
                         int y = Integer.parseInt(parts[1].trim());
-                        // Gemini models often return coordinates in 0-1000 normalized scale
-                        // instead of actual pixel coordinates. Detect and rescale.
+                        // Some models return coordinates in 0-1000 normalized scale.
                         if (x <= 1000 && y <= 1000 && (width > 1000 || height > 1000)) {
                             int scaledX = (int) Math.round(x * width / 1000.0);
                             int scaledY = (int) Math.round(y * height / 1000.0);
-                            log.info("[Gemini] Rescaled normalized coords ({},{}) → ({},{}) for {}x{}",
-                                    x, y, scaledX, scaledY, width, height);
+                            log.info("\n  LOCATING ELEMENT — RESULT\n"
+                                    + "  * Target: {}\n"
+                                    + "  * Coordinates: x: {}, y: {} (rescaled from {}, {})\n"
+                                    + "══════════════════════════════════════",
+                                    target, scaledX, scaledY, x, y);
                             return new int[]{scaledX, scaledY};
                         }
                         if (x >= 0 && x <= width && y >= 0 && y <= height) {
+                            log.info("\n  LOCATING ELEMENT — RESULT\n"
+                                    + "  * Target: {}\n"
+                                    + "  * Coordinates: x: {}, y: {}\n"
+                                    + "══════════════════════════════════════",
+                                    target, x, y);
                             return new int[]{x, y};
                         }
-                    } catch (NumberFormatException ignored) {}
+                        log.warn("\n  LOCATING ELEMENT — RESULT\n"
+                                + "  * Target: {}\n"
+                                + "  * Coordinates: x: {}, y: {} — OUT OF BOUNDS ({}x{})\n"
+                                + "══════════════════════════════════════",
+                                target, x, y, width, height);
+                    } catch (NumberFormatException e) {
+                        log.warn("\n  LOCATING ELEMENT — RESULT\n"
+                                + "  * Target: {}\n"
+                                + "  * Error: Failed to parse '{}'\n"
+                                + "══════════════════════════════════════",
+                                target, line);
+                    }
                 }
             }
         }
+        log.warn("\n  LOCATING ELEMENT — RESULT\n"
+                + "  * Target: {}\n"
+                + "  * Coordinates: PARSE FAILED\n"
+                + "  * Raw response: {}\n"
+                + "══════════════════════════════════════",
+                target, response.trim());
         return null;
     }
 
@@ -1780,21 +1847,12 @@ public class ScreenClickTools {
                 case "gpt4o-mini":
                     if (!visionService.isAvailable()) return null;
                     return visionService.findElementCoordinates(screenshot, search, screenW, screenH, visionModelConfig.getFastModel());
-                case "gemini":
-                    return askGeminiForCoords(screenshot, search, screenW, screenH, 1);
-                case "gemini3":
-                    return askGeminiForCoords(screenshot, search, screenW, screenH, 1, "gemini-3.1-pro-preview");
                 case "claude":
                     if (!claudeVisionService.isAvailable()) return null;
                     return claudeVisionService.findElementCoordinates(screenshot, search, screenW, screenH);
                 case "ocr": {
                     double[] oc = screenMemoryService.findTextOnScreen(screenshot, search);
                     return oc != null ? new int[]{(int) oc[0], (int) oc[1]} : null;
-                }
-                case "textract": {
-                    if (!textractService.isAvailable()) return null;
-                    double[] tc = textractService.findTextOnScreen(screenshot, search);
-                    return tc != null ? new int[]{(int) tc[0], (int) tc[1]} : null;
                 }
                 case "rek": {
                     if (!rekognitionService.isAvailable()) return null;
@@ -1821,11 +1879,8 @@ public class ScreenClickTools {
             case "gpt5.4": return "GPT-5.4";
             case "gpt4o-mini": return "GPT-4o Mini";
             case "gpt": return "GPT-5.4"; // legacy
-            case "gemini": return "Gemini 2.5";
-            case "gemini3": return "Gemini 3.1";
             case "claude": return "Claude Opus 4.6";
             case "ocr": return "Windows OCR";
-            case "textract": return "Textract";
             case "rek": return "Rekognition";
             case "docai": return "Document AI";
             default: return key;

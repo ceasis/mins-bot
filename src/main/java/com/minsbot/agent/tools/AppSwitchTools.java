@@ -1,6 +1,6 @@
 package com.minsbot.agent.tools;
 
-import com.minsbot.agent.GeminiVisionService;
+import com.minsbot.agent.VisionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
@@ -32,11 +32,11 @@ public class AppSwitchTools {
     private static final Logger log = LoggerFactory.getLogger(AppSwitchTools.class);
     private static final int MAX_TABS = 10;
 
-    private final GeminiVisionService geminiVision;
+    private final VisionService visionService;
     private final ToolExecutionNotifier notifier;
 
-    public AppSwitchTools(GeminiVisionService geminiVision, ToolExecutionNotifier notifier) {
-        this.geminiVision = geminiVision;
+    public AppSwitchTools(VisionService visionService, ToolExecutionNotifier notifier) {
+        this.visionService = visionService;
         this.notifier = notifier;
     }
 
@@ -50,9 +50,9 @@ public class AppSwitchTools {
 
         notifier.notify("Switching to " + targetApp + "...");
 
-        if (!geminiVision.isAvailable()) {
-            return "Gemini Vision is not available — cannot identify apps in Alt+Tab switcher. " +
-                    "Check that app.gemini.api-key is configured.";
+        if (!visionService.isAvailable()) {
+            return "Vision service is not available — cannot identify apps in Alt+Tab switcher. " +
+                    "Check that app.openai.api-key is configured.";
         }
 
         Robot robot;
@@ -119,7 +119,7 @@ public class AppSwitchTools {
                         "Respond with EXACTLY 'YES' or 'NO' on the first line. " +
                         "On the second line, briefly state what app IS currently selected.", targetApp);
 
-                String response = geminiVision.analyzeQuick(file, prompt);
+                String response = visionService.analyzeWithPrompt(file, prompt);
                 if (response == null || response.isBlank()) {
                     log.warn("[AppSwitch] Position {} — no vision response", i + 1);
                     continue;

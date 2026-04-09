@@ -28,7 +28,7 @@ public class AutoPilotService {
     private static final Logger log = LoggerFactory.getLogger(AutoPilotService.class);
 
     private final SystemControlService systemControl;
-    private final GeminiVisionService geminiVision;
+    private final VisionService visionService;
     private final ScreenMemoryService screenMemory;
 
     /** Suggestions waiting to be sent to the user via the async message feed. */
@@ -86,10 +86,10 @@ public class AutoPilotService {
     private com.minsbot.agent.tools.TtsTools ttsTools;
 
     public AutoPilotService(SystemControlService systemControl,
-                            GeminiVisionService geminiVision,
+                            VisionService visionService,
                             ScreenMemoryService screenMemory) {
         this.systemControl = systemControl;
-        this.geminiVision = geminiVision;
+        this.visionService = visionService;
         this.screenMemory = screenMemory;
     }
 
@@ -216,8 +216,8 @@ public class AutoPilotService {
             String prompt = String.format(AUTOPILOT_PROMPT,
                     lastContext.isBlank() ? "(none)" : lastContext);
 
-            // Use Gemini vision to analyze
-            String analysis = geminiVision.analyze(screenshotPath, prompt);
+            // Use GPT Vision to analyze
+            String analysis = visionService.analyzeWithPrompt(screenshotPath, prompt);
             if (analysis == null || analysis.isBlank()) return null;
 
             String trimmed = analysis.trim();

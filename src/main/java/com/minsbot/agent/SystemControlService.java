@@ -1771,13 +1771,19 @@ public class SystemControlService {
             if (mx < 0 || my < 0 || mx >= image.getWidth() || my >= image.getHeight()) return;
             java.awt.Graphics2D g = image.createGraphics();
             g.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+            // Draw red highlight circle around cursor position (easy to spot in screenshots)
+            g.setColor(new java.awt.Color(255, 50, 50, 80));
+            g.fillOval(mx - 15, my - 15, 30, 30);
+            g.setColor(new java.awt.Color(255, 50, 50, 200));
+            g.setStroke(new java.awt.BasicStroke(2f));
+            g.drawOval(mx - 15, my - 15, 30, 30);
             // Draw arrow cursor shape (white fill, black outline)
-            int[] cx = {mx, mx, mx + 10, mx + 6, mx + 8, mx + 5, mx + 5};
-            int[] cy = {my, my + 17, my + 12, my + 12, my + 20, my + 15, my + 13};
+            int[] cx = {mx, mx, mx + 12, mx + 7, mx + 10, mx + 6, mx + 6};
+            int[] cy = {my, my + 20, my + 14, my + 14, my + 24, my + 18, my + 15};
             g.setColor(java.awt.Color.WHITE);
             g.fillPolygon(cx, cy, cx.length);
             g.setColor(java.awt.Color.BLACK);
-            g.setStroke(new java.awt.BasicStroke(1.2f));
+            g.setStroke(new java.awt.BasicStroke(1.5f));
             g.drawPolygon(cx, cy, cx.length);
             g.dispose();
         } catch (Exception ignored) { /* mouse position unavailable — skip cursor */ }

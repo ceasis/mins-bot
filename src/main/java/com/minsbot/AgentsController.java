@@ -41,7 +41,8 @@ public class AgentsController {
     }
 
     @PostMapping(value = "/start-random", produces = MediaType.APPLICATION_JSON_VALUE)
-    public Map<String, Object> startRandom() {
+    public Map<String, Object> startRandom(@RequestBody(required = false) Map<String, String> body) {
+        String model = body != null ? body.get("model") : null;
         String[] missions = {
             "Search for the latest AI news and summarize the top 5 stories",
             "Find interesting programming tips and create a summary",
@@ -56,7 +57,7 @@ public class AgentsController {
         };
         String mission = missions[new java.util.Random().nextInt(missions.length)];
         try {
-            String id = agentService.startAgent(mission);
+            String id = agentService.startAgent(mission, model);
             return Map.of("id", id, "status", "QUEUED", "mission", mission);
         } catch (Exception e) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, e.getMessage());

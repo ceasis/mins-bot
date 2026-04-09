@@ -4,8 +4,9 @@ import com.microsoft.playwright.Page;
 import com.minsbot.MinsBotQuitService;
 import com.minsbot.agent.ChromeCdpService;
 import com.minsbot.agent.DocumentAiService;
-import com.minsbot.agent.GeminiVisionService;
 import com.minsbot.agent.ScreenMemoryService;
+import com.minsbot.agent.AsyncMessageService;
+import com.minsbot.agent.ProactiveActionService;
 import com.minsbot.agent.SystemControlService;
 import com.minsbot.agent.TextractService;
 import com.minsbot.agent.VisionService;
@@ -44,29 +45,32 @@ public class SystemTools {
     private final ToolExecutionNotifier notifier;
     private final MinsBotQuitService quitService;
     private final VisionService visionService;
-    private final GeminiVisionService geminiVisionService;
     private final ScreenMemoryService screenMemoryService;
     private final DocumentAiService documentAiService;
     private final TextractService textractService;
     private final ChromeCdpService cdpService;
     private final ChromeCdpTools chromeCdpTools;
+    private final ProactiveActionService proactiveActionService;
+    private final AsyncMessageService asyncMessages;
 
     public SystemTools(SystemControlService systemControl, ToolExecutionNotifier notifier,
                        MinsBotQuitService quitService, VisionService visionService,
-                       GeminiVisionService geminiVisionService,
                        ScreenMemoryService screenMemoryService, DocumentAiService documentAiService,
                        TextractService textractService,
-                       ChromeCdpService cdpService, ChromeCdpTools chromeCdpTools) {
+                       ChromeCdpService cdpService, ChromeCdpTools chromeCdpTools,
+                       @org.springframework.context.annotation.Lazy ProactiveActionService proactiveActionService,
+                       AsyncMessageService asyncMessages) {
         this.systemControl = systemControl;
         this.notifier = notifier;
         this.quitService = quitService;
         this.visionService = visionService;
-        this.geminiVisionService = geminiVisionService;
         this.screenMemoryService = screenMemoryService;
         this.documentAiService = documentAiService;
         this.textractService = textractService;
         this.cdpService = cdpService;
         this.chromeCdpTools = chromeCdpTools;
+        this.proactiveActionService = proactiveActionService;
+        this.asyncMessages = asyncMessages;
     }
 
     @Tool(description = "Quit the Mins Bot application. Only call this when the user has explicitly confirmed they want to quit (e.g. replied 'yes' or 'y' to 'Quit Mins Bot?'). Do NOT call when the user just says 'quit' — in that case only reply with 'Quit Mins Bot?' and wait for their answer.")
@@ -168,20 +172,20 @@ public class SystemTools {
 
         log.info("[Verification] Verification prompt ({} chars):\n{}", verificationPrompt.length(), verificationPrompt);
 
-        // Try Gemini first
-        if (geminiVisionService.isAvailable()) {
-            log.info("[Verification] Sending screenshot + prompt to Gemini for analysis...");
+        // Try GPT Vision
+        if (visionService.isAvailable()) {
+            log.info("[Verification] Sending screenshot + prompt to GPT Vision for analysis...");
             try {
                 long t0 = System.currentTimeMillis();
-                String geminiResult = geminiVisionService.analyze(screenshotPath, verificationPrompt);
+                String visionResult = visionService.analyzeWithPrompt(screenshotPath, verificationPrompt);
                 long dt = System.currentTimeMillis() - t0;
-                if (geminiResult != null && !geminiResult.isBlank()) {
-                    log.info("[Verification] Gemini analysis SUCCESS in {}ms ({} chars)", dt, geminiResult.length());
-                    return geminiResult;
+                if (visionResult != null && !visionResult.isBlank()) {
+                    log.info("[Verification] GPT Vision analysis SUCCESS in {}ms ({} chars)", dt, visionResult.length());
+                    return visionResult;
                 }
-                log.warn("[Verification] Gemini returned null/empty after {}ms — falling back", dt);
+                log.warn("[Verification] GPT Vision returned null/empty after {}ms", dt);
             } catch (Exception e) {
-                log.warn("[Verification] Gemini FAILED: {} — falling back to OpenAI Vision", e.getMessage());
+                log.warn("[Verification] GPT Vision FAILED: {}", e.getMessage());
             }
         } else {
             log.info("[Verification] Gemini not available — trying OpenAI Vision");
@@ -252,6 +256,13 @@ public class SystemTools {
     @Tool(description = "Send keystrokes to the currently focused window. Use for shortcuts: ^v = Ctrl+V (paste), ^c = Ctrl+C (copy), %{F4} = Alt+F4. Type text directly; use {ENTER}, {TAB}, {ESC} for special keys.")
     public String sendKeys(
             @ToolParam(description = "Keystrokes to send: + = Shift, ^ = Ctrl, % = Alt, {ENTER}, {TAB}, {ESC}, {DOWN}, {UP}, or plain text") String keys) {
+        if (proactiveActionService.isActive()) {
+            String lower = keys.toLowerCase().replace(" ", "");
+            if (lower.contains("^w") || lower.contains("%{f4}") || lower.contains("%f4")
+                    || lower.contains("^{w}") || lower.contains("%{tab}")) {
+                return "BLOCKED: Cannot send close/switch shortcuts while proactive action mode is active.";
+            }
+        }
         notifier.notify("Sending keystrokes: " + keys);
         return systemControl.sendKeys(keys);
     }
@@ -300,20 +311,20 @@ public class SystemTools {
         if (com.minsbot.FloatingAppLauncher.isInsideWindow(x, y)) {
             throw new RuntimeException("Target (" + x + "," + y + ") is inside the Mins Bot window — skipping.");
         }
-        // Click to focus the field
+
+        // Triple-click to select only the field content (not Ctrl+A which selects the whole page)
         robot.mouseMove(x, y);
+        robot.mousePress(java.awt.event.InputEvent.BUTTON1_DOWN_MASK);
+        robot.mouseRelease(java.awt.event.InputEvent.BUTTON1_DOWN_MASK);
+        robot.delay(30);
+        robot.mousePress(java.awt.event.InputEvent.BUTTON1_DOWN_MASK);
+        robot.mouseRelease(java.awt.event.InputEvent.BUTTON1_DOWN_MASK);
+        robot.delay(30);
         robot.mousePress(java.awt.event.InputEvent.BUTTON1_DOWN_MASK);
         robot.mouseRelease(java.awt.event.InputEvent.BUTTON1_DOWN_MASK);
         robot.delay(80);
 
-        // Select all existing content
-        robot.keyPress(java.awt.event.KeyEvent.VK_CONTROL);
-        robot.keyPress(java.awt.event.KeyEvent.VK_A);
-        robot.keyRelease(java.awt.event.KeyEvent.VK_A);
-        robot.keyRelease(java.awt.event.KeyEvent.VK_CONTROL);
-        robot.delay(30);
-
-        // Put text on clipboard and paste
+        // Put text on clipboard and paste (replaces selected content)
         java.awt.datatransfer.StringSelection sel = new java.awt.datatransfer.StringSelection(text);
         java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(sel, null);
         robot.delay(30);
@@ -322,7 +333,44 @@ public class SystemTools {
         robot.keyPress(java.awt.event.KeyEvent.VK_V);
         robot.keyRelease(java.awt.event.KeyEvent.VK_V);
         robot.keyRelease(java.awt.event.KeyEvent.VK_CONTROL);
+        robot.delay(120);
+
+        // Verify: select all in field (Ctrl+A), copy (Ctrl+C), check clipboard matches
+        robot.keyPress(java.awt.event.KeyEvent.VK_CONTROL);
+        robot.keyPress(java.awt.event.KeyEvent.VK_A);
+        robot.keyRelease(java.awt.event.KeyEvent.VK_A);
+        robot.keyRelease(java.awt.event.KeyEvent.VK_CONTROL);
+        robot.delay(30);
+
+        robot.keyPress(java.awt.event.KeyEvent.VK_CONTROL);
+        robot.keyPress(java.awt.event.KeyEvent.VK_C);
+        robot.keyRelease(java.awt.event.KeyEvent.VK_C);
+        robot.keyRelease(java.awt.event.KeyEvent.VK_CONTROL);
         robot.delay(80);
+
+        // Read clipboard to verify
+        try {
+            String pasted = (String) java.awt.Toolkit.getDefaultToolkit()
+                    .getSystemClipboard().getData(java.awt.datatransfer.DataFlavor.stringFlavor);
+            if (pasted != null && pasted.contains(text)) {
+                // Verified — click end of field to deselect
+                robot.keyPress(java.awt.event.KeyEvent.VK_END);
+                robot.keyRelease(java.awt.event.KeyEvent.VK_END);
+                robot.delay(30);
+            } else {
+                // Paste didn't take — retry once
+                sel = new java.awt.datatransfer.StringSelection(text);
+                java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(sel, null);
+                robot.delay(30);
+                robot.keyPress(java.awt.event.KeyEvent.VK_CONTROL);
+                robot.keyPress(java.awt.event.KeyEvent.VK_V);
+                robot.keyRelease(java.awt.event.KeyEvent.VK_V);
+                robot.keyRelease(java.awt.event.KeyEvent.VK_CONTROL);
+                robot.delay(100);
+            }
+        } catch (Exception ignored) {
+            // Clipboard read failed — continue anyway
+        }
     }
 
     @Tool(description = "Open an application with optional arguments: a file path for Notepad, a URL for browser, or a folder path for Explorer.")
@@ -983,16 +1031,16 @@ public class SystemTools {
         int imgW = ctx.imgWidth() > 0 ? ctx.imgWidth() : ctx.logicalWidth();
         int imgH = ctx.imgHeight() > 0 ? ctx.imgHeight() : ctx.logicalHeight();
 
-        // 1st: Gemini (best spatial/coordinate accuracy)
-        if (geminiVisionService.isAvailable()) {
-            System.out.println("[locate] Trying Gemini for '" + elementDescription + "'...");
-            int[] geminiCoords = geminiVisionService.findElementCoordinates(
-                    ctx.imagePath(), elementDescription, imgW, imgH);
-            if (geminiCoords != null) {
-                int sx = (int) Math.round(geminiCoords[0] * ctx.scaleX());
-                int sy = (int) Math.round(geminiCoords[1] * ctx.scaleY());
-                System.out.println("[locate] GEMINI MATCH: '" + elementDescription + "' → screen(" + sx + "," + sy + ")");
-                return new ElementLocation(sx, sy, "Gemini", ctx.imgWidth(), ctx.imgHeight(),
+        // 1st: GPT Vision
+        if (visionService.isAvailable()) {
+            System.out.println("[locate] Trying GPT Vision for '" + elementDescription + "'...");
+            int[] visionCoords = visionService.findElementCoordinates(
+                    ctx.imagePath(), elementDescription, imgW, imgH, null);
+            if (visionCoords != null) {
+                int sx = (int) Math.round(visionCoords[0] * ctx.scaleX());
+                int sy = (int) Math.round(visionCoords[1] * ctx.scaleY());
+                System.out.println("[locate] GPT VISION MATCH: '" + elementDescription + "' → screen(" + sx + "," + sy + ")");
+                return new ElementLocation(sx, sy, "GPT Vision", ctx.imgWidth(), ctx.imgHeight(),
                         ctx.logicalWidth(), ctx.logicalHeight(), ctx.scaleX(), ctx.scaleY());
             }
         }
@@ -1430,13 +1478,18 @@ public class SystemTools {
             int imgW = ctx.imgWidth() > 0 ? ctx.imgWidth() : ctx.logicalWidth();
             int imgH = ctx.imgHeight() > 0 ? ctx.imgHeight() : ctx.logicalHeight();
 
-            // Ask Gemini to find BOTH coordinates in a single call
-            int[] coords = geminiVisionService.findDragCoordinates(
-                    ctx.imagePath(), sourceDescription, targetDescription, imgW, imgH);
+            // Find source and target coordinates separately via GPT Vision
+            int[] srcCoords = visionService.findElementCoordinates(
+                    ctx.imagePath(), sourceDescription, imgW, imgH, null);
+            int[] tgtCoords = visionService.findElementCoordinates(
+                    ctx.imagePath(), targetDescription, imgW, imgH, null);
 
-            if (coords == null) {
-                return "FAILED: Could not find '" + sourceDescription + "' or '" + targetDescription + "' on screen.";
+            if (srcCoords == null || tgtCoords == null) {
+                return "FAILED: Could not find '" + (srcCoords == null ? sourceDescription : targetDescription) + "' on screen.";
             }
+
+            // Combine into coords array: [sourceX, sourceY, targetX, targetY]
+            int[] coords = new int[]{srcCoords[0], srcCoords[1], tgtCoords[0], tgtCoords[1]};
 
             // Convert image coordinates to screen coordinates
             int sx = (int) Math.round(coords[0] * ctx.scaleX());
@@ -1677,25 +1730,7 @@ public class SystemTools {
             Path cropPath = cropAroundSource(verifyCtx, sourceScreenX, sourceScreenY);
             Path verifyImage = (cropPath != null) ? cropPath : verifyCtx.imagePath();
 
-            // ── Phase 3: Gemini reasoning model (gemini-2.5-pro) ──
-            if (geminiVisionService.isAvailable()) {
-                System.out.println("[drag] Trying Gemini reasoning verify for '" + sourceDescription + "'...");
-                String geminiResponse = geminiVisionService.verifyDrag(verifyImage, sourceDescription);
-                if (geminiResponse != null && !geminiResponse.isBlank()) {
-                    String geminiFirst = geminiResponse.split("\\r?\\n")[0].trim().toUpperCase();
-                    System.out.println("[drag] Gemini verify: " + geminiResponse.replace("\n", " | "));
-
-                    if (geminiFirst.startsWith("YES")) {
-                        System.out.println("[drag] OCR + Gemini confirm source is gone → SUCCESS");
-                        return DragVerifyResult.SUCCESS;
-                    } else if (geminiFirst.startsWith("NO")) {
-                        System.out.println("[drag] Gemini says source still visible → FAILED");
-                        return DragVerifyResult.FAILED;
-                    }
-                }
-            }
-
-            // ── Phase 4: OpenAI gpt-4o fallback ──
+            // ── Phase 3: GPT Vision verify ──
             if (!visionService.isAvailable()) {
                 System.out.println("[drag] No AI vision available — trusting OCR result → SUCCESS");
                 return DragVerifyResult.SUCCESS;
@@ -1750,6 +1785,11 @@ public class SystemTools {
     public String browserNavigate(
             @ToolParam(description = "Browser name to focus, e.g. 'chrome', 'edge', 'firefox'. Defaults to 'chrome'.") String browserName,
             @ToolParam(description = "The URL to navigate to, e.g. 'youtube.com' or 'https://google.com'") String url) {
+        if (proactiveActionService.isActive()) {
+            asyncMessages.push("\u26d4 BLOCKED: Bot tried to navigate to " + url + " during proactive mode.");
+            return "BLOCKED: Cannot navigate away from the current page while proactive action mode is active. Use CDP tools (browserClickButton, browserClickElement, browserFillForm) to interact with the current page instead.";
+        }
+        asyncMessages.push("\ud83d\udccb Bot is navigating " + browserName + " to: " + url);
         notifier.notify("Navigating browser to: " + url);
         return systemControl.browserNavigate(browserName, url);
     }
@@ -1761,6 +1801,11 @@ public class SystemTools {
             + "Use this for 'open chrome tab', 'new tab', 'open browser tab'.")
     public String browserNewTab(
             @ToolParam(description = "Browser name: 'chrome', 'edge', 'firefox'. Defaults to 'chrome'.") String browserName) {
+        if (proactiveActionService.isActive()) {
+            asyncMessages.push("\u26d4 BLOCKED: Bot tried to open a new tab during proactive mode.");
+            return "BLOCKED: Cannot open new tabs while proactive action mode is active. Use CDP tools (browserClickButton, browserClickElement, browserFillForm) to interact with the current page instead.";
+        }
+        asyncMessages.push("\ud83d\udccb Bot is opening a new browser tab (" + browserName + ")");
         notifier.notify("Opening new browser tab");
         return systemControl.browserNewTab(browserName);
     }
@@ -1775,6 +1820,10 @@ public class SystemTools {
             String site,
             @ToolParam(description = "The search query, e.g. 'saas tools', 'best headphones 2026'")
             String query) {
+        if (proactiveActionService.isActive()) {
+            asyncMessages.push("\u26d4 BLOCKED: Bot tried to search on " + site + " during proactive mode.");
+            return "BLOCKED: Cannot navigate to other sites while proactive action mode is active. Stay on the current page.";
+        }
         notifier.notify("Searching '" + query + "' on " + site);
         return systemControl.browserSearchOnSite(site, query);
     }
@@ -1782,6 +1831,11 @@ public class SystemTools {
     @Tool(description = "Close the current tab in the user's PC browser (Ctrl+W).")
     public String browserCloseTab(
             @ToolParam(description = "Browser name: 'chrome', 'edge', 'firefox'. Defaults to 'chrome'.") String browserName) {
+        if (proactiveActionService.isActive()) {
+            asyncMessages.push("\u26d4 BLOCKED: Bot tried to close a browser tab during proactive mode.");
+            return "BLOCKED: Cannot close tabs while proactive action mode is active.";
+        }
+        asyncMessages.push("\ud83d\udccb Bot is closing the current browser tab (" + browserName + ")");
         notifier.notify("Closing browser tab");
         return systemControl.browserCloseTab(browserName);
     }
@@ -1795,6 +1849,11 @@ public class SystemTools {
     public String browserCloseTabsByUrl(
             @ToolParam(description = "Keyword(s) to match against URL/title. Comma or 'and' separated for multiple. "
                     + "Use 'empty'/'blank'/'new tab' for empty tabs. E.g. 'youtube and empty'") String urlKeyword) {
+        if (proactiveActionService.isActive()) {
+            asyncMessages.push("\u26d4 BLOCKED: Bot tried to close tabs matching '" + urlKeyword + "' during proactive mode.");
+            return "BLOCKED: Cannot close tabs while proactive action mode is active.";
+        }
+        asyncMessages.push("\ud83d\udccb Bot is closing all tabs matching '" + urlKeyword + "'");
         notifier.notify("Closing all " + urlKeyword + " tabs");
         return systemControl.browserCloseTabsByUrl("chrome", urlKeyword);
     }
@@ -1804,6 +1863,11 @@ public class SystemTools {
     public String browserSwitchTab(
             @ToolParam(description = "Browser name: 'chrome', 'edge', 'firefox'. Defaults to 'chrome'.") String browserName,
             @ToolParam(description = "'next' (go right) or 'previous'/'prev' (go left)") String direction) {
+        if (proactiveActionService.isActive()) {
+            asyncMessages.push("\u26d4 BLOCKED: Bot tried to switch tabs during proactive mode.");
+            return "BLOCKED: Cannot switch tabs while proactive action mode is active. Stay on the current page.";
+        }
+        asyncMessages.push("\ud83d\udccb Bot is switching browser tab: " + direction);
         notifier.notify("Switching browser tab: " + direction);
         return systemControl.browserSwitchTab(browserName, direction);
     }

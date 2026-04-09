@@ -1,7 +1,6 @@
 package com.minsbot.agent.tools;
 
 import com.minsbot.agent.AsyncMessageService;
-import com.minsbot.agent.GeminiVisionService;
 import com.minsbot.agent.ScreenMemoryService;
 import com.minsbot.agent.SystemControlService;
 import com.minsbot.agent.VisionService;
@@ -50,7 +49,6 @@ public class ScreenWatchingTools {
 
     private final ToolExecutionNotifier notifier;
     private final SystemControlService systemControl;
-    private final GeminiVisionService geminiVisionService;
     private final VisionService visionService;
     private final ScreenMemoryService screenMemoryService;
     private final AsyncMessageService asyncMessages;
@@ -112,13 +110,11 @@ public class ScreenWatchingTools {
 
     public ScreenWatchingTools(ToolExecutionNotifier notifier,
                                SystemControlService systemControl,
-                               GeminiVisionService geminiVisionService,
                                VisionService visionService,
                                ScreenMemoryService screenMemoryService,
                                AsyncMessageService asyncMessages) {
         this.notifier = notifier;
         this.systemControl = systemControl;
-        this.geminiVisionService = geminiVisionService;
         this.visionService = visionService;
         this.screenMemoryService = screenMemoryService;
         this.asyncMessages = asyncMessages;
@@ -497,14 +493,22 @@ public class ScreenWatchingTools {
             return;
         }
 
-        // Execute: switch to user's app, then click+type each entry
+        // Execute: switch to user's app (only if MinsBot is in foreground), then click+type each entry
         log.info("[WatchMode] REACT → {} entries to type: {}", reactEntries.size(), allText);
         try {
             // Record mouse position before switching — if user moves mouse, abort
             Point mouseBeforeSwitch = getMousePosition();
 
-            // Alt+Tab switches to the user's last active app (away from MinsBot)
-            systemControl.switchToPreviousWindow();
+            // Only Alt+Tab if MinsBot is currently the foreground window.
+            // If the user's app (e.g. Chrome) is already in front, Alt+Tab would switch AWAY from it.
+            String fgBefore = systemControl.getForegroundWindowTitle();
+            boolean minsBotInFront = fgBefore != null && fgBefore.toLowerCase().contains("mins bot");
+            if (minsBotInFront) {
+                systemControl.switchToPreviousWindow();
+                Thread.sleep(300);
+            } else {
+                log.info("[WatchMode] REACT — user app already in front ('{}'), skipping Alt+Tab", fgBefore);
+            }
 
             // Safety: check if user moved the mouse during the switch (taking control)
             Point mouseAfterSwitch = getMousePosition();
@@ -644,26 +648,9 @@ public class ScreenWatchingTools {
         String prompt = buildWatchPrompt(purpose, round);
         log.info("[WatchMode] Analysis prompt ({} chars): {}", prompt.length(), prompt.replace('\n', ' '));
 
-        // Try Gemini first (fast 10s timeout for watch mode)
-        if (geminiVisionService.isAvailable()) {
-            log.info("[WatchMode] Sending to Gemini (quick, 10s timeout)...");
-            try {
-                long t0 = System.currentTimeMillis();
-                String geminiResult = geminiVisionService.analyzeQuick(screenshotPath, prompt);
-                long dt = System.currentTimeMillis() - t0;
-                if (geminiResult != null && !geminiResult.isBlank()) {
-                    log.info("[WatchMode] Gemini SUCCESS in {}ms", dt);
-                    return geminiResult;
-                }
-                log.warn("[WatchMode] Gemini returned empty after {}ms", dt);
-            } catch (Exception e) {
-                log.warn("[WatchMode] Gemini FAILED: {}", e.getMessage());
-            }
-        }
-
-        // Fallback: OpenAI Vision with the same watch prompt (10s timeout)
+        // GPT Vision (primary for watch mode)
         if (visionService.isAvailable()) {
-            log.info("[WatchMode] Falling back to OpenAI Vision (with watch prompt)...");
+            log.info("[WatchMode] Sending to GPT Vision...");
             try {
                 long t0 = System.currentTimeMillis();
                 String visionResult = visionService.analyzeWithPrompt(screenshotPath, prompt);

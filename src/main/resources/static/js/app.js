@@ -1194,6 +1194,7 @@
     agentsPollTimer = setInterval(refreshAgentsList, 1500);
   }
 
+  var agentsCache = [];
   function refreshAgentsList() {
     var listEl = document.getElementById('agents-list');
     var capEl = document.getElementById('agents-capacity');
@@ -1204,6 +1205,7 @@
       }
       if (!listEl) return;
       var agents = data.agents || [];
+      agentsCache = agents;
       if (agents.length === 0) {
         listEl.innerHTML = '<p class="tab-empty">No agents yet. Start one above.</p>';
         return;
@@ -1262,6 +1264,9 @@
         if (st === 'QUEUED' || st === 'RUNNING') {
           html += '<button type="button" class="agent-btn agent-btn-danger" data-agent-cancel="' + escapeHtml(a.id) + '">Cancel</button>';
         }
+        if (a.result) {
+          html += '<button type="button" class="agent-btn agent-btn-download" data-agent-download="' + escapeHtml(a.id) + '">Download</button>';
+        }
         html += '<button type="button" class="agent-btn" data-agent-remove="' + escapeHtml(a.id) + '">Dismiss</button>';
         html += '</div></div>';
       });
@@ -1276,6 +1281,32 @@
         btn.addEventListener('click', function () {
           var id = btn.getAttribute('data-agent-remove');
           fetch('/api/agents/' + encodeURIComponent(id), { method: 'DELETE' }).then(function () { refreshAgentsList(); });
+        });
+      });
+      listEl.querySelectorAll('[data-agent-download]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var id = btn.getAttribute('data-agent-download');
+          // Find this agent's data
+          var agent = (agentsCache || []).find(function (a) { return a.id === id; });
+          if (!agent || !agent.result) return;
+          // Build a text file with mission + plan + result
+          var text = '# Agent Report: ' + (agent.name || id) + '\n';
+          text += 'Model: ' + (agent.model || 'default') + '\n';
+          text += 'Date: ' + new Date().toISOString().split('T')[0] + '\n\n';
+          text += '## Mission\n' + (agent.mission || '') + '\n\n';
+          if (agent.plan) text += '## Plan\n' + agent.plan + '\n\n';
+          text += '## Result\n' + agent.result + '\n';
+          // Download
+          var blob = new Blob([text], { type: 'text/markdown' });
+          var url = URL.createObjectURL(blob);
+          var a = document.createElement('a');
+          a.href = url;
+          var safeName = (agent.name || 'agent').replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+          a.download = safeName + '_' + id + '.md';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
         });
       });
     }).catch(function () {
@@ -1317,9 +1348,12 @@
   var agentsRandomBtn = document.getElementById('agents-random-btn');
   if (agentsRandomBtn) {
     agentsRandomBtn.addEventListener('click', function () {
+      var payload = {};
+      if (agentsModelSelect && agentsModelSelect.value) payload.model = agentsModelSelect.value;
       fetch('/api/agents/start-random', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
       }).then(function (r) {
         if (!r.ok) return r.text().then(function (t) { throw new Error(t || r.status); });
         return r.json();
@@ -2091,7 +2125,8 @@
         const res = await fetch('/api/mouse');
         if (res.ok) {
           const pos = await res.json();
-          mouseCoordsEl.innerHTML = 'X: ' + pos.x + ' &nbsp; Y: ' + pos.y;
+          var inOut = pos.insideBot ? ' <span style="color:#fca5a5">(IN)</span>' : ' <span style="color:#86efac">(OUT)</span>';
+          mouseCoordsEl.innerHTML = 'X: ' + pos.x + ' &nbsp; Y: ' + pos.y + inOut;
         }
       } catch (_) {}
     }, 100);

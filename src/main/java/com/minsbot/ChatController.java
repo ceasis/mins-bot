@@ -241,7 +241,8 @@ public class ChatController {
     @GetMapping("/mouse")
     public Map<String, Object> getMousePosition() {
         java.awt.Point p = java.awt.MouseInfo.getPointerInfo().getLocation();
-        return Map.of("x", p.x, "y", p.y);
+        boolean inside = FloatingAppLauncher.isInsideWindow(p.x, p.y);
+        return Map.of("x", p.x, "y", p.y, "insideBot", inside);
     }
 
     @GetMapping("/screen-info")
