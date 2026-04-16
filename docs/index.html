@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mins Bot — Floating Desktop AI Assistant</title>
+  <meta name="description" content="Mins Bot is an open-source floating desktop AI assistant. Think Jarvis for your PC — a swirling orb that expands into a full AI command center." />
+  <style>
+    :root {
+      --bg: #0d0d14;
+      --card: #141420;
+      --border: #2a2a40;
+      --accent: #7c6af7;
+      --accent2: #4fc3f7;
+      --text: #e8e8f0;
+      --muted: #888898;
+      --green: #4ade80;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      line-height: 1.6;
+    }
+
+    /* NAV */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(13,13,20,0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 56px;
+    }
+    .nav-logo { font-weight: 700; font-size: 1.1rem; color: var(--accent); }
+    .nav-links { display: flex; gap: 2rem; list-style: none; }
+    .nav-links a { color: var(--muted); text-decoration: none; font-size: 0.9rem; transition: color 0.2s; }
+    .nav-links a:hover { color: var(--text); }
+
+    /* HERO */
+    .hero {
+      text-align: center;
+      padding: 6rem 1rem 4rem;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute;
+      width: 600px; height: 600px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(124,106,247,0.18) 0%, transparent 70%);
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+    }
+    .orb {
+      width: 96px; height: 96px;
+      border-radius: 50%;
+      background: conic-gradient(from 0deg, #7c6af7, #4fc3f7, #f472b6, #7c6af7);
+      animation: spin 4s linear infinite;
+      margin: 0 auto 2rem;
+      box-shadow: 0 0 60px rgba(124,106,247,0.5);
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    h1 { font-size: clamp(2rem, 5vw, 3.5rem); font-weight: 800; letter-spacing: -0.03em; }
+    h1 span { color: var(--accent); }
+    .hero-sub {
+      color: var(--muted);
+      font-size: 1.15rem;
+      max-width: 560px;
+      margin: 1rem auto 2rem;
+    }
+    .hero-badges { display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap; margin-bottom: 2.5rem; }
+    .badge {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 0.25rem 0.75rem;
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+    .btn-row { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.7rem 1.5rem;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: #6a59e0; transform: translateY(-1px); }
+    .btn-outline { border: 1px solid var(--border); color: var(--text); }
+    .btn-outline:hover { border-color: var(--accent); color: var(--accent); transform: translateY(-1px); }
+
+    /* SECTIONS */
+    section { max-width: 1100px; margin: 0 auto; padding: 4rem 1.5rem; }
+    h2 { font-size: 1.8rem; font-weight: 700; margin-bottom: 0.5rem; }
+    .section-sub { color: var(--muted); margin-bottom: 2.5rem; }
+
+    /* FEATURE GRID */
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.25rem; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+    .card:hover { border-color: var(--accent); transform: translateY(-2px); }
+    .card-icon { font-size: 1.75rem; margin-bottom: 0.75rem; }
+    .card h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.4rem; }
+    .card p { color: var(--muted); font-size: 0.875rem; }
+
+    /* TOOLS TABLE */
+    .tool-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0.5rem; }
+    .tool-tag {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.4rem 0.75rem;
+      font-size: 0.82rem;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .tool-tag .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+
+    /* PLATFORMS */
+    .platform-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 1rem; }
+    .platform-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.25rem 1rem;
+      text-align: center;
+    }
+    .platform-card .name { font-weight: 600; font-size: 0.95rem; }
+    .platform-card .endpoint { color: var(--muted); font-size: 0.75rem; font-family: monospace; margin-top: 0.25rem; }
+
+    /* CODE */
+    pre {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.5rem;
+      overflow-x: auto;
+      font-family: 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 0.875rem;
+      line-height: 1.7;
+      color: #c9d1d9;
+    }
+    .code-comment { color: #6a737d; }
+    .code-key { color: #79c0ff; }
+    .code-val { color: #a5d6ff; }
+    .code-str { color: #a8ff78; }
+
+    /* STATS BAR */
+    .stats-row { display: flex; gap: 2rem; flex-wrap: wrap; margin-bottom: 3rem; }
+    .stat { text-align: center; }
+    .stat-num { font-size: 2.5rem; font-weight: 800; color: var(--accent); }
+    .stat-label { color: var(--muted); font-size: 0.85rem; }
+
+    /* DIVIDER */
+    hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+
+    /* FOOTER */
+    footer {
+      text-align: center;
+      padding: 3rem 1rem;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.875rem;
+    }
+    footer a { color: var(--accent); text-decoration: none; }
+
+    @media (max-width: 600px) {
+      .nav-links { display: none; }
+      .stats-row { justify-content: center; }
+    }
+  </style>
+</head>
+<body>
+
+<nav>
+  <span class="nav-logo">⚡ Mins Bot</span>
+  <ul class="nav-links">
+    <li><a href="#features">Features</a></li>
+    <li><a href="#tools">Tools</a></li>
+    <li><a href="#platforms">Platforms</a></li>
+    <li><a href="#quickstart">Quick Start</a></li>
+    <li><a href="TOOLS.md">Docs</a></li>
+  </ul>
+</nav>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="orb"></div>
+  <h1>Your <span>Jarvis</span> for Windows</h1>
+  <p class="hero-sub">
+    A floating desktop AI assistant. A swirling orb lives on your screen — double-click to expand a full AI command center with voice, vision, browser control, and 100+ built-in tools.
+  </p>
+  <div class="hero-badges">
+    <span class="badge">Java 17</span>
+    <span class="badge">Spring Boot 3.5</span>
+    <span class="badge">JavaFX 21</span>
+    <span class="badge">Spring AI</span>
+    <span class="badge">100+ Tools</span>
+    <span class="badge">10 Platforms</span>
+    <span class="badge">Open Source</span>
+  </div>
+  <div class="btn-row">
+    <a href="https://github.com/ceasis/mins-bot" class="btn btn-primary">⭐ View on GitHub</a>
+    <a href="SETUP.md" class="btn btn-outline">📖 Setup Guide</a>
+    <a href="TOOLS.md" class="btn btn-outline">🔧 Tool Reference</a>
+  </div>
+</div>
+
+<!-- STATS -->
+<section>
+  <div class="stats-row">
+    <div class="stat"><div class="stat-num">100+</div><div class="stat-label">Built-in Tools</div></div>
+    <div class="stat"><div class="stat-num">10</div><div class="stat-label">Messaging Platforms</div></div>
+    <div class="stat"><div class="stat-num">5+</div><div class="stat-label">AI Providers</div></div>
+    <div class="stat"><div class="stat-num">24</div><div class="stat-label">Parallel Agents</div></div>
+    <div class="stat"><div class="stat-num">18+</div><div class="stat-label">UI Tabs</div></div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section id="features">
+  <h2>Everything in one orb</h2>
+  <p class="section-sub">Double-click to open. Talk, type, or let it act on its own.</p>
+  <div class="grid">
+
+    <div class="card">
+      <div class="card-icon">🧠</div>
+      <h3>Multi-Model AI</h3>
+      <p>GPT-5.4, GPT-4o-mini, Gemini 2.5 Flash, Claude Opus — switch anytime or let the bot pick the best model for the task.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-icon">👁️</div>
+      <h3>Screen Vision</h3>
+      <p>Captures your screen before every reply. Detects dialogs, forms, errors, and notifications. Knows what you're looking at.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-icon">⚡</div>
+      <h3>Proactive Action Mode</h3>
+      <p>Auto-acts on what it sees. Fills forms, dismisses dialogs, completes tasks — like a real Jarvis, with 60s cooldown between actions.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-icon">🌐</div>
+      <h3>Browser Control</h3>
+      <p>Controls real Chrome via CDP and runs headless Playwright. Navigate, click, extract, fill forms via JavaScript injection in ~10ms.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-icon">🤖</div>
+      <h3>Background Agents</h3>
+      <p>Launch up to 24 parallel AI agents on isolated missions. Pick the model per-agent. Download results as Markdown.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-icon">🎙️</div>
+      <h3>Voice I/O</h3>
+      <p>ElevenLabs, Fish Audio, OpenAI TTS, or Windows native voice. Gemini Live for real-time bilingual audio streaming.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-icon">🧬</div>
+      <h3>Learning Layer</h3>
+      <p>Detects your habits from time/day patterns. Rates its own suggestions and improves. Create named skill workflows with trigger phrases.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-icon">📱</div>
+      <h3>Mobile Access</h3>
+      <p>Server binds to 0.0.0.0 — open <code>http://your-pc:8765/</code> on your phone. Responsive UI adapts to any screen size.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-icon">💾</div>
+      <h3>Auto-Memory</h3>
+      <p>Automatically extracts life facts from conversations and saves them as searchable episodic memory episodes.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-icon">🎵</div>
+      <h3>Media Control</h3>
+      <p>Play, pause, skip, adjust volume via media keys. Works with Spotify, Windows Media Player, or any player.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-icon">📥</div>
+      <h3>Video Downloader</h3>
+      <p>yt-dlp wrapper for YouTube, TikTok, and 1000+ sites. Auto-installs via winget if not present.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-icon">📋</div>
+      <h3>Clipboard History</h3>
+      <p>Rolling 200-entry clipboard tracker. Ask the bot "what did I copy 3 things ago?" and it knows.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-icon">💹</div>
+      <h3>Finance Tracker</h3>
+      <p>Log expenses, income, budgets, bills, debt goals. Monthly reports with category breakdowns.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-icon">❤️</div>
+      <h3>Health Tracker</h3>
+      <p>Water, meals, exercise, weight, mood, sleep, medications. Daily summaries and multi-day trends.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-icon">🔭</div>
+      <h3>Trend Scout</h3>
+      <p>Monitors YouTube and the web for topics you care about. Surfaces what's trending in your interests.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-icon">🔌</div>
+      <h3>10 Messaging Platforms</h3>
+      <p>Same AI brain across Discord, Slack, Telegram, WhatsApp, Messenger, LINE, Teams, WeChat, Viber, Signal.</p>
+    </div>
+
+  </div>
+</section>
+
+<!-- TOOLS -->
+<section id="tools">
+  <h2>100+ Built-in Tools</h2>
+  <p class="section-sub">AI-selected dynamically per message. Grouped into categories by an internal classifier.</p>
+  <div class="tool-grid">
+    <div class="tool-tag"><span class="dot"></span>searchWeb</div>
+    <div class="tool-tag"><span class="dot"></span>readWebPage</div>
+    <div class="tool-tag"><span class="dot"></span>browsePage (Playwright)</div>
+    <div class="tool-tag"><span class="dot"></span>browserFillForm (CDP)</div>
+    <div class="tool-tag"><span class="dot"></span>browserExecuteJs</div>
+    <div class="tool-tag"><span class="dot"></span>screenClick</div>
+    <div class="tool-tag"><span class="dot"></span>screenCapture</div>
+    <div class="tool-tag"><span class="dot"></span>captureScreenForContext</div>
+    <div class="tool-tag"><span class="dot"></span>readFile / writeFile</div>
+    <div class="tool-tag"><span class="dot"></span>listDirectory</div>
+    <div class="tool-tag"><span class="dot"></span>downloadFile</div>
+    <div class="tool-tag"><span class="dot"></span>readPdf</div>
+    <div class="tool-tag"><span class="dot"></span>readExcel / writeExcel</div>
+    <div class="tool-tag"><span class="dot"></span>readWordDoc</div>
+    <div class="tool-tag"><span class="dot"></span>runCommand</div>
+    <div class="tool-tag"><span class="dot"></span>openApp / switchWindow</div>
+    <div class="tool-tag"><span class="dot"></span>snapWindow</div>
+    <div class="tool-tag"><span class="dot"></span>moveBotWindow</div>
+    <div class="tool-tag"><span class="dot"></span>installSoftware (winget)</div>
+    <div class="tool-tag"><span class="dot"></span>pingHost / portScan</div>
+    <div class="tool-tag"><span class="dot"></span>sendEmail / readEmail</div>
+    <div class="tool-tag"><span class="dot"></span>listCalendarEvents</div>
+    <div class="tool-tag"><span class="dot"></span>logHealth* (11 tools)</div>
+    <div class="tool-tag"><span class="dot"></span>logExpense / logIncome</div>
+    <div class="tool-tag"><span class="dot"></span>setMonthlyBudget</div>
+    <div class="tool-tag"><span class="dot"></span>monthlyFinanceReport</div>
+    <div class="tool-tag"><span class="dot"></span>listGithubRepos</div>
+    <div class="tool-tag"><span class="dot"></span>createGithubIssue</div>
+    <div class="tool-tag"><span class="dot"></span>searchGithubRepos</div>
+    <div class="tool-tag"><span class="dot"></span>playPauseMedia</div>
+    <div class="tool-tag"><span class="dot"></span>skipTrack / volumeUp</div>
+    <div class="tool-tag"><span class="dot"></span>downloadVideo (yt-dlp)</div>
+    <div class="tool-tag"><span class="dot"></span>getClipboardHistory</div>
+    <div class="tool-tag"><span class="dot"></span>saveEpisodicMemory</div>
+    <div class="tool-tag"><span class="dot"></span>searchEpisodes</div>
+    <div class="tool-tag"><span class="dot"></span>detectHabits</div>
+    <div class="tool-tag"><span class="dot"></span>rateSuggestion</div>
+    <div class="tool-tag"><span class="dot"></span>createNamedSkill</div>
+    <div class="tool-tag"><span class="dot"></span>addContact / trackPost</div>
+    <div class="tool-tag"><span class="dot"></span>checkBirthdays</div>
+    <div class="tool-tag"><span class="dot"></span>scoutTrends</div>
+    <div class="tool-tag"><span class="dot"></span>generateQrCode</div>
+    <div class="tool-tag"><span class="dot"></span>hashFile (MD5, SHA256)</div>
+    <div class="tool-tag"><span class="dot"></span>convertUnits</div>
+    <div class="tool-tag"><span class="dot"></span>textToSpeech</div>
+    <div class="tool-tag"><span class="dot"></span>transcribeAudio</div>
+    <div class="tool-tag"><span class="dot"></span>codeAudit (clone + scan)</div>
+    <div class="tool-tag"><span class="dot"></span>getWeather</div>
+    <div class="tool-tag"><span class="dot"></span>setTimer / setReminder</div>
+    <div class="tool-tag"><span class="dot"></span>... and 50+ more</div>
+  </div>
+  <p style="margin-top:1.5rem;"><a href="TOOLS.md" style="color:var(--accent);text-decoration:none;">→ Full tool reference in TOOLS.md</a></p>
+</section>
+
+<!-- PLATFORMS -->
+<section id="platforms">
+  <h2>10 Messaging Integrations</h2>
+  <p class="section-sub">All disabled by default. Enable any combination — they all share the same AI brain.</p>
+  <div class="platform-grid">
+    <div class="platform-card"><div class="name">💬 Discord</div><div class="endpoint">POST /api/discord/interactions</div></div>
+    <div class="platform-card"><div class="name">💼 Slack</div><div class="endpoint">POST /api/slack/events</div></div>
+    <div class="platform-card"><div class="name">✈️ Telegram</div><div class="endpoint">POST /api/telegram/webhook</div></div>
+    <div class="platform-card"><div class="name">📱 WhatsApp</div><div class="endpoint">POST /api/whatsapp/webhook</div></div>
+    <div class="platform-card"><div class="name">📘 Messenger</div><div class="endpoint">POST /api/messenger/webhook</div></div>
+    <div class="platform-card"><div class="name">🟢 LINE</div><div class="endpoint">POST /api/line/webhook</div></div>
+    <div class="platform-card"><div class="name">🟦 Teams</div><div class="endpoint">POST /api/teams/messages</div></div>
+    <div class="platform-card"><div class="name">🟡 WeChat</div><div class="endpoint">POST /api/wechat/webhook</div></div>
+    <div class="platform-card"><div class="name">🟣 Viber</div><div class="endpoint">POST /api/viber/webhook</div></div>
+    <div class="platform-card"><div class="name">🔵 Signal</div><div class="endpoint">POST /api/signal/webhook</div></div>
+  </div>
+</section>
+
+<!-- QUICK START -->
+<section id="quickstart">
+  <h2>Quick Start</h2>
+  <p class="section-sub">Up and running in 4 commands.</p>
+
+  <pre><span class="code-comment"># 1. Clone</span>
+git clone https://github.com/choloville/mins-bot.git
+cd mins-bot
+
+<span class="code-comment"># 2. Add your API key (minimum requirement)</span>
+echo "<span class="code-key">spring.ai.openai.api-key</span>=<span class="code-str">YOUR_KEY</span>" &gt; application-secrets.properties
+
+<span class="code-comment"># 3. Build</span>
+mvn clean package -DskipTests
+
+<span class="code-comment"># 4. Run</span>
+mvn spring-boot:run</pre>
+
+  <p style="margin-top:1.5rem;color:var(--muted);">The floating orb appears on your desktop. Double-click to expand. <br>Access from any device on your network at <code>http://your-pc-ip:8765/</code></p>
+  <br>
+  <a href="SETUP.md" class="btn btn-outline">Full Setup Guide →</a>
+</section>
+
+<!-- ARCHITECTURE -->
+<section>
+  <h2>Architecture</h2>
+  <p class="section-sub">Spring Boot backend + JavaFX floating window + vanilla JS frontend.</p>
+  <div class="grid">
+    <div class="card">
+      <div class="card-icon">☕</div>
+      <h3>Java Backend</h3>
+      <p>Spring Boot 3.5 serves the API and manages all AI orchestration, tool execution, memory, and integrations.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🪟</div>
+      <h3>JavaFX Window</h3>
+      <p>Transparent always-on-top window with WebView. No title bar. The orb is 64×64px, draggable anywhere on screen.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🎨</div>
+      <h3>Vanilla JS Frontend</h3>
+      <p>Pure HTML/CSS/JS served as static resources. No React or build step. Tabs, voice UI, streaming chat.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🔀</div>
+      <h3>Dynamic Tool Routing</h3>
+      <p>GPT-4o-mini classifies each message and selects the right subset of tools. Respects the 128-tool API limit.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🗂️</div>
+      <h3>File-based Storage</h3>
+      <p>No database. Persistent data lives in <code>~/mins_bot_data/</code> — plain text and JSON files.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🔌</div>
+      <h3>Plugin System</h3>
+      <p>Drop a new package under <code>com.minsbot.skills.*</code> and Spring auto-discovers it. No registration needed.</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p>Built with ☕ Java, ❤️ Spring AI, and too many late nights.</p>
+  <p style="margin-top:0.5rem;">
+    <a href="https://github.com/ceasis/mins-bot">GitHub</a> ·
+    <a href="SETUP.md">Setup</a> ·
+    <a href="TOOLS.md">Tools</a> ·
+    Licensed under AGPL-3.0 + Commons Clause
+  </p>
+</footer>
+
+</body>
+</html>

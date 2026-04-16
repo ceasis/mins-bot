@@ -54,10 +54,13 @@ A floating desktop AI assistant built with **Java 17**, **Spring Boot**, and **J
 
 ### Browser & Automation
 - **Chrome DevTools Protocol** — control your real Chrome browser (navigate, click, extract data, fill forms)
+- **JavaScript injection** — `browserFillForm` and `browserExecuteJs` for instant form filling via CDP (~10ms)
 - **Playwright** — headless browser automation for web scraping
 - **System control** — execute system commands, manage processes, control applications
-- **Window manager** — arrange windows, app switching
+- **Window manager** — arrange windows, app switching, snap to edges (Win+Arrow)
+- **Bot window control** — tell the bot to move itself ("move yourself to the left")
 - **Automations** — custom trigger/action rules ("when message contains X, do Y")
+- **Clipboard history** — tracks last 200 clipboard entries, searchable by AI
 
 ### Life Management Tools
 
@@ -101,18 +104,43 @@ A floating desktop AI assistant built with **Java 17**, **Spring Boot**, and **J
 - Slideshow videos from images with crossfade transitions
 - Render to MP4 via CLI
 
+#### Media & Entertainment
+- **Music control** — play/pause/skip, volume control via media keys (Spotify, Windows Media Player, any player)
+- **Video downloader** — yt-dlp wrapper for YouTube, TikTok, and 1000+ sites (auto-installs via winget)
+- **Image tools** — resize, crop, filter
+- **Screen recording** — capture and export MP4
+- **QR codes** — generate and scan
+
+#### Social & Trend Intelligence
+- **Social monitor** — track contacts, birthdays, posts, and mentions across platforms
+- **Trend scout** — monitor YouTube/web for topics you're interested in, surfaces what's trending
+- **Habit detection** — learns your routines from time/day patterns, persisted to `habit_events.json`
+- **Feedback loop** — rates suggestions, improves over time
+- **Skill auto-creation** — save named workflows with trigger phrases, auto-executes on match
+
 #### Other Tools
 - **Email** — send/read via SMTP/IMAP + Gmail API
 - **Calendar** — Google Calendar integration
 - **Web search** — Serper, SerpAPI, or DuckDuckGo
 - **Web monitoring** — track website changes
-- **Code audit** — clone repos, scan for vulnerabilities
+- **Code audit** — clone repos, scan for SQL injection, hardcoded secrets, unused imports
 - **File operations** — read, write, search, download, export, Excel, Word, PDF
-- **Media** — image manipulation, QR codes, screen recording, video download
-- **Utilities** — calculator, unit conversion, hash, timers, clipboard history
+- **Utilities** — calculator, unit conversion, hash, timers
 - **Software management** — install/uninstall via winget
 - **Network diagnostics** — ping, traceroute, port scan
 - **Printer control** — list printers, print documents
+
+### Background Agents
+- **Parallel agents** — launch up to 24 concurrent AI agents on isolated missions
+- **Per-agent model selection** — pick GPT-5.4, GPT-4o-mini, Claude, or Gemini per agent
+- **Agent dashboard** — live progress bars, log stream, plan view, status badges
+- **Download results** — export agent output as a Markdown file
+- **Cancel / remove** — cancel running agents or clear finished ones
+
+### Dashboard & Analytics
+- **Usage metrics** — token counts, response times, tool invocation counts
+- **Module stats** — which vision/audio models are active and how many calls they've handled
+- **Status bar** — 2-row bar shows vision engine, audio module, and live counts
 
 ### Messaging Integrations (10 Platforms)
 Connect the same AI to any combination — all share the same reply logic:
@@ -149,7 +177,7 @@ All integrations are **disabled by default** and conditionally loaded — disabl
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/user/mins-bot.git
+git clone https://github.com/ceasis/mins-bot.git
 cd mins-bot
 ```
 
@@ -395,16 +423,34 @@ mins-bot/
 
 ## Roadmap
 
+### Recently Shipped
+- [x] **Music control** — play/pause/skip, volume via media keys (any player)
+- [x] **Video downloader** — yt-dlp wrapper (YouTube, TikTok, 1000+ sites)
+- [x] **Clipboard history** — 200-entry rolling history, AI-searchable
+- [x] **Auto-pilot mode** — proactive screen-watching suggestions with TTS
+- [x] **Habit & learning layer** — habit detection, feedback loop, skill auto-creation
+- [x] **Social monitor** — contacts, birthdays, posts, mentions
+- [x] **Trend scout** — YouTube/web interest monitoring
+- [x] **Mobile access** — server binds to 0.0.0.0, responsive CSS
+- [x] **Auto-memory extraction** — life facts auto-saved from conversations
+- [x] **JavaScript injection** — CDP-based instant form fill (~10ms)
+- [x] **Bot window self-control** — "move yourself to the left"
+- [x] **Per-agent model selection** — dropdown per background agent
+- [x] **Agent output download** — export agent result as Markdown
+- [x] **2-row status bar** — vision/audio module info always visible
+- [x] **Dashboard tab** — token usage, tool counts, uptime
+- [x] **Multi-agent chat** — multiple AI personas collaborating
+- [x] **Automations tab** — trigger/action rule engine
+- [x] **Code audit tools** — git clone + vulnerability scan
+
 ### Near-term
 - [ ] **Smart home integration** — Home Assistant / MQTT for lights, thermostat, locks, cameras
-- [ ] **Spotify / music control** — play, pause, skip, search, queue management
 - [ ] **Contact CRM** — relationship tracking with last interaction, birthday alerts, gift ideas
 - [ ] **Daily briefing dashboard** — visual home screen with weather, calendar, tasks, health, budget
 - [ ] **Sidebar navigation** — collapsible icon sidebar replacing the horizontal tab bar
 - [ ] **Rich message cards** — structured cards for health logs, finance, weather, bills
 
 ### Mid-term
-- [ ] **Mobile companion** — responsive web UI optimized for phone browsers
 - [ ] **Wake word detection** — always-listening "Hey Mins" trigger
 - [ ] **Workflow builder** — visual drag-and-drop automation chains
 - [ ] **Location awareness** — GPS/IP-based triggers ("you're near the grocery store")
@@ -414,7 +460,6 @@ mins-bot/
 ### Long-term
 - [ ] **Plugin marketplace** — community-created skills and tools
 - [ ] **Multi-device sync** — seamless handoff between desktop, phone, and wearables
-- [ ] **Habit pattern detection** — learns routines without being told
 - [ ] **Voice cloning** — custom Jarvis voice via voice training
 - [ ] **AR/camera integration** — point phone camera for real-world AI assistance
 - [ ] **Offline mode** — local LLM fallback when internet is unavailable
