@@ -12,7 +12,7 @@
   <div id="root" class="expanded">
     <header id="title-bar" class="title-bar">
       <div class="title-bar-drag">
-        <span class="title-bar-glow"></span>
+        <img class="title-bar-icon" src="bot-icon-16.png" srcset="bot-icon-16.png 1x, bot-icon-32.png 2x" alt="" aria-hidden="true" draggable="false">
         <span class="title-bar-app-name">Mins Bot</span>
       </div>
       <div class="title-bar-controls">
@@ -30,8 +30,6 @@
     <div id="panel" class="panel">
       <div class="panel-header">
         <div style="display:flex;align-items:center;gap:8px;">
-          <div class="ball-container"><div class="ball" aria-hidden="true"></div></div>
-          <span class="panel-title">Mins Bot</span>
           <div id="header-thinking" class="header-thinking" hidden aria-hidden="true" title="Processing...">
             <svg class="header-ecg" viewBox="0 0 32 12" aria-hidden="true">
               <path class="header-ecg-line" d="M0 6 L8 6 L10 2 L12 6 L14 6 L16 10 L18 6 L32 6" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -1030,8 +1028,7 @@
     <div id="status-bar" class="status-bar">
       <div class="status-row">
         <span id="mouse-coords">X: 0 &nbsp; Y: 0</span>
-      </div>
-      <div class="status-row">
+        <span class="status-row-spacer"></span>
         <span id="status-chat" class="status-module" title="Chat LLM model &amp; call count">
           <i class="fa-solid fa-brain status-module-icon"></i>
           <span id="status-chat-label">—</span>

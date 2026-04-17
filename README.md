@@ -130,6 +130,41 @@ A floating desktop AI assistant built with **Java 17**, **Spring Boot**, and **J
 - **Network diagnostics** — ping, traceroute, port scan
 - **Printer control** — list printers, print documents
 
+### Pluggable Skills Library (81 self-contained skills)
+
+Each skill is a self-contained sub-package (`com.minsbot.skills.<name>`) with its own Config + Service + Controller,
+exposed at `/api/skills/<name>/*`, and **also available to the chat LLM as `@Tool` methods** via 8 themed wrapper classes.
+All disabled by default — enable per-skill via `app.skills.<name>.enabled=true` in `application.properties`.
+
+| Category | Skill count | Examples |
+|---|---|---|
+| **Dev & Data** | 17 | encoder, hashcalc, jsontools, yamltools, csvtools, sqlformatter, difftool, regextester, regexinferrer, markdowntools, dockerfilelint, loganalyzer, httptester, cronvalidator, fakedatagen, randomgen, unitconvert |
+| **SEO** | 6 | metaanalyzer, keywordextractor, sitemapchecker, robotschecker, readability, sluggenerator |
+| **Marketing** | 5 | utmbuilder, subjectanalyzer, charcounter, abtestcalc, hashtagsuggest |
+| **Security Analyst** | 10 | passwordstrength, hibpcheck, jwtinspector, certinspector, headeraudit, dnslookup, cvelookup, hashidentifier, secretsscan, emailvalidator |
+| **Privacy/Encryption** | 3 | piiredactor, exifstripper, encryptionaes |
+| **Science/Math** | 7 | probabilitycalc, matrixops, physicscalc, geodistance, statsbasics, geometrycalc, langdetector |
+| **Finance** | 6 | financecalc, taxcalc, realestatecalc, stockindicators, breakevencalc, depreciationcalc, cashflowforecast |
+| **Health/Fitness** | 5 | bmicalc, macrocalc, pacecalc, heartratezones, medicalunits |
+| **Productivity** | 11 | notes, reminders, timer, clipboardhistory, okrtracker, timezoneconvert, meetingcost, slacalc, pomodoroplanner, flashcardmaker, netinfo |
+| **Content/Writing** | 7 | writingtools, headlineanalyzer, citationformatter, markdownhtml, numberwords, colortools, imagemeta |
+| **Culinary** | 1 | recipescaler |
+| **Education** | 1 | gradecalc |
+| **File system** | 1 | diskscan |
+
+**LLM wrapper classes** in `com.minsbot.agent.tools.*` (each registered as a `ToolRouter` category):
+- `SkillDevTools` → `dev_skills`
+- `SkillProductivityTools` → `productivity_skills`
+- `SkillSeoMarketingTools` → `seo_marketing_skills`
+- `SkillSecurityTools` → `security_skills`
+- `SkillProfessionTools` → `profession_skills`
+- `SkillDataToolsExtra` → `data_skills_extra`
+- `SkillCalcTools` → `calc_skills`
+- `SkillExtrasTools` → `extras_skills`
+
+The AI classifier routes user queries to the right category automatically (e.g. "is my password strong?" → `security_skills`,
+"what's 5% compound interest over 10 years?" → `profession_skills` / `calc_skills`).
+
 ### Background Agents
 - **Parallel agents** — launch up to 24 concurrent AI agents on isolated missions
 - **Per-agent model selection** — pick GPT-5.4, GPT-4o-mini, Claude, or Gemini per agent
@@ -357,7 +392,28 @@ mins-bot/
 │   │       ├── EpisodicMemoryTools.java   # Memory recall & search
 │   │       └── ...
 │   │
-│   ├── skills/                            # Pluggable skill packages
+│   ├── skills/                            # 81 pluggable skill packages (Config/Service/Controller each)
+│   │   ├── encoder/ hashcalc/ jsontools/ regextester/ randomgen/
+│   │   ├── unitconvert/ notes/ reminders/ timer/ clipboardhistory/
+│   │   ├── netinfo/ metaanalyzer/ keywordextractor/ sitemapchecker/
+│   │   ├── robotschecker/ readability/ sluggenerator/ utmbuilder/
+│   │   ├── subjectanalyzer/ charcounter/ abtestcalc/ hashtagsuggest/
+│   │   ├── passwordstrength/ hibpcheck/ jwtinspector/ certinspector/
+│   │   ├── headeraudit/ dnslookup/ cvelookup/ hashidentifier/
+│   │   ├── secretsscan/ emailvalidator/ colortools/ imagemeta/
+│   │   ├── writingtools/ citationformatter/ statsbasics/ financecalc/
+│   │   ├── taxcalc/ realestatecalc/ stockindicators/ meetingcost/
+│   │   ├── timezoneconvert/ slacalc/ bmicalc/ medicalunits/
+│   │   ├── recipescaler/ geometrycalc/ langdetector/ gradecalc/
+│   │   ├── okrtracker/ cronvalidator/ csvtools/ difftool/
+│   │   ├── yamltools/ sqlformatter/ markdowntools/ dockerfilelint/
+│   │   ├── probabilitycalc/ matrixops/ physicscalc/ geodistance/
+│   │   ├── breakevencalc/ depreciationcalc/ cashflowforecast/
+│   │   ├── macrocalc/ pacecalc/ heartratezones/ headlineanalyzer/
+│   │   ├── markdownhtml/ numberwords/ piiredactor/ exifstripper/
+│   │   ├── encryptionaes/ fakedatagen/ flashcardmaker/ loganalyzer/
+│   │   ├── pomodoroplanner/ httptester/ regexinferrer/ diskscan/
+│   │   └── ...
 │   └── [Platform]*.java                   # 10 messaging integrations
 │
 ├── src/main/resources/

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Mins Bot — AI Assistant for your Desktop</title>
-  <meta name="description" content="Mins Bot is a floating desktop AI assistant. A swirling orb on your screen that expands into a full AI command center — voice, vision, 100+ tools, 10 platforms." />
+  <meta name="description" content="Mins Bot is a floating desktop AI assistant. A swirling orb on your screen that expands into a full AI command center — voice, vision, 180+ tools, 81 pluggable skills, 10 platforms." />
   <style>
     :root {
       --bg: #07070f;
@@ -566,7 +566,7 @@
 
   <h1>Your <span class="grad">Jarvis</span><br>for the Desktop</h1>
   <p class="hero-sub">
-    A floating AI orb lives on your screen. Double-click to expand a full command center — voice, vision, browser control, 100+ tools, 10 messaging platforms.
+    A floating AI orb lives on your screen. Double-click to expand a full command center — voice, vision, browser control, 180+ tools, 81 pluggable skills, 10 messaging platforms.
   </p>
 
   <div class="hero-actions">
@@ -787,7 +787,7 @@
 <!-- ─── TOOLS ─── -->
 <div class="section reveal" id="tools">
   <div class="section-label">Tool Reference</div>
-  <h2>100+ built-in tools</h2>
+  <h2>180+ built-in tools</h2>
   <p class="section-desc">Automatically selected per message by a GPT-4o-mini classifier. Hover to explore.</p>
 
   <div style="margin-bottom:1.25rem;display:flex;gap:0.5rem;flex-wrap:wrap;">
@@ -867,6 +867,110 @@
     <span class="tool-chip cat-media" style="color:var(--dim);border-color:var(--border)">+ 50 more →</span>
   </div>
   <p style="margin-top:1.75rem;"><a href="TOOLS.md" style="color:var(--accent);text-decoration:none;font-size:0.9rem;">View complete tool reference →</a></p>
+</div>
+
+<!-- ─── SKILLS LIBRARY ─── -->
+<div class="section reveal" id="skills">
+  <div class="section-label">Pluggable Skills Library</div>
+  <h2>81 self-contained skills</h2>
+  <p class="section-desc">Each skill is a drop-in package (Config + Service + Controller). Exposes <code>/api/skills/&lt;name&gt;/*</code> endpoints <em>and</em> is invokable by the chat LLM via themed <code>@Tool</code> wrapper classes. All disabled by default.</p>
+
+  <div class="tool-cloud" style="margin-top:1.5rem;">
+    <!-- Dev & Data -->
+    <span class="tool-chip cat-sys">encoder</span>
+    <span class="tool-chip cat-sys">hashcalc</span>
+    <span class="tool-chip cat-sys">jsontools</span>
+    <span class="tool-chip cat-sys">yamltools</span>
+    <span class="tool-chip cat-sys">csvtools</span>
+    <span class="tool-chip cat-sys">sqlformatter</span>
+    <span class="tool-chip cat-sys">difftool</span>
+    <span class="tool-chip cat-sys">regextester</span>
+    <span class="tool-chip cat-sys">regexinferrer</span>
+    <span class="tool-chip cat-sys">markdowntools</span>
+    <span class="tool-chip cat-sys">dockerfilelint</span>
+    <span class="tool-chip cat-sys">loganalyzer</span>
+    <span class="tool-chip cat-sys">httptester</span>
+    <span class="tool-chip cat-sys">cronvalidator</span>
+    <span class="tool-chip cat-sys">fakedatagen</span>
+    <span class="tool-chip cat-sys">randomgen</span>
+    <span class="tool-chip cat-sys">unitconvert</span>
+
+    <!-- SEO/Marketing (browser-ish cat) -->
+    <span class="tool-chip cat-browser">metaanalyzer</span>
+    <span class="tool-chip cat-browser">keywordextractor</span>
+    <span class="tool-chip cat-browser">sitemapchecker</span>
+    <span class="tool-chip cat-browser">robotschecker</span>
+    <span class="tool-chip cat-browser">readability</span>
+    <span class="tool-chip cat-browser">sluggenerator</span>
+    <span class="tool-chip cat-browser">utmbuilder</span>
+    <span class="tool-chip cat-browser">subjectanalyzer</span>
+    <span class="tool-chip cat-browser">charcounter</span>
+    <span class="tool-chip cat-browser">abtestcalc</span>
+    <span class="tool-chip cat-browser">hashtagsuggest</span>
+    <span class="tool-chip cat-browser">headlineanalyzer</span>
+
+    <!-- Security -->
+    <span class="tool-chip cat-ai">passwordstrength</span>
+    <span class="tool-chip cat-ai">hibpcheck</span>
+    <span class="tool-chip cat-ai">jwtinspector</span>
+    <span class="tool-chip cat-ai">certinspector</span>
+    <span class="tool-chip cat-ai">headeraudit</span>
+    <span class="tool-chip cat-ai">dnslookup</span>
+    <span class="tool-chip cat-ai">cvelookup</span>
+    <span class="tool-chip cat-ai">hashidentifier</span>
+    <span class="tool-chip cat-ai">secretsscan</span>
+    <span class="tool-chip cat-ai">emailvalidator</span>
+    <span class="tool-chip cat-ai">piiredactor</span>
+    <span class="tool-chip cat-ai">exifstripper</span>
+    <span class="tool-chip cat-ai">encryptionaes</span>
+    <span class="tool-chip cat-ai">netinfo</span>
+
+    <!-- Finance / Science / Math (life cat) -->
+    <span class="tool-chip cat-life">financecalc</span>
+    <span class="tool-chip cat-life">taxcalc</span>
+    <span class="tool-chip cat-life">realestatecalc</span>
+    <span class="tool-chip cat-life">stockindicators</span>
+    <span class="tool-chip cat-life">breakevencalc</span>
+    <span class="tool-chip cat-life">depreciationcalc</span>
+    <span class="tool-chip cat-life">cashflowforecast</span>
+    <span class="tool-chip cat-life">probabilitycalc</span>
+    <span class="tool-chip cat-life">matrixops</span>
+    <span class="tool-chip cat-life">physicscalc</span>
+    <span class="tool-chip cat-life">geodistance</span>
+    <span class="tool-chip cat-life">statsbasics</span>
+    <span class="tool-chip cat-life">geometrycalc</span>
+    <span class="tool-chip cat-life">bmicalc</span>
+    <span class="tool-chip cat-life">macrocalc</span>
+    <span class="tool-chip cat-life">pacecalc</span>
+    <span class="tool-chip cat-life">heartratezones</span>
+    <span class="tool-chip cat-life">medicalunits</span>
+    <span class="tool-chip cat-life">gradecalc</span>
+    <span class="tool-chip cat-life">recipescaler</span>
+
+    <!-- Content / misc (media cat) -->
+    <span class="tool-chip cat-media">colortools</span>
+    <span class="tool-chip cat-media">imagemeta</span>
+    <span class="tool-chip cat-media">writingtools</span>
+    <span class="tool-chip cat-media">citationformatter</span>
+    <span class="tool-chip cat-media">markdownhtml</span>
+    <span class="tool-chip cat-media">numberwords</span>
+    <span class="tool-chip cat-media">langdetector</span>
+    <span class="tool-chip cat-media">flashcardmaker</span>
+
+    <!-- Productivity (sys cat) -->
+    <span class="tool-chip cat-sys">notes</span>
+    <span class="tool-chip cat-sys">reminders</span>
+    <span class="tool-chip cat-sys">timer</span>
+    <span class="tool-chip cat-sys">clipboardhistory</span>
+    <span class="tool-chip cat-sys">okrtracker</span>
+    <span class="tool-chip cat-sys">timezoneconvert</span>
+    <span class="tool-chip cat-sys">meetingcost</span>
+    <span class="tool-chip cat-sys">slacalc</span>
+    <span class="tool-chip cat-sys">pomodoroplanner</span>
+    <span class="tool-chip cat-sys">diskscan</span>
+  </div>
+
+  <p style="margin-top:1.75rem;"><a href="TOOLS.md#skills-library-81-pluggable-skills" style="color:var(--accent);text-decoration:none;font-size:0.9rem;">View full skills reference →</a></p>
 </div>
 
 <!-- ─── PLATFORMS ─── -->

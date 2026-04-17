@@ -376,7 +376,10 @@
             </resource>
         </resources>
         <plugins>
-            <!-- Exclude target/dist from mvn clean — installer output has locked MinsBot.exe -->
+            <!-- Exclude target/dist and target/installer from mvn clean.                    -->
+            <!-- target/dist: packaged JRE (MinsBot.exe may be locked while running).        -->
+            <!-- target/installer: leftover jpackage output that can contain recursive       -->
+            <!-- symlinks or deep paths that blow the stack in the Maven cleaner.            -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-clean-plugin</artifactId>
@@ -391,6 +394,8 @@
                             <excludes>
                                 <exclude>dist</exclude>
                                 <exclude>dist/**</exclude>
+                                <exclude>installer</exclude>
+                                <exclude>installer/**</exclude>
                             </excludes>
                             <followSymlinks>false</followSymlinks>
                         </fileset>

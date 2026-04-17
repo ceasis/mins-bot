@@ -917,3 +917,189 @@ All tools available to the AI agent, organized by category. Each tool is a `@Too
 |--------|-------------|
 | `backupConfigs` | Backup config files from a folder to a zip |
 | `scanConfigs` | Preview config files without backing up |
+
+---
+
+## Skills Library (81 pluggable skills)
+
+Each skill is a self-contained sub-package at `com.minsbot.skills.<name>` with its own Config + Service + Controller.
+All disabled by default (`app.skills.<name>.enabled=false`). Endpoints at `/api/skills/<name>/*`. The chat LLM can
+invoke them via 8 themed `@Tool` wrapper classes in `com.minsbot.agent.tools.*`.
+
+### LLM wrapper classes
+
+| Wrapper | ToolRouter category | Wraps |
+|---|---|---|
+| `SkillDevTools` | `dev_skills` | encoder, hashcalc, jsontools, regextester, randomgen, hashidentifier, cronvalidator, unitconvert |
+| `SkillProductivityTools` | `productivity_skills` | notes, reminders, timer, clipboardhistory, okrtracker, timezoneconvert, meetingcost, slacalc |
+| `SkillSeoMarketingTools` | `seo_marketing_skills` | metaanalyzer, keywordextractor, sitemapchecker, robotschecker, readability, sluggenerator, utmbuilder, subjectanalyzer, charcounter, abtestcalc, hashtagsuggest |
+| `SkillSecurityTools` | `security_skills` | passwordstrength, hibpcheck, jwtinspector, certinspector, headeraudit, dnslookup, cvelookup, secretsscan, emailvalidator, netinfo |
+| `SkillProfessionTools` | `profession_skills` | financecalc, taxcalc, realestatecalc, stockindicators, bmicalc, medicalunits, recipescaler, gradecalc, geometrycalc, citationformatter, statsbasics, writingtools, langdetector, colortools, imagemeta |
+| `SkillDataToolsExtra` | `data_skills_extra` | csvtools, difftool, yamltools, sqlformatter, markdowntools, dockerfilelint, loganalyzer, regexinferrer, httptester, fakedatagen |
+| `SkillCalcTools` | `calc_skills` | probabilitycalc, matrixops, physicscalc, geodistance, breakevencalc, depreciationcalc, cashflowforecast, macrocalc, pacecalc, heartratezones |
+| `SkillExtrasTools` | `extras_skills` | markdownhtml, headlineanalyzer, numberwords, piiredactor, exifstripper, encryptionaes, flashcardmaker, pomodoroplanner |
+
+### Skills by category
+
+#### Dev & Data (17)
+
+| Skill | Primary endpoints | What it does |
+|---|---|---|
+| encoder | `POST /encode`, `/decode` | base64, base64url, hex, url |
+| hashcalc | `POST /string`, `/file`, `/verify` | MD5/SHA-1/SHA-256/SHA-512 |
+| jsontools | `POST /validate`, `/pretty`, `/minify`, `/describe` | JSON operations |
+| yamltools | `POST /validate`, `/yaml-to-json`, `/json-to-yaml`, `/pretty` | YAML + conversion |
+| csvtools | `POST /describe`, `/column`, `/filter`, `/to-json` | CSV parsing |
+| sqlformatter | `POST /format`, `/minify` | SQL pretty-print |
+| difftool | `POST /lines`, `/unified`, `/similarity` | text diff + Levenshtein |
+| regextester | `POST /test`, `/replace` | regex matching |
+| regexinferrer | `POST /infer` | regex from example strings |
+| markdowntools | `POST /toc`, `/links`, `/validate-headings` | Markdown analysis |
+| dockerfilelint | `POST /lint` | Dockerfile best practices |
+| loganalyzer | `POST /analyze` | log level/exception/template analysis |
+| httptester | `POST /execute` | HTTP requests (allowlist-gated) |
+| cronvalidator | `GET /validate`, `/next` | Spring-cron parser + next N runs |
+| fakedatagen | `POST /generate` | realistic test data |
+| randomgen | `GET /uuid`, `/int`, `/dice`, `/password`, `POST /choose` | random generators |
+| unitconvert | `GET /convert`, `/categories` | length/weight/time/data/temp |
+
+#### SEO (6)
+
+| Skill | Endpoints | What it does |
+|---|---|---|
+| metaanalyzer | `GET /analyze?url=` | scores title, description, og:, canonical |
+| keywordextractor | `POST /text`, `GET /url` | top-N keyword/n-gram frequencies |
+| sitemapchecker | `GET /check` | sitemap.xml URL count + HEAD sample |
+| robotschecker | `GET /parse`, `/check` | robots.txt parse + allow/disallow |
+| readability | `POST /analyze` | Flesch, FK grade, Gunning Fog |
+| sluggenerator | `GET /make`, `/variations` | SEO URL slugs |
+
+#### Marketing (5)
+
+| Skill | Endpoints | What it does |
+|---|---|---|
+| utmbuilder | `POST /build`, `GET /parse` | UTM-tagged URLs |
+| subjectanalyzer | `POST /analyze` | email subject scoring |
+| charcounter | `POST /count` | per-platform char limits (X, LinkedIn, IG, TikTok, YT, Threads, Bluesky, Reddit, SMS) |
+| abtestcalc | `GET /significance`, `/sample-size` | two-proportion z-test |
+| hashtagsuggest | `POST /suggest` | hashtag candidates from content |
+
+#### Security Analyst (10)
+
+| Skill | Endpoints | What it does |
+|---|---|---|
+| passwordstrength | `POST /evaluate` | entropy + crack-time estimate |
+| hibpcheck | `POST /check` | HIBP lookup (k-anonymity) |
+| jwtinspector | `POST /decode`, `/verify` | HS256/384/512 + RS256/384/512 |
+| certinspector | `GET /inspect?host=&port=` | TLS cert chain/SAN/expiry |
+| headeraudit | `GET /audit?url=` | HSTS/CSP/XFO/COOP/CORP + info leaks |
+| dnslookup | `GET /lookup?domain=` | A/AAAA/MX/TXT/NS/CNAME/SOA |
+| cvelookup | `GET /id`, `/search` | NVD CVE lookup |
+| hashidentifier | `POST /identify` | 21 hash signatures |
+| secretsscan | `POST /scan` | AWS/GitHub/Slack/OpenAI/Stripe keys + private keys |
+| emailvalidator | `GET /validate?email=` | syntax + MX + disposable-domain |
+
+#### Privacy / Encryption (3)
+
+| Skill | Endpoints | What it does |
+|---|---|---|
+| piiredactor | `POST /redact` | email/phone/SSN/IP/CC/passport/IBAN |
+| exifstripper | `POST /strip` | remove EXIF/IPTC/XMP from images |
+| encryptionaes | `POST /encrypt`, `/decrypt` | AES-256-GCM + PBKDF2 |
+
+#### Science / Math (7)
+
+| Skill | Endpoints | What it does |
+|---|---|---|
+| probabilitycalc | `GET /factorial`, `/combinations`, `/permutations`, `/binomial`, `/normal`, `/poisson` | probability distributions |
+| matrixops | `POST /add`, `/multiply`, `/transpose`, `/determinant`, `/scalar` | basic linear algebra |
+| physicscalc | `GET /velocity`, `/displacement`, `/kinetic`, `/potential`, `/force`, `/power`, `/pressure`, `/ohm` | physics equations |
+| geodistance | `GET /between`, `/destination`, `/midpoint` | haversine + bearing |
+| statsbasics | `POST /describe`, `/correlation` | mean/median/stdev + Pearson R |
+| geometrycalc | `POST /2d`, `/3d`, `GET /distance` | shape area/volume |
+| langdetector | `POST /detect` | 11 scripts + Latin-stopword |
+
+#### Finance (7)
+
+| Skill | Endpoints | What it does |
+|---|---|---|
+| financecalc | `GET /compound`, `/loan`, `POST /npv`, `/irr`, `GET /roi`, `/present-value`, `/future-value` | finance math |
+| taxcalc | `POST /compute` | progressive tax brackets (BYO brackets) |
+| realestatecalc | `GET /mortgage`, `/cap-rate`, `/cash-on-cash`, `/one-percent-rule` | real estate |
+| stockindicators | `POST /sma`, `/ema`, `/rsi`, `/macd` | technical indicators |
+| breakevencalc | `GET /compute`, `/target-profit`, `/safety-margin` | break-even analysis |
+| depreciationcalc | `GET /straight-line`, `/declining-balance`, `/sum-of-years`, `POST /units` | asset depreciation |
+| cashflowforecast | `GET /project`, `/runway` | monthly projection + runway |
+
+#### Health / Fitness (5)
+
+| Skill | Endpoints | What it does |
+|---|---|---|
+| bmicalc | `GET /bmi`, `/bmr`, `/tdee`, `/body-fat` | BMI/BMR/TDEE/Navy body fat |
+| macrocalc | `GET /from-calories`, `/from-weight` | protein/carb/fat targets |
+| pacecalc | `GET /from-time`, `/from-pace`, `/splits`, `/convert` | running pace & splits |
+| heartratezones | `GET /zones` | training zones (Tanaka + Karvonen) |
+| medicalunits | `GET /lab`, `/temperature` | lab unit conversions |
+
+#### Productivity (11)
+
+| Skill | Endpoints | What it does |
+|---|---|---|
+| notes | CRUD + `GET /search` | quick notes with tags |
+| reminders | CRUD | time-based (daemon poller) |
+| timer | `POST /start`, `/{id}/{pause,resume}` | in-memory countdowns |
+| clipboardhistory | list/search/pin/unpin/clear | clipboard ring buffer |
+| okrtracker | CRUD | OKRs with progress tracking |
+| timezoneconvert | `GET /convert`, `/now`, `/zones` | DST-aware TZ conversion |
+| meetingcost | `GET /simple`, `POST /detailed` | meeting-cost calculator |
+| slacalc | `GET /uptime`, `/downtime`, `POST /composite` | uptime ↔ downtime math |
+| pomodoroplanner | `POST /plan` | schedule from task list |
+| flashcardmaker | `POST /from-pairs`, `/from-text`, `/from-markdown` | Anki-compatible cards |
+| netinfo | `GET /host`, `/interfaces`, `/public-ip`, `/port`, `/resolve` | local network info |
+
+#### Content / Writing (7)
+
+| Skill | Endpoints | What it does |
+|---|---|---|
+| writingtools | `POST /analyze` | passive voice, adverbs, weasel words, reading time |
+| headlineanalyzer | `POST /analyze` | headline scoring |
+| citationformatter | `POST /format` | APA/MLA/Chicago/Harvard/IEEE |
+| markdownhtml | `POST /md-to-html`, `/html-to-md` | format conversion |
+| numberwords | `GET /to-words`, `/from-words`, `/to-roman`, `/from-roman` | number ↔ words ↔ Roman |
+| colortools | `GET /parse`, `/contrast`, `/palette` | WCAG contrast + 5 schemes |
+| imagemeta | `GET /inspect`, `/compare` | dimensions, format, aspect |
+
+#### Other (3)
+
+| Skill | Endpoints | What it does |
+|---|---|---|
+| recipescaler | `POST /scale`, `GET /volume`, `/weight`, `/oven` | scale recipes + cooking units |
+| gradecalc | `POST /weighted`, `GET /needed`, `POST /gpa` | weighted grade + GPA |
+| diskscan | `GET /roots`, `/browse`, `/info`, `/search` | local filesystem browser (path-blocked) |
+
+### Enabling skills
+
+Add to `application.properties`:
+```
+app.skills.passwordstrength.enabled=true
+app.skills.financecalc.enabled=true
+app.skills.colortools.enabled=true
+```
+
+Every skill always exposes a `/status` endpoint that works even when disabled:
+```
+GET /api/skills/<name>/status
+```
+
+### LLM usage examples
+
+Once enabled, natural-language queries route automatically through `ToolClassifierService`:
+
+- "is the password `hunter2` strong?" → `security_skills` → `evaluatePasswordStrength`
+- "calculate 5% compound interest on $10k over 10 years" → `calc_skills` → `compoundInterest`
+- "what's the haversine distance from NYC to London?" → `calc_skills` → `geoDistance`
+- "redact PII from this paragraph" → `extras_skills` → `redactPii`
+- "generate 50 fake customers" → `data_skills_extra` → `generateFakeData`
+- "score this headline: 10 proven ways to boost your sales" → `extras_skills` → `analyzeHeadline`
+- "my BMI if I'm 75kg and 175cm" → `profession_skills` → `bodyMetric`
+- "format this as APA: Smith 2023..." → `profession_skills` → `formatCitation`
