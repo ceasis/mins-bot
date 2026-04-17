@@ -78,7 +78,12 @@ public class ToolClassifierService {
             "barge_in",
             "restart",
             "orchestrator",
-            "youtube"
+            "youtube",
+            "dev_skills",
+            "productivity_skills",
+            "seo_marketing_skills",
+            "security_skills",
+            "profession_skills"
     );
 
     private static final String SYSTEM_PROMPT = """
@@ -146,6 +151,11 @@ public class ToolClassifierService {
             - restart: restart yourself, reboot, restart the bot, restart mins bot, quit and start again, relaunch, reboot yourself, restart app, reload the bot, apply new prompt and restart
             - orchestrator: complex multi-step task, plan and execute, marketing campaign, research and produce, video production, decompose and parallelize, spawn agents, use agents, delegate subtasks, parallel work, make me a X with multiple parts, coordinate multiple agents, divide and conquer, big project, multi-phase task
             - youtube: my youtube channel, my subscribers, my youtube uploads, youtube video stats, video views, video likes, recent uploads, search youtube, find video on youtube, trending on youtube, what's trending, my subscriptions, channels I follow, youtube analytics, video details, watch history, youtube channel info, my youtube, youtuber, channel stats
+            - dev_skills: encode this, decode base64, hex encode, url encode, hash this string, MD5, SHA-256, SHA-1, pretty print JSON, minify JSON, validate JSON, test regex, regex match, generate UUID, generate password, random number, roll dice, identify hash, what kind of hash, parse cron, next cron runs, convert unit, meters to feet, kg to lb, C to F, GB to MB, bytes conversion
+            - productivity_skills: create note, save note, search notes, remind me to, set a reminder, list reminders, start timer, countdown, list timers, clipboard history search, create OKR, list OKRs, what time is it in, convert timezone, what time is in Tokyo, meeting cost, how much does this meeting cost, SLA downtime, uptime calculator, 99.9 uptime, downtime budget
+            - seo_marketing_skills: analyze SEO, meta tags, og tags, analyze meta, extract keywords from url, top keywords, check sitemap, analyze sitemap, check robots.txt, parse robots, readability score, flesch score, generate slug, url slug, SEO slug, build UTM url, UTM tracking, UTM builder, email subject score, subject line analysis, character count platforms, twitter char count, AB test significance, ab test calculator, statistical significance, suggest hashtags, hashtag extractor
+            - security_skills: password strength, is my password strong, HIBP, have i been pwned, password breach, check password breach, decode JWT, JWT inspector, verify JWT, SSL cert, certificate check, TLS cert, audit HTTP headers, CSP check, security headers, DNS lookup, MX records, TXT records, CVE lookup, vulnerability lookup, scan for secrets, detect API keys in text, leaked credentials, email validation, validate email, check MX
+            - profession_skills: compound interest, loan payment, mortgage calc, calculate NPV, IRR, tax calculator, tax brackets, cap rate, cash on cash, 1% rule, stock RSI, stock SMA, stock EMA, MACD indicator, BMI calculator, BMR calculator, TDEE, calorie needs, body fat, lab units, mg/dL to mmol/L, glucose mmol, scale recipe, convert cups, cooking conversion, grade calculator, weighted average grade, GPA calculator, area of circle, volume of cylinder, geometry, format citation, APA MLA Chicago, statistical summary, mean median stdev, analyze writing, passive voice check, reading time, detect language, translate detect, color contrast WCAG, color palette, complementary color, image dimensions, inspect image
 
             Return at most 4 of the most relevant category names, comma-separated. If none match, return: none""";
 

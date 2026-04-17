@@ -132,6 +132,12 @@ public class ToolRouter {
     private final OrchestratorTools orchestratorTools;
     private final YouTubeTools youTubeTools;
 
+    private final SkillDevTools skillDevTools;
+    private final SkillProductivityTools skillProductivityTools;
+    private final SkillSeoMarketingTools skillSeoMarketingTools;
+    private final SkillSecurityTools skillSecurityTools;
+    private final SkillProfessionTools skillProfessionTools;
+
     @Autowired(required = false)
     private ToolClassifierService classifier;
 
@@ -239,7 +245,12 @@ public class ToolRouter {
             BargeInTools bargeInTools,
             RestartTools restartTools,
             OrchestratorTools orchestratorTools,
-            YouTubeTools youTubeTools) {
+            YouTubeTools youTubeTools,
+            SkillDevTools skillDevTools,
+            SkillProductivityTools skillProductivityTools,
+            SkillSeoMarketingTools skillSeoMarketingTools,
+            SkillSecurityTools skillSecurityTools,
+            SkillProfessionTools skillProfessionTools) {
 
         this.directivesTools = directivesTools;
         this.directiveDataTools = directiveDataTools;
@@ -332,6 +343,11 @@ public class ToolRouter {
         this.restartTools = restartTools;
         this.orchestratorTools = orchestratorTools;
         this.youTubeTools = youTubeTools;
+        this.skillDevTools = skillDevTools;
+        this.skillProductivityTools = skillProductivityTools;
+        this.skillSeoMarketingTools = skillSeoMarketingTools;
+        this.skillSecurityTools = skillSecurityTools;
+        this.skillProfessionTools = skillProfessionTools;
 
         // Count @Tool methods on every bean (once, via reflection)
         countToolsOnAllBeans();
@@ -600,6 +616,13 @@ public class ToolRouter {
         map.put("barge_in",      List.of(bargeInTools));
         map.put("restart",       List.of(restartTools));
         map.put("orchestrator",  List.of(orchestratorTools));
+
+        // ─── Skill packs (wrappers around self-contained skills under com.minsbot.skills.*) ───
+        map.put("dev_skills",         List.of(skillDevTools));
+        map.put("productivity_skills", List.of(skillProductivityTools));
+        map.put("seo_marketing_skills", List.of(skillSeoMarketingTools));
+        map.put("security_skills",    List.of(skillSecurityTools));
+        map.put("profession_skills",  List.of(skillProfessionTools));
 
         return Collections.unmodifiableMap(map);
     }
