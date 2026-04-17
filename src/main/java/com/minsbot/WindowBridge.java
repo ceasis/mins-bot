@@ -4,7 +4,9 @@ import javafx.application.Platform;
 import javafx.stage.Stage;
 
 import java.awt.Desktop;
+import java.io.File;
 import java.net.URI;
+import java.util.List;
 
 /**
  * Exposed to the WebView JavaScript as window.java for expand/collapse.
@@ -61,18 +63,20 @@ public class WindowBridge {
     }
 
     /**
-     * Open Mins Bot in the user's default system browser (Chrome, Edge, etc.)
-     * with {@code ?full=1} so it shows the full UI (tab bar visible). Returns
-     * true on success.
+     * Open Mins Bot in a chromeless Chromium app-mode window (no URL bar, no tabs)
+     * via {@code --app=URL}. Tries Chrome → Edge → Brave → Vivaldi. Falls back to
+     * the default system browser if nothing Chromium-based is installed.
      */
     public boolean openInBrowser() {
         String url = "http://localhost:" + serverPort + "/?full=1";
+        if (launchAppMode(url)) return true;
+
+        // Fallback: default browser (URL bar will be visible)
         try {
             if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
                 Desktop.getDesktop().browse(new URI(url));
                 return true;
             }
-            // Fallback for Windows if Desktop isn't supported (e.g. headless JRE)
             new ProcessBuilder("rundll32", "url.dll,FileProtocolHandler", url)
                     .redirectOutput(ProcessBuilder.Redirect.DISCARD)
                     .redirectError(ProcessBuilder.Redirect.DISCARD)
@@ -82,6 +86,55 @@ public class WindowBridge {
             System.err.println("[WindowBridge] Failed to open browser: " + e.getMessage());
             return false;
         }
+    }
+
+    /** Try Chrome/Edge/Brave/Vivaldi with {@code --app=URL}. Returns true if one launched. */
+    private boolean launchAppMode(String url) {
+        String programFiles = System.getenv("ProgramFiles");
+        String programFiles86 = System.getenv("ProgramFiles(x86)");
+        String localAppData = System.getenv("LOCALAPPDATA");
+
+        List<String> candidates = List.of(
+                // Chrome
+                programFiles   + "\\Google\\Chrome\\Application\\chrome.exe",
+                programFiles86 + "\\Google\\Chrome\\Application\\chrome.exe",
+                localAppData   + "\\Google\\Chrome\\Application\\chrome.exe",
+                // Edge
+                programFiles   + "\\Microsoft\\Edge\\Application\\msedge.exe",
+                programFiles86 + "\\Microsoft\\Edge\\Application\\msedge.exe",
+                // Brave
+                programFiles   + "\\BraveSoftware\\Brave-Browser\\Application\\brave.exe",
+                programFiles86 + "\\BraveSoftware\\Brave-Browser\\Application\\brave.exe",
+                localAppData   + "\\BraveSoftware\\Brave-Browser\\Application\\brave.exe",
+                // Vivaldi
+                localAppData   + "\\Vivaldi\\Application\\vivaldi.exe",
+                programFiles   + "\\Vivaldi\\Application\\vivaldi.exe"
+        );
+
+        String dataDir = localAppData == null ? System.getProperty("user.home") : localAppData;
+        String userDataDir = dataDir + "\\MinsBotBrowser";
+
+        for (String path : candidates) {
+            if (path == null) continue;
+            File exe = new File(path);
+            if (!exe.isFile()) continue;
+            try {
+                new ProcessBuilder(
+                        exe.getAbsolutePath(),
+                        "--app=" + url,
+                        "--user-data-dir=" + userDataDir,
+                        "--no-first-run",
+                        "--no-default-browser-check"
+                )
+                .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                .redirectError(ProcessBuilder.Redirect.DISCARD)
+                .start();
+                return true;
+            } catch (Exception e) {
+                System.err.println("[WindowBridge] Failed to launch " + exe + ": " + e.getMessage());
+            }
+        }
+        return false;
     }
 
     /** Close the application immediately. */

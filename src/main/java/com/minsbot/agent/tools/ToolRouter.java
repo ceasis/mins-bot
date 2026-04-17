@@ -137,6 +137,9 @@ public class ToolRouter {
     private final SkillSeoMarketingTools skillSeoMarketingTools;
     private final SkillSecurityTools skillSecurityTools;
     private final SkillProfessionTools skillProfessionTools;
+    private final SkillDataToolsExtra skillDataToolsExtra;
+    private final SkillCalcTools skillCalcTools;
+    private final SkillExtrasTools skillExtrasTools;
 
     @Autowired(required = false)
     private ToolClassifierService classifier;
@@ -250,7 +253,10 @@ public class ToolRouter {
             SkillProductivityTools skillProductivityTools,
             SkillSeoMarketingTools skillSeoMarketingTools,
             SkillSecurityTools skillSecurityTools,
-            SkillProfessionTools skillProfessionTools) {
+            SkillProfessionTools skillProfessionTools,
+            SkillDataToolsExtra skillDataToolsExtra,
+            SkillCalcTools skillCalcTools,
+            SkillExtrasTools skillExtrasTools) {
 
         this.directivesTools = directivesTools;
         this.directiveDataTools = directiveDataTools;
@@ -348,6 +354,9 @@ public class ToolRouter {
         this.skillSeoMarketingTools = skillSeoMarketingTools;
         this.skillSecurityTools = skillSecurityTools;
         this.skillProfessionTools = skillProfessionTools;
+        this.skillDataToolsExtra = skillDataToolsExtra;
+        this.skillCalcTools = skillCalcTools;
+        this.skillExtrasTools = skillExtrasTools;
 
         // Count @Tool methods on every bean (once, via reflection)
         countToolsOnAllBeans();
@@ -623,6 +632,9 @@ public class ToolRouter {
         map.put("seo_marketing_skills", List.of(skillSeoMarketingTools));
         map.put("security_skills",    List.of(skillSecurityTools));
         map.put("profession_skills",  List.of(skillProfessionTools));
+        map.put("data_skills_extra",  List.of(skillDataToolsExtra));
+        map.put("calc_skills",        List.of(skillCalcTools));
+        map.put("extras_skills",      List.of(skillExtrasTools));
 
         return Collections.unmodifiableMap(map);
     }

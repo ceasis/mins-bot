@@ -13,7 +13,7 @@ public class HashtagSuggestService {
             "this","that","these","those","it","its","i","you","he","she","we","they","them","his","her",
             "our","their","my","your","me","us","him","so","no","not","yes","about","up","down","out","over",
             "under","any","all","some","more","most","other","into","through","than","also","too","very",
-            "just","only","same","such","here","there","when","where","why","how","what","which","who","been"
+            "just","only","same","such","here","there","when","where","why","how","what","which","who"
     );
 
     public Map<String, Object> suggest(String text, int topN, boolean includeExisting) {

@@ -26,7 +26,7 @@ public class KeywordExtractorService {
             "we","they","them","his","her","our","their","my","your","me","us","him","so","no","not","yes","about",
             "up","down","out","over","under","again","any","all","some","more","most","other","into","through","than",
             "also","too","very","just","only","own","same","such","here","there","when","where","why","how","what",
-            "which","who","whom","whose","while","because","being","between","during","before","after","above","below"
+            "which","who","whom","whose","while","because","between","during","before","after","above","below"
     );
 
     public KeywordExtractorService(KeywordExtractorConfig.KeywordExtractorProperties properties) {
