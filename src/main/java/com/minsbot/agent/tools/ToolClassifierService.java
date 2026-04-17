@@ -77,7 +77,8 @@ public class ToolClassifierService {
             "custom_skills",
             "barge_in",
             "restart",
-            "orchestrator"
+            "orchestrator",
+            "youtube"
     );
 
     private static final String SYSTEM_PROMPT = """
@@ -144,6 +145,7 @@ public class ToolClassifierService {
             - barge_in: let me interrupt, stop barge-in, turn on barge-in, can I cut you off, let me interrupt you, barge in, don't interrupt yourself, interrupt TTS, stop talking when I talk, JARVIS-style interrupt
             - restart: restart yourself, reboot, restart the bot, restart mins bot, quit and start again, relaunch, reboot yourself, restart app, reload the bot, apply new prompt and restart
             - orchestrator: complex multi-step task, plan and execute, marketing campaign, research and produce, video production, decompose and parallelize, spawn agents, use agents, delegate subtasks, parallel work, make me a X with multiple parts, coordinate multiple agents, divide and conquer, big project, multi-phase task
+            - youtube: my youtube channel, my subscribers, my youtube uploads, youtube video stats, video views, video likes, recent uploads, search youtube, find video on youtube, trending on youtube, what's trending, my subscriptions, channels I follow, youtube analytics, video details, watch history, youtube channel info, my youtube, youtuber, channel stats
 
             Return at most 4 of the most relevant category names, comma-separated. If none match, return: none""";
 

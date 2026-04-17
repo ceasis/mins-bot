@@ -1076,6 +1076,26 @@
     });
   });
 
+  // Integrations sidebar filter — click a category to show only that section
+  (function initIntegrationsSidebar() {
+    var sidebar = document.getElementById('integrations-sidebar');
+    if (!sidebar) return;
+    sidebar.querySelectorAll('.int-side-item').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var filter = btn.getAttribute('data-filter');
+        sidebar.querySelectorAll('.int-side-item').forEach(function (b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        var sections = document.querySelectorAll('#tab-integrations .integrations-section-block');
+        sections.forEach(function (s) {
+          if (filter === 'all') { s.hidden = false; return; }
+          var titleEl = s.querySelector('.integrations-section-title');
+          var title = titleEl ? titleEl.textContent.trim() : '';
+          s.hidden = !title.includes(filter);
+        });
+      });
+    });
+  })();
+
   function refreshGoogleIntegrationsPanel() {
     var hintEl = document.getElementById('integrations-redirect-hint');
     fetch('/api/integrations/google/status').then(function (r) { return r.json(); }).then(function (data) {

@@ -130,6 +130,7 @@ public class ToolRouter {
     private final BargeInTools bargeInTools;
     private final RestartTools restartTools;
     private final OrchestratorTools orchestratorTools;
+    private final YouTubeTools youTubeTools;
 
     @Autowired(required = false)
     private ToolClassifierService classifier;
@@ -237,7 +238,8 @@ public class ToolRouter {
             CustomSkillTools customSkillTools,
             BargeInTools bargeInTools,
             RestartTools restartTools,
-            OrchestratorTools orchestratorTools) {
+            OrchestratorTools orchestratorTools,
+            YouTubeTools youTubeTools) {
 
         this.directivesTools = directivesTools;
         this.directiveDataTools = directiveDataTools;
@@ -329,6 +331,7 @@ public class ToolRouter {
         this.bargeInTools = bargeInTools;
         this.restartTools = restartTools;
         this.orchestratorTools = orchestratorTools;
+        this.youTubeTools = youTubeTools;
 
         // Count @Tool methods on every bean (once, via reflection)
         countToolsOnAllBeans();
@@ -481,7 +484,7 @@ public class ToolRouter {
                 gitHubTools, botWindowTools,
                 codeRunnerTools, fileWatcherTools, appUsageTrackerTools,
                 customSkillTools, bargeInTools, restartTools,
-                orchestratorTools
+                orchestratorTools, youTubeTools
         };
         for (Object bean : allBeans) {
             if (bean != null && !toolCounts.containsKey(bean)) {
@@ -592,6 +595,7 @@ public class ToolRouter {
         map.put("code_runner",   List.of(codeRunnerTools));
         map.put("file_watcher",  List.of(fileWatcherTools, fileTools));
         map.put("app_usage",     List.of(appUsageTrackerTools, habitDetectionTools));
+        map.put("youtube",       List.of(youTubeTools, webSearchTools));
         map.put("custom_skills", List.of(customSkillTools));
         map.put("barge_in",      List.of(bargeInTools));
         map.put("restart",       List.of(restartTools));

@@ -531,8 +531,9 @@ public class VisionService {
     // ═══ JSON helpers (manual — same pattern as ToolClassifierService) ═══
 
     private String buildVisionRequestWithModel(String base64Image, String prompt, String mediaType, String modelOverride) {
-        // GPT-5.x models require "max_completion_tokens" instead of "max_tokens"
-        String tokenParam = modelOverride.startsWith("gpt-5") ? "max_completion_tokens" : "max_tokens";
+        // GPT-5.x and reasoning models (o1, o3) require "max_completion_tokens" instead of "max_tokens"
+        String tokenParam = (modelOverride.startsWith("gpt-5") || modelOverride.startsWith("o1") || modelOverride.startsWith("o3"))
+                ? "max_completion_tokens" : "max_tokens";
         return ("{\"model\":\"%s\",\"%s\":1000,\"messages\":[{\"role\":\"user\",\"content\":" +
                 "[{\"type\":\"text\",\"text\":\"%s\"},{\"type\":\"image_url\",\"image_url\":" +
                 "{\"url\":\"data:%s;base64,%s\",\"detail\":\"%s\"}}]}]}")
@@ -551,13 +552,16 @@ public class VisionService {
     }
 
     private String buildVisionRequest(String base64Image) {
-        // Multi-content message format for Vision API
-        // The system prompt is sent as the text part alongside the image in a single user message
-        return "{\"model\":\"%s\",\"max_tokens\":1000,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"%s\"},{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,%s\",\"detail\":\"%s\"}}]}]}"
+        // GPT-5.x and reasoning models (o1, o3) require "max_completion_tokens" instead of "max_tokens"
+        String tokenParam = (model.startsWith("gpt-5") || model.startsWith("o1") || model.startsWith("o3"))
+                ? "max_completion_tokens" : "max_tokens";
+        return ("{\"model\":\"%s\",\"" + tokenParam + "\":1000,\"messages\":[{\"role\":\"user\",\"content\":" +
+                "[{\"type\":\"text\",\"text\":\"%s\"},{\"type\":\"image_url\",\"image_url\":" +
+                "{\"url\":\"data:image/png;base64,%s\",\"detail\":\"%s\"}}]}]}")
                 .formatted(
                         escapeJson(model),
                         escapeJson(SYSTEM_PROMPT),
-                        base64Image,  // base64 is already JSON-safe (alphanumeric + /+=)
+                        base64Image,
                         escapeJson(detail)
                 );
     }

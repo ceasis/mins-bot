@@ -10,7 +10,8 @@
       "Bash(where wix*)",
       "Bash(mvn clean *)",
       "Bash(jobs -l)",
-      "Read(//c/Users/cholo/**)"
+      "Read(//c/Users/cholo/**)",
+      "Bash(dir \"c:\\\\Users\\\\cholo\\\\eclipse-workspace\\\\mins-bot\\\\src\\\\main\\\\java\\\\com\\\\minsbot\\\\memory\")"
     ]
   }
 }

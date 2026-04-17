@@ -118,6 +118,7 @@ public class FloatingAppLauncher extends Application {
         // Forward mouse clicks into the page via JS (keyboard works; on some builds clicks don't reach WebView).
         final double[] pressPos = new double[2];
         final boolean[] isDrag = {false};
+        final boolean[] textPress = {false};
         // Title bar height (must match CSS .title-bar height) for drag detection
         final int titleBarHeight = 32;
         final double[] titleBarPressStage = new double[2];
@@ -132,6 +133,7 @@ public class FloatingAppLauncher extends Application {
         scene.addEventFilter(MouseEvent.MOUSE_PRESSED, e -> {
             if (e.getButton() != javafx.scene.input.MouseButton.PRIMARY) return;
             isDrag[0] = false; // always reset drag flag on any press
+            textPress[0] = false;
             if (e.getY() < titleBarHeight) {
                 // Let clicks on the close/minimize buttons pass through to WebView natively
                 if (e.getX() > scene.getWidth() - controlsWidth) {
@@ -148,6 +150,13 @@ public class FloatingAppLauncher extends Application {
             }
             pressPos[0] = e.getX();
             pressPos[1] = e.getY();
+            // If press starts in an editable text control, let native WebView handle selection/caret.
+            textPress[0] = isTextEditableAt(engine, (int) e.getX(), (int) e.getY());
+            if (textPress[0]) {
+                int x = (int) e.getX();
+                int y = (int) e.getY();
+                Platform.runLater(() -> focusEditableAt(engine, x, y));
+            }
         });
 
         scene.addEventFilter(MouseEvent.MOUSE_DRAGGED, e -> {
@@ -169,8 +178,10 @@ public class FloatingAppLauncher extends Application {
             if (e.getButton() == javafx.scene.input.MouseButton.PRIMARY) {
                 boolean wasTitleBarDrag = draggingTitleBar[0] && didTitleBarDrag[0];
                 draggingTitleBar[0] = false;
+                boolean wasTextPress = textPress[0];
+                textPress[0] = false;
                 // Forward synthetic click if this was not a drag
-                if (!isDrag[0] && !wasTitleBarDrag) {
+                if (!isDrag[0] && !wasTitleBarDrag && !wasTextPress) {
                     int x = (int) e.getX();
                     int y = (int) e.getY();
                     Platform.runLater(() -> {
@@ -191,15 +202,19 @@ public class FloatingAppLauncher extends Application {
             // Always show hand cursor on native title-bar window controls (minimize/close area).
             if (y < titleBarHeight && x > scene.getWidth() - controlsWidth) {
                 scene.setCursor(Cursor.HAND);
+                webView.setCursor(Cursor.HAND);
                 syncHoverToPage(engine, x, y);
                 return;
             }
             boolean interactive = syncHoverToPage(engine, x, y);
-            scene.setCursor(interactive ? Cursor.HAND : Cursor.DEFAULT);
+            Cursor c = interactive ? Cursor.HAND : Cursor.DEFAULT;
+            scene.setCursor(c);
+            webView.setCursor(c);
         });
         scene.addEventFilter(MouseEvent.MOUSE_EXITED, e -> {
             syncHoverToPage(engine, -1, -1);
             scene.setCursor(Cursor.DEFAULT);
+            webView.setCursor(Cursor.DEFAULT);
         });
         primaryStage.setScene(scene);
         primaryStage.initStyle(StageStyle.UNDECORATED);
@@ -233,6 +248,14 @@ public class FloatingAppLauncher extends Application {
 
         primaryStage.show();
         Platform.runLater(webView::requestFocus);
+
+        // Start animated-eyes taskbar icon
+        try {
+            springContext.getBean(IconAnimator.class).start(primaryStage);
+        } catch (Exception e) {
+            // Icon animation is non-critical
+        }
+
         Runnable quitAction = () -> {
             bridge.shutdownNativeVoice();
             Platform.exit();
@@ -270,14 +293,17 @@ public class FloatingAppLauncher extends Application {
                     + "var target = el.closest('button,a,input,select,textarea,label,[onclick],[role=button]');"
                     + "if(!target) target = el;"
                     + "var textTarget = target.matches('input:not([type=button]):not([type=submit]):not([type=checkbox]):not([type=radio]),textarea,[contenteditable]');"
-                    // For TEXT inputs/textareas/contenteditable: the native WebView has already handled
-                    // the mousedown/mouseup and placed the caret correctly. Do NOTHING here — calling
-                    // .focus() or dispatching a synthetic click would reset the caret to the end and
-                    // break click-to-position-cursor / text selection.
-                    + "if(textTarget) { return true; }"
+                    // For text fields, DO NOT dispatch synthetic click events here.
+                    // Native events already occurred; dispatching again breaks drag-selection/highlight.
+                    + "var opts = {bubbles:true,cancelable:true,clientX:" + x + ",clientY:" + y + ",view:window};"
+                    + "if(textTarget){"
+                    + "  if(typeof target.focus==='function'){"
+                    + "    try{ target.focus({preventScroll:true}); }catch(_){ target.focus(); }"
+                    + "  }"
+                    + "  return true;"
+                    + "}"
                     + "if(typeof target.focus === 'function') target.focus();"
                     // Dispatch full mouse event sequence for maximum compatibility (buttons, links, etc.)
-                    + "var opts = {bubbles:true,cancelable:true,clientX:" + x + ",clientY:" + y + ",view:window};"
                     + "target.dispatchEvent(new MouseEvent('mousedown', opts));"
                     + "target.dispatchEvent(new MouseEvent('mouseup', opts));"
                     + "target.dispatchEvent(new MouseEvent('click', opts));"
@@ -315,6 +341,43 @@ public class FloatingAppLauncher extends Application {
             return result instanceof Boolean b && b;
         } catch (Exception ignored) {
             return false;
+        }
+    }
+
+    /** True when point is over editable text element (input/textarea/contenteditable). */
+    private static boolean isTextEditableAt(WebEngine engine, int x, int y) {
+        try {
+            String script = "(function(){"
+                    + "var el=document.elementFromPoint(" + x + "," + y + ");"
+                    + "if(!el) return false;"
+                    + "var t=el.closest('input,textarea,[contenteditable],select');"
+                    + "if(!t) return false;"
+                    + "if(t.matches('input[type=button],input[type=submit],input[type=checkbox],input[type=radio],input[type=range],input[type=color],input[type=file]')) return false;"
+                    + "return true;"
+                    + "})();";
+            Object result = engine.executeScript(script);
+            return result instanceof Boolean b && b;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    /** Focus editable element at viewport point without dispatching synthetic click events. */
+    private static void focusEditableAt(WebEngine engine, int x, int y) {
+        try {
+            String script = "(function(){"
+                    + "var el=document.elementFromPoint(" + x + "," + y + ");"
+                    + "if(!el) return;"
+                    + "var t=el.closest('input,textarea,[contenteditable],select');"
+                    + "if(!t) return;"
+                    + "if(t.matches('input[type=button],input[type=submit],input[type=checkbox],input[type=radio],input[type=range],input[type=color],input[type=file]')) return;"
+                    + "if(typeof t.focus==='function'){"
+                    + "  try{ t.focus({preventScroll:true}); }catch(_){ t.focus(); }"
+                    + "}"
+                    + "})();";
+            engine.executeScript(script);
+        } catch (Exception ignored) {
+            // ignore
         }
     }
 

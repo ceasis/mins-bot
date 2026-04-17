@@ -200,7 +200,26 @@
         </div>
       </div>
       <div id="tab-integrations" class="tab-content">
-        <div class="tab-scroll-container integrations-tab-inner">
+        <div class="integrations-layout">
+        <!-- Left sidebar: company/category filter -->
+        <aside class="integrations-sidebar" id="integrations-sidebar">
+          <button type="button" class="int-side-item active" data-filter="all"><i class="fa-solid fa-grip" aria-hidden="true"></i><span>All</span></button>
+          <button type="button" class="int-side-item" data-filter="Google"><i class="fa-brands fa-google" aria-hidden="true"></i><span>Google</span></button>
+          <button type="button" class="int-side-item" data-filter="Microsoft 365"><i class="fa-brands fa-microsoft" aria-hidden="true"></i><span>Microsoft 365</span></button>
+          <button type="button" class="int-side-item" data-filter="Chat & meetings"><i class="fa-solid fa-comments" aria-hidden="true"></i><span>Chat &amp; meetings</span></button>
+          <button type="button" class="int-side-item" data-filter="Developer & issue tracking"><i class="fa-solid fa-code-branch" aria-hidden="true"></i><span>Developer &amp; issue tracking</span></button>
+          <button type="button" class="int-side-item" data-filter="Docs & files"><i class="fa-solid fa-file-lines" aria-hidden="true"></i><span>Docs &amp; files</span></button>
+          <button type="button" class="int-side-item" data-filter="CRM & marketing"><i class="fa-solid fa-address-book" aria-hidden="true"></i><span>CRM &amp; marketing</span></button>
+          <button type="button" class="int-side-item" data-filter="Payments & commerce"><i class="fa-solid fa-credit-card" aria-hidden="true"></i><span>Payments &amp; commerce</span></button>
+          <button type="button" class="int-side-item" data-filter="Social & ads"><i class="fa-solid fa-share-nodes" aria-hidden="true"></i><span>Social &amp; ads</span></button>
+          <button type="button" class="int-side-item" data-filter="Design & media"><i class="fa-solid fa-palette" aria-hidden="true"></i><span>Design &amp; media</span></button>
+          <button type="button" class="int-side-item" data-filter="Cloud & deploy"><i class="fa-solid fa-cloud" aria-hidden="true"></i><span>Cloud &amp; deploy</span></button>
+          <button type="button" class="int-side-item" data-filter="Automation & scheduling"><i class="fa-solid fa-gears" aria-hidden="true"></i><span>Automation &amp; scheduling</span></button>
+          <button type="button" class="int-side-item" data-filter="Security & identity"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i><span>Security &amp; identity</span></button>
+          <button type="button" class="int-side-item" data-filter="Data & analytics"><i class="fa-solid fa-layer-group" aria-hidden="true"></i><span>Data &amp; analytics</span></button>
+          <button type="button" class="int-side-item" data-filter="Other messaging"><i class="fa-solid fa-globe" aria-hidden="true"></i><span>Other messaging (bots)</span></button>
+        </aside>
+        <div class="tab-scroll-container integrations-tab-inner integrations-content">
           <p id="integrations-oauth-banner" class="integrations-oauth-banner" role="status" hidden></p>
           <p class="integrations-intro">
             <strong>Google</strong> services below use the same OAuth client as TelliChat (<code class="setup-code">spring.security.oauth2.client.registration.google.*</code>). The redirect URI banner applies only to Google sign-in. Other cards are a roadmap — same layout, <strong>Coming soon</strong>. Bots (Telegram, Viber, WhatsApp, …) stay in <code class="setup-code">application.properties</code>; LLM keys in <strong>Setup</strong>.
@@ -335,16 +354,19 @@
                 <div class="integration-oauth-actions"><button type="button" class="integration-oauth-btn integration-oauth-soon" disabled>Coming soon</button></div>
               </div>
             </article>
-            <article class="integration-card integration-card-planned">
+            <article class="integration-card" data-oauth-provider="google" data-integration="youtube">
               <div class="integration-card-head">
                 <span class="integration-icon" aria-hidden="true"><i class="fa-brands fa-youtube"></i></span>
                 <h3 class="integration-card-title">YouTube</h3>
-                <span class="integration-badge integration-badge-planned">Planned</span>
+                <span class="integration-badge integration-badge-status" data-role="badge">—</span>
               </div>
-              <p class="integration-card-desc">Channels, uploads, and captions via YouTube Data API.</p>
-              <div class="integration-oauth integration-oauth-planned">
-                <p class="integration-oauth-hint">OAuth connector not implemented yet.</p>
-                <div class="integration-oauth-actions"><button type="button" class="integration-oauth-btn integration-oauth-soon" disabled>Coming soon</button></div>
+              <p class="integration-card-desc">Channels, uploads, subscriptions, and video stats via YouTube Data API.</p>
+              <div class="integration-oauth">
+                <p class="integration-oauth-hint" data-role="hint"></p>
+                <div class="integration-oauth-actions">
+                  <button type="button" class="integration-oauth-btn integration-oauth-connect" data-integration="youtube">Sign in with Google</button>
+                  <button type="button" class="integration-oauth-btn integration-oauth-disconnect" data-integration="youtube" hidden>Disconnect</button>
+                </div>
               </div>
             </article>
           </div>
@@ -496,6 +518,7 @@
           <p class="integrations-footnote">
             Only <strong>Google</strong> (first section) supports <strong>Sign in with Google</strong> today. Enable vendor APIs in their consoles as you wire each connector. Revoking the last Google integration revokes its refresh token. Messaging bots (Viber, LINE, Teams, WhatsApp, WeChat, etc.) use <code class="setup-code">application.properties</code>. LLM and search keys: <strong>Setup</strong>.
           </p>
+        </div>
         </div>
       </div>
       <div id="tab-setup" class="tab-content">

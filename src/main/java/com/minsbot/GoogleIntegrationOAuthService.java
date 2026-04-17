@@ -38,30 +38,32 @@ public class GoogleIntegrationOAuthService {
     private static final Logger log = LoggerFactory.getLogger(GoogleIntegrationOAuthService.class);
 
     public static final List<String> INTEGRATION_IDS = List.of(
-            "analytics", "gmail", "calendar", "drive", "maps", "workspace");
+            "analytics", "gmail", "calendar", "drive", "maps", "workspace", "youtube");
 
     private static final String AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
     private static final String TOKEN_URL = "https://oauth2.googleapis.com/token";
     private static final String REVOKE_URL = "https://oauth2.googleapis.com/revoke";
 
-    private static final Map<String, List<String>> SCOPES_BY_INTEGRATION = Map.of(
-            "analytics", List.of("https://www.googleapis.com/auth/analytics.readonly"),
-            "gmail", List.of(
+    private static final Map<String, List<String>> SCOPES_BY_INTEGRATION = Map.ofEntries(
+            Map.entry("analytics", List.of("https://www.googleapis.com/auth/analytics.readonly")),
+            Map.entry("gmail", List.of(
                     "https://www.googleapis.com/auth/gmail.readonly",
-                    "https://www.googleapis.com/auth/gmail.send"),
-            "calendar", List.of(
+                    "https://www.googleapis.com/auth/gmail.send")),
+            Map.entry("calendar", List.of(
                     "https://www.googleapis.com/auth/calendar.events",
-                    "https://www.googleapis.com/auth/calendar.readonly"),
-            "drive", List.of("https://www.googleapis.com/auth/drive.readonly"),
-            "maps", List.of(
+                    "https://www.googleapis.com/auth/calendar.readonly")),
+            Map.entry("drive", List.of("https://www.googleapis.com/auth/drive.readonly")),
+            Map.entry("maps", List.of(
                     "openid",
                     "https://www.googleapis.com/auth/userinfo.email",
-                    "https://www.googleapis.com/auth/userinfo.profile"),
-            "workspace", List.of(
+                    "https://www.googleapis.com/auth/userinfo.profile")),
+            Map.entry("workspace", List.of(
                     "openid",
                     "https://www.googleapis.com/auth/userinfo.email",
                     "https://www.googleapis.com/auth/userinfo.profile",
-                    "https://www.googleapis.com/auth/contacts.readonly")
+                    "https://www.googleapis.com/auth/contacts.readonly")),
+            Map.entry("youtube", List.of(
+                    "https://www.googleapis.com/auth/youtube.readonly"))
     );
 
     private final GoogleIntegrationConfig.GoogleIntegrationProperties properties;

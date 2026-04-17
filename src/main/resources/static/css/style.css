@@ -566,13 +566,13 @@ html, body {
 
 .tab {
   flex: 1;
-  padding: 7px 0;
+  padding: 8px 0;
   background: transparent;
   border: none;
   border-bottom: 2px solid transparent;
   color: rgba(255,255,255,0.4);
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 500;
   letter-spacing: 0.02em;
   cursor: pointer;
@@ -702,19 +702,87 @@ body.embedded-minsbot .tab-bar {
 }
 
 /* ─── Integrations tab ─── */
+.integrations-layout {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.integrations-sidebar {
+  flex-shrink: 0;
+  width: 170px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 6px 10px 10px;
+  overflow-y: auto;
+  border-right: 1px solid rgba(255,255,255,0.06);
+  background: rgba(0,0,0,0.1);
+}
+
+.int-side-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: rgba(255,255,255,0.55);
+  cursor: pointer;
+  font-size: 10px;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  text-align: left;
+  width: 100%;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.int-side-item i {
+  flex-shrink: 0;
+  width: 14px;
+  text-align: center;
+  font-size: 12px;
+  color: rgba(255,255,255,0.4);
+}
+
+.int-side-item span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.int-side-item:hover {
+  background: rgba(255,255,255,0.04);
+  color: #e4e4e7;
+}
+
+.int-side-item.active {
+  background: rgba(99,102,241,0.12);
+  border-color: rgba(99,102,241,0.3);
+  color: #a5b4fc;
+}
+
+.int-side-item.active i {
+  color: #a5b4fc;
+}
+
 .integrations-tab-inner {
   padding: 10px 12px 16px;
+  flex: 1;
+  min-width: 0;
 }
 
 .integrations-intro {
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.5;
   color: rgba(255, 255, 255, 0.58);
   margin: 0 0 14px;
 }
 
 .integrations-section-title {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.82);
   margin: 0 0 10px;
@@ -771,7 +839,7 @@ body.embedded-minsbot .tab-bar {
 
 .integration-card-head {
   display: grid;
-  grid-template-columns: 28px 1fr;
+  grid-template-columns: 32px 1fr;
   grid-template-rows: auto auto;
   gap: 6px 10px;
   align-items: center;
@@ -783,12 +851,12 @@ body.embedded-minsbot .tab-bar {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border-radius: 6px;
   background: rgba(59, 130, 246, 0.15);
   color: #93c5fd;
-  font-size: 13px;
+  font-size: 15px;
   grid-row: 1;
   grid-column: 1;
   align-self: start;
@@ -798,7 +866,7 @@ body.embedded-minsbot .tab-bar {
   grid-row: 1;
   grid-column: 2;
   margin: 0;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.88);
   min-width: 0;
@@ -814,11 +882,11 @@ body.embedded-minsbot .tab-bar {
 }
 
 .integration-badge {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  padding: 2px 7px;
+  padding: 3px 8px;
   border-radius: 4px;
   background: rgba(234, 179, 8, 0.18);
   color: #fcd34d;
@@ -827,14 +895,14 @@ body.embedded-minsbot .tab-bar {
 .integration-card-desc {
   flex: 1 1 auto;
   margin: 0;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.45;
   color: rgba(255, 255, 255, 0.5);
   min-height: 2.9em;
 }
 
 .integrations-footnote {
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.45;
   color: rgba(255, 255, 255, 0.4);
   margin: 0;
@@ -850,8 +918,8 @@ body.embedded-minsbot .tab-bar {
 }
 
 .integrations-oauth-banner {
-  font-size: 11px;
-  padding: 8px 10px;
+  font-size: 13px;
+  padding: 9px 12px;
   border-radius: 6px;
   margin: 0 0 10px;
   line-height: 1.4;
@@ -876,7 +944,7 @@ body.embedded-minsbot .tab-bar {
 }
 
 .integrations-redirect-hint {
-  font-size: 10px;
+  font-size: 12px;
   color: rgba(255, 255, 255, 0.45);
   margin: 0 0 12px;
   word-break: break-all;
@@ -897,7 +965,7 @@ body.embedded-minsbot .tab-bar {
 }
 
 .integration-oauth-hint {
-  font-size: 10px;
+  font-size: 12px;
   color: rgba(255, 255, 255, 0.45);
   margin: 0 0 8px;
   line-height: 1.35;
@@ -912,9 +980,9 @@ body.embedded-minsbot .tab-bar {
 }
 
 .integration-oauth-btn {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
-  padding: 5px 12px;
+  padding: 6px 14px;
   border-radius: 5px;
   border: 1px solid rgba(255, 255, 255, 0.15);
   cursor: pointer;
