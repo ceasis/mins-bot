@@ -16,10 +16,10 @@
         <span class="title-bar-app-name">Mins Bot</span>
       </div>
       <div class="title-bar-controls">
-        <button type="button" id="title-bar-minimize" class="title-bar-btn" title="Minimize" aria-label="Minimize">
+        <button type="button" id="title-bar-minimize" class="title-bar-btn" data-tip="Minimize" data-tip-dir="down" aria-label="Minimize">
           <svg viewBox="0 0 12 12" aria-hidden="true"><rect x="0" y="5" width="12" height="1" fill="currentColor"/></svg>
         </button>
-        <button type="button" id="title-bar-close" class="title-bar-btn title-bar-close" title="Close" aria-label="Close">
+        <button type="button" id="title-bar-close" class="title-bar-btn title-bar-close" data-tip="Close" data-tip-dir="down" data-tip-align="right" aria-label="Close">
           <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" fill="none"/></svg>
         </button>
       </div>
@@ -34,14 +34,14 @@
               <path class="header-ecg-line" d="M0 6 L8 6 L10 2 L12 6 L14 6 L16 10 L18 6 L32 6" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
           </div>
-          <button type="button" id="header-watch" class="header-watch-btn" title="Toggle watch mode" aria-label="Toggle watch mode">
+          <button type="button" id="header-watch" class="header-watch-btn" data-tip="Jarvis Watch Mode" data-tip-dir="down" aria-label="Toggle watch mode">
             <svg class="watch-eye-svg" viewBox="0 0 24 16" aria-hidden="true">
               <path class="watch-eye-outline" d="M1 8 C5 2, 10 0, 12 0 C14 0, 19 2, 23 8 C19 14, 14 16, 12 16 C10 16, 5 14, 1 8Z" fill="none" stroke-width="1.5"/>
               <circle class="watch-eye-iris" cx="12" cy="8" r="3.5"/>
               <circle class="watch-eye-pupil" cx="12" cy="8" r="1.2"/>
             </svg>
           </button>
-          <button type="button" id="header-control" class="header-control-btn" title="Allow bot to use keyboard &amp; mouse" aria-label="Toggle keyboard and mouse control">
+          <button type="button" id="header-control" class="header-control-btn" data-tip="Mouse &amp; Keyboard Control" data-tip-dir="down" aria-label="Toggle keyboard and mouse control">
             <svg class="control-kbd-svg" viewBox="0 0 22 16" aria-hidden="true">
               <rect class="control-kbd-body" x="1" y="1" width="20" height="14" rx="2" fill="none" stroke-width="1.3"/>
               <line class="control-kbd-key" x1="5" y1="5" x2="7" y2="5" stroke-width="1.2" stroke-linecap="round"/>
@@ -52,32 +52,32 @@
               <line class="control-kbd-key" x1="7" y1="12" x2="15" y2="12" stroke-width="1.2" stroke-linecap="round"/>
             </svg>
           </button>
-          <button type="button" id="header-listen" class="header-listen-btn" title="Listen to system audio" aria-label="Toggle audio listening">
+          <button type="button" id="header-listen" class="header-listen-btn" data-tip="Listen to System Audio" data-tip-dir="down" aria-label="Toggle audio listening">
             <i class="fa-solid fa-headphones listen-icon"></i>
           </button>
-          <button type="button" id="listen-dur-down" class="listen-dur-btn" title="Decrease duration" aria-label="Decrease capture duration">−</button>
+          <button type="button" id="listen-dur-down" class="listen-dur-btn" data-tip="Shorter capture" data-tip-dir="down" aria-label="Decrease capture duration">−</button>
           <span id="listen-dur-label" class="listen-dur-label">4s</span>
-          <button type="button" id="listen-dur-up" class="listen-dur-btn" title="Increase duration" aria-label="Increase capture duration">+</button>
+          <button type="button" id="listen-dur-up" class="listen-dur-btn" data-tip="Longer capture" data-tip-dir="down" aria-label="Increase capture duration">+</button>
           <select id="listen-model" class="listen-model-select" title="Translation engine">
             <option value="gemini-2.5-flash-native-audio-latest">Gemini Flash 2.5</option>
             <option value="gemini-2.0-flash-exp">Gemini Flash 2.0</option>
             <option value="whisper-gpt">Whisper + ChatGPT</option>
           </select>
-          <button type="button" id="header-mouth" class="header-mouth-btn" title="Speak translations aloud" aria-label="Toggle vocal mode">
+          <button type="button" id="header-mouth" class="header-mouth-btn" data-tip="Speak Aloud (TTS)" data-tip-dir="down" aria-label="Toggle vocal mode">
             <i class="fa-solid fa-volume-high mouth-icon"></i>
           </button>
-          <button type="button" id="header-autopilot" class="header-autopilot-btn" title="Auto-pilot: proactive screen help" aria-label="Toggle auto-pilot">
+          <button type="button" id="header-autopilot" class="header-autopilot-btn" data-tip="Auto-pilot" data-tip-dir="down" aria-label="Toggle auto-pilot">
             <i class="fa-solid fa-brain autopilot-icon"></i>
           </button>
-          <button type="button" id="header-proactive" class="header-proactive-btn" title="Proactive mode: auto-act on screen, tasks & directives" aria-label="Toggle proactive action mode">
+          <button type="button" id="header-proactive" class="header-proactive-btn" data-tip="Proactive Action Mode" data-tip-dir="down" aria-label="Toggle proactive action mode">
             <i class="fa-solid fa-bolt proactive-icon"></i>
           </button>
         </div>
         <div class="panel-actions">
-          <button type="button" id="sound-toggle" class="btn-icon btn-sound" title="Sound effects on" aria-label="Toggle sound effects">
+          <button type="button" id="sound-toggle" class="btn-icon btn-sound" data-tip="Sound effects" data-tip-dir="down" aria-label="Toggle sound effects">
             <i class="fa-solid fa-volume-high sound-icon"></i>
           </button>
-          <button type="button" id="clear-btn" class="btn-icon btn-clear" title="Clear chat" aria-label="Clear chat">
+          <button type="button" id="clear-btn" class="btn-icon btn-clear" data-tip="Clear chat (Ctrl+L)" data-tip-dir="down" aria-label="Clear chat">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8M9 4h6a1 1 0 0 1 1 1v1H8V5a1 1 0 0 1 1-1ZM4 7h16"/>
               <path d="M10 11v6M14 11v6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none"/>
@@ -112,9 +112,9 @@
             <svg class="chat-search-icon" viewBox="0 0 24 24" width="14" height="14"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><line x1="16.5" y1="16.5" x2="21" y2="21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
             <input type="text" id="chat-search-input" class="chat-search-input" placeholder="Search messages..." autocomplete="off">
             <span id="chat-search-count" class="chat-search-count"></span>
-            <button type="button" id="chat-search-prev" class="chat-search-nav" title="Previous">&uarr;</button>
-            <button type="button" id="chat-search-next" class="chat-search-nav" title="Next">&darr;</button>
-            <button type="button" id="chat-search-close" class="chat-search-close" title="Close">&times;</button>
+            <button type="button" id="chat-search-prev" class="chat-search-nav" data-tip="Previous match" aria-label="Previous match">&uarr;</button>
+            <button type="button" id="chat-search-next" class="chat-search-nav" data-tip="Next match" aria-label="Next match">&darr;</button>
+            <button type="button" id="chat-search-close" class="chat-search-close" data-tip="Close search" aria-label="Close search">&times;</button>
           </div>
         </div>
         <div class="chat-area">
@@ -134,18 +134,18 @@
         <div id="vision-status" class="vision-status" hidden></div>
         <div class="input-row">
           <input type="text" id="input" class="input" placeholder="Ask me anything..." autocomplete="off" aria-label="Message input">
-          <button type="button" id="voice-btn" class="btn btn-voice" title="Voice off" aria-label="Toggle voice input">
+          <button type="button" id="voice-btn" class="btn btn-voice" data-tip="Voice input" aria-label="Toggle voice input">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 1 0 6 0V6a3 3 0 0 0-3-3Z"></path>
               <path d="M5 11a1 1 0 1 1 2 0 5 5 0 1 0 10 0 1 1 0 1 1 2 0 7 7 0 0 1-6 6.93V21h3a1 1 0 1 1 0 2H8a1 1 0 1 1 0-2h3v-3.07A7 7 0 0 1 5 11Z"></path>
             </svg>
           </button>
-          <button type="button" id="send-btn" class="btn btn-send" title="Send" aria-label="Send message">
+          <button type="button" id="send-btn" class="btn btn-send" data-tip="Send (Enter)" aria-label="Send message">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M3.478 2.405a.75.75 0 0 0-.926.94l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94l18-8.5a.75.75 0 0 0 0-1.38l-18-8.5Z"/>
             </svg>
           </button>
-          <button type="button" id="stop-btn" class="btn btn-stop" title="Stop" aria-label="Stop processing" hidden>
+          <button type="button" id="stop-btn" class="btn btn-stop" data-tip="Stop processing" aria-label="Stop processing" hidden>
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
               <rect x="6" y="6" width="12" height="12" rx="2"/>
             </svg>
@@ -155,9 +155,9 @@
       </div>
       <div id="tab-browser" class="tab-content">
         <div class="browser-toolbar">
-          <button id="browser-back" class="browser-nav-btn" title="Back">&#9664;</button>
-          <button id="browser-forward" class="browser-nav-btn" title="Forward">&#9654;</button>
-          <button id="browser-refresh" class="browser-nav-btn" title="Refresh">&#8635;</button>
+          <button id="browser-back" class="browser-nav-btn" data-tip="Back" data-tip-dir="down" aria-label="Back">&#9664;</button>
+          <button id="browser-forward" class="browser-nav-btn" data-tip="Forward" data-tip-dir="down" aria-label="Forward">&#9654;</button>
+          <button id="browser-refresh" class="browser-nav-btn" data-tip="Refresh" data-tip-dir="down" aria-label="Refresh">&#8635;</button>
           <input id="browser-url" type="text" class="browser-url-input" placeholder="Enter URL..." autocomplete="off">
           <button id="browser-go" class="browser-nav-btn browser-go-btn">Go</button>
         </div>
@@ -188,8 +188,8 @@
             </div>
             <textarea id="agents-mission-input" class="tab-input agents-mission-input" rows="3" placeholder="Mission for the new agent (e.g. Search the web for X and summarize)" aria-label="Agent mission"></textarea>
             <div class="agents-btn-row">
-              <button type="button" id="agents-start-btn" class="action-btn publish">Start agent</button>
-              <button type="button" id="agents-random-btn" class="action-btn agents-random-btn" title="Start a random agent with a surprise mission">&#x1F3B2; Random</button>
+              <button type="button" id="agents-start-btn" class="action-btn publish" data-tip="Launch agent on this mission">Start agent</button>
+              <button type="button" id="agents-random-btn" class="action-btn agents-random-btn" data-tip="Random surprise mission">&#x1F3B2; Random</button>
             </div>
           </div>
           <p id="agents-start-status" class="agents-start-status" role="status"></p>

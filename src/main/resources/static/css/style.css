@@ -169,8 +169,11 @@ html, body {
 }
 
 .title-bar-btn:hover {
-  background: rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.18);
   color: #fff;
+}
+.title-bar-btn:active {
+  background: rgba(255,255,255,0.28);
 }
 
 .title-bar-close:hover {
@@ -228,13 +231,17 @@ html, body {
   margin-left: 6px;
   background: none;
   border: none;
-  padding: 2px;
+  padding: 4px;
   cursor: pointer;
-  border-radius: 4px;
-  transition: background 0.15s;
+  border-radius: 5px;
+  transition: background 0.12s, transform 0.12s;
 }
 .header-watch-btn:hover {
-  background: rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.16);
+}
+.header-watch-btn:active {
+  background: rgba(255,255,255,0.24);
+  transform: scale(0.94);
 }
 .watch-eye-svg {
   width: 22px;
@@ -268,13 +275,17 @@ html, body {
   margin-left: 2px;
   background: none;
   border: none;
-  padding: 2px;
+  padding: 4px;
   cursor: pointer;
-  border-radius: 4px;
-  transition: background 0.15s;
+  border-radius: 5px;
+  transition: background 0.12s, transform 0.12s;
 }
 .header-control-btn:hover {
-  background: rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.16);
+}
+.header-control-btn:active {
+  background: rgba(255,255,255,0.24);
+  transform: scale(0.94);
 }
 .control-kbd-svg {
   width: 20px;
@@ -306,13 +317,17 @@ html, body {
   margin-left: 2px;
   background: none;
   border: none;
-  padding: 4px;
+  padding: 5px;
   cursor: pointer;
   border-radius: 6px;
-  transition: background 0.15s;
+  transition: background 0.12s, transform 0.12s;
 }
 .header-listen-btn:hover {
-  background: rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.16);
+}
+.header-listen-btn:active {
+  background: rgba(255,255,255,0.24);
+  transform: scale(0.94);
 }
 .listen-icon {
   font-size: 15px;
@@ -393,13 +408,17 @@ html, body {
   background: transparent;
   border: none;
   cursor: pointer;
-  padding: 4px;
+  padding: 5px;
   border-radius: 6px;
   margin-left: 2px;
-  transition: background 0.15s;
+  transition: background 0.12s, transform 0.12s;
 }
 .header-mouth-btn:hover {
-  background: rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.16);
+}
+.header-mouth-btn:active {
+  background: rgba(255,255,255,0.24);
+  transform: scale(0.94);
 }
 .mouth-icon {
   font-size: 15px;
@@ -435,8 +454,12 @@ html, body {
 }
 
 .btn-icon:hover {
-  background: rgba(63, 63, 70, 0.6);
-  color: #d4d4d8;
+  background: rgba(255, 255, 255, 0.16);
+  color: #f4f4f5;
+}
+.btn-icon:active {
+  background: rgba(255, 255, 255, 0.24);
+  transform: scale(0.94);
 }
 
 .btn-icon .icon {
@@ -4022,56 +4045,80 @@ body.embedded-minsbot .tab-bar {
   50% { opacity: 0.6; }
 }
 
-/* ═══ Styled tooltips for header buttons ═══ */
-.header-watch-btn,
-.header-control-btn,
-.header-listen-btn,
-.header-mouth-btn,
-.header-autopilot-btn,
-.header-proactive-btn,
-.btn-sound,
-.btn-clear {
+/* ═══ Universal tooltip system ═══
+   Usage: add data-tip="Label" to any element.
+   Default: tooltip appears ABOVE. Add data-tip-dir="down" to flip below.
+*/
+[data-tip] {
   position: relative;
 }
-.header-watch-btn::after,
-.header-control-btn::after,
-.header-listen-btn::after,
-.header-mouth-btn::after,
-.header-autopilot-btn::after,
-.header-proactive-btn::after,
-.btn-sound::after,
-.btn-clear::after {
-  content: attr(title);
-  position: absolute;
-  bottom: -28px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 4px 8px;
-  background: #27272a;
-  border: 1px solid rgba(255,255,255,0.15);
-  border-radius: 5px;
-  color: #e4e4e7;
-  font-size: 10px;
-  white-space: nowrap;
+[data-tip]::before,
+[data-tip]::after {
   pointer-events: none;
   opacity: 0;
-  transition: opacity 0.15s ease;
-  z-index: 999;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  position: absolute;
+  left: 50%;
+  z-index: 9999;
+}
+/* Arrow */
+[data-tip]::before {
+  content: '';
+  border: 5px solid transparent;
+  border-top-color: #27272a;
+  bottom: calc(100% + 2px);
+  transform: translateX(-50%) translateY(0);
+}
+/* Label */
+[data-tip]::after {
+  content: attr(data-tip);
+  bottom: calc(100% + 10px);
+  transform: translateX(-50%) translateY(2px);
+  padding: 5px 9px;
+  background: #27272a;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 6px;
+  color: #e4e4e7;
+  font-size: 11px;
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
   font-weight: 400;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
   letter-spacing: 0;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
 }
-.header-watch-btn:hover::after,
-.header-control-btn:hover::after,
-.header-listen-btn:hover::after,
-.header-mouth-btn:hover::after,
-.header-autopilot-btn:hover::after,
-.header-proactive-btn:hover::after,
-.btn-sound:hover::after,
-.btn-clear:hover::after {
+[data-tip]:hover::before,
+[data-tip]:hover::after {
   opacity: 1;
+  transform: translateX(-50%) translateY(0);
 }
+
+/* Flip downward */
+[data-tip][data-tip-dir="down"]::before {
+  bottom: auto;
+  top: calc(100% + 2px);
+  border-top-color: transparent;
+  border-bottom-color: #27272a;
+  transform: translateX(-50%) translateY(0);
+}
+[data-tip][data-tip-dir="down"]::after {
+  bottom: auto;
+  top: calc(100% + 10px);
+  transform: translateX(-50%) translateY(-2px);
+}
+[data-tip][data-tip-dir="down"]:hover::before,
+[data-tip][data-tip-dir="down"]:hover::after {
+  transform: translateX(-50%) translateY(0);
+}
+
+/* Keep tooltip inside left/right edges for first/last items */
+[data-tip][data-tip-align="left"]::before,
+[data-tip][data-tip-align="left"]::after { left: 12px; transform: translateX(0); }
+[data-tip][data-tip-align="right"]::before,
+[data-tip][data-tip-align="right"]::after { left: auto; right: 8px; transform: translateX(0); }
+
+/* Never show tooltip on hidden elements */
+[hidden][data-tip]::before,
+[hidden][data-tip]::after { display: none; }
 
 /* ═══ Proactive Action Mode button (lightning bolt) ═══ */
 .header-proactive-btn {

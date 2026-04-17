@@ -122,13 +122,20 @@ public class ScreenStateService {
                     screenshotPath.getFileName(), Files.size(screenshotPath));
 
             // Build an ignore-region hint for the vision AI
-            String ignoreHint = "";
+            String ignoreHint;
             if (botBounds != null) {
-                ignoreHint = "\n\nIMPORTANT: The Mins Bot window is visible on screen at pixel region ("
+                ignoreHint = "\n\nCRITICAL: The Mins Bot chat overlay (YOUR OWN UI) is visible at pixel region ("
                         + botBounds[0] + "," + botBounds[1] + ") to ("
                         + (botBounds[0] + botBounds[2]) + "," + (botBounds[1] + botBounds[3])
-                        + "). IGNORE this region completely — do not describe it, do not list its contents, "
-                        + "do not include it as a window or application. Focus only on what is BEHIND or OUTSIDE it.";
+                        + "). The chat bubbles inside it are your own previous replies. "
+                        + "COMPLETELY IGNORE that region — never describe it, never react to its messages, "
+                        + "never comment on what it says. Only observe what is OUTSIDE or BEHIND it.";
+            } else {
+                ignoreHint = "\n\nCRITICAL: There is a chat overlay called 'Mins Bot' visible on screen "
+                        + "(small blue swirling ball icon, title 'Mins Bot', chat message bubbles). "
+                        + "This is YOUR OWN UI showing your previous replies. "
+                        + "COMPLETELY IGNORE this overlay — never describe it, never react to its messages, "
+                        + "never comment on what it says. Only observe what is BEHIND or AROUND it.";
             }
 
             // GPT Vision only — no Gemini for screen analysis

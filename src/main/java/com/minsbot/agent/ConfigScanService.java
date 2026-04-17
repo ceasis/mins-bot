@@ -39,7 +39,8 @@ public class ConfigScanService {
             "minsbot_config.txt",
             "personal_config.txt",
             "cron_config.txt",
-            "system_config.txt"
+            "system_config.txt",
+            "system-prompt.md"
     };
 
     private final WorkingSoundService workingSound;
@@ -50,9 +51,14 @@ public class ConfigScanService {
     private final TtsTools ttsTools;
     private final PlaylistService playlistService;
     private final ScreenClickTools screenClickTools;
+    private final SystemPromptService systemPromptService;
 
     /** Last-modified timestamp for each file, used to detect changes. */
     private final Map<String, FileTime> lastModified = new LinkedHashMap<>();
+
+    /** Last-modified snapshot of every .md file in skills/ — detects adds/edits/renames. */
+    private volatile long skillsDirLastScanMs = 0;
+    private final Map<String, FileTime> skillFileTimes = new LinkedHashMap<>();
 
     public ConfigScanService(WorkingSoundService workingSound,
                              IdleDetectionService idleDetection,
@@ -61,7 +67,8 @@ public class ConfigScanService {
                              WebcamMemoryService webcamMemory,
                              TtsTools ttsTools,
                              PlaylistService playlistService,
-                             ScreenClickTools screenClickTools) {
+                             ScreenClickTools screenClickTools,
+                             SystemPromptService systemPromptService) {
         this.workingSound = workingSound;
         this.idleDetection = idleDetection;
         this.screenMemory = screenMemory;
@@ -70,6 +77,7 @@ public class ConfigScanService {
         this.ttsTools = ttsTools;
         this.playlistService = playlistService;
         this.screenClickTools = screenClickTools;
+        this.systemPromptService = systemPromptService;
     }
 
     @PostConstruct
@@ -104,6 +112,41 @@ public class ConfigScanService {
                 }
             } catch (IOException ignored) {}
         }
+        scanSkillsDirectory();
+    }
+
+    /** Watches ~/mins_bot_data/skills/*.md for adds, removes, and edits. */
+    private void scanSkillsDirectory() {
+        Path skillsDir = SystemPromptService.SKILLS_DIR;
+        if (!Files.isDirectory(skillsDir)) return;
+
+        Map<String, FileTime> current = new LinkedHashMap<>();
+        try (java.nio.file.DirectoryStream<Path> stream =
+                     Files.newDirectoryStream(skillsDir, "*.md")) {
+            for (Path file : stream) {
+                try {
+                    current.put(file.getFileName().toString(), Files.getLastModifiedTime(file));
+                } catch (IOException ignored) {}
+            }
+        } catch (IOException e) {
+            return;
+        }
+
+        boolean firstScan = skillsDirLastScanMs == 0;
+        skillsDirLastScanMs = System.currentTimeMillis();
+
+        if (firstScan) {
+            skillFileTimes.putAll(current);
+            return;
+        }
+
+        boolean changed = !current.equals(skillFileTimes);
+        if (changed) {
+            log.info("[ConfigScan] skills/ directory changed — invalidating skill cache");
+            skillFileTimes.clear();
+            skillFileTimes.putAll(current);
+            systemPromptService.reloadSkills();
+        }
     }
 
     private void onFileChanged(String file) {
@@ -119,6 +162,7 @@ public class ConfigScanService {
                 screenClickTools.reloadConfig();
                 FloatingAppLauncher.refreshBotName();
             }
+            case "system-prompt.md" -> systemPromptService.reloadTemplate();
             // personal_config.txt, cron_config.txt, system_config.txt:
             // These are re-read by SystemContextProvider on every chat request,
             // so the AI automatically sees changes. Just log for visibility.

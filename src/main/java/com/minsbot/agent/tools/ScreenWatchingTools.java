@@ -645,7 +645,7 @@ public class ScreenWatchingTools {
     // ═══ Vision analysis ═══
 
     private String analyzeForWatchMode(Path screenshotPath, String purpose, int round) {
-        String prompt = buildWatchPrompt(purpose, round);
+        String prompt = buildWatchPrompt(purpose, round) + buildIgnoreBotHint();
         log.info("[WatchMode] Analysis prompt ({} chars): {}", prompt.length(), prompt.replace('\n', ' '));
 
         // GPT Vision (primary for watch mode)
@@ -684,6 +684,26 @@ public class ScreenWatchingTools {
         }
 
         return null;
+    }
+
+    /**
+     * Tells the vision model to ignore the Mins Bot window itself, so it doesn't
+     * comment on its own chat replies (recursive watch loop).
+     */
+    private String buildIgnoreBotHint() {
+        int[] b = com.minsbot.FloatingAppLauncher.getWindowBounds();
+        if (b == null) {
+            return "\n\nCRITICAL: There is a chat overlay called 'Mins Bot' visible on screen "
+                    + "(it has a small blue swirling ball icon, the title 'Mins Bot', and chat message bubbles). "
+                    + "This is YOUR OWN UI showing your previous replies. "
+                    + "COMPLETELY IGNORE this overlay — never describe it, never react to its messages, "
+                    + "never comment on what it says. Only observe what is BEHIND or AROUND it.";
+        }
+        return "\n\nCRITICAL: The Mins Bot chat overlay is visible at pixel region ("
+                + b[0] + "," + b[1] + ") to (" + (b[0] + b[2]) + "," + (b[1] + b[3]) + "). "
+                + "This is YOUR OWN UI showing your previous replies. "
+                + "COMPLETELY IGNORE that region — never describe it, never react to its messages, "
+                + "never comment on what it says. Only observe what is OUTSIDE or BEHIND it.";
     }
 
     private String buildWatchPrompt(String purpose, int round) {

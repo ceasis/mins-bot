@@ -61,6 +61,19 @@ public class ChatService {
                     + "|\\btell\\s+me\\s+about\\s+yourself\\b");
 
     /**
+     * Simple on/off toggle commands — no planning needed, no screen capture needed.
+     * These are direct tool calls (toggle mode, enable/disable feature, mute/unmute, etc.).
+     */
+    private static final Pattern SIMPLE_TOGGLE_COMMAND = Pattern.compile(
+            "(?i)^(stop|start|enable|disable|turn\\s+(on|off)|activate|deactivate|pause|resume)\\s+"
+                    + "(watching|watch\\s+mode|listening|listen\\s+mode|vocal|voice|tts|speaking|audio|"
+                    + "mouth|ears?|eyes?|screen\\s+watch|audio\\s+listen|wake\\s+word|hey\\s+jarvis|"
+                    + "auto[- ]?pilot|autopilot|proactive|control|keyboard|mic|microphone)"
+                    + "(\\s+(mode|now|please))?[.!?\\s]*$"
+                    + "|^(stop|start|enable|disable|turn\\s+(on|off))\\s+(watching|listening|speaking)\\s+my\\s+\\w+[.!?\\s]*$"
+                    + "|^(mute|unmute|louder|quieter)[.!?\\s]*$");
+
+    /**
      * If the message is long or mentions UI/automation, live screen context helps.
      * Short chat-only questions skip capture when {@code app.chat.live-screen-on-message} is on.
      */
@@ -280,9 +293,9 @@ public class ChatService {
                         try { clipboardHistoryTools.poll(); } catch (Exception ignored) {}
 
                         // ── No user message: observe screen autonomously ──
-                        // Only run autonomous observation if idle long enough
+                        // Only run if watch mode (eye icon) is enabled AND idle long enough
                         long idleMs = System.currentTimeMillis() - lastActivityTime;
-                        if (idleMs >= 5000 && !mainLoopBusy) {
+                        if (screenWatchingTools.isWatching() && idleMs >= 5000 && !mainLoopBusy) {
                             mainLoopBusy = true;
                             runAutonomousObservation();
                             mainLoopBusy = false;
@@ -903,6 +916,7 @@ public class ChatService {
         int wordCount = message.trim().split("\\s+").length;
         if (wordCount <= 2) return false;
         if (isSimpleConversationalQuery(message)) return false;
+        if (isSimpleToggleCommand(message)) return false;
         if (SystemContextProvider.isMessageAboutMinsbotSelfConfig(message)) return false;
         return true;
     }
@@ -914,11 +928,16 @@ public class ChatService {
     private boolean needsLiveScreenForMessage(String message) {
         if (message == null || message.isBlank()) return false;
         if (isSimpleConversationalQuery(message)) return false;
+        if (isSimpleToggleCommand(message)) return false;
         if (SystemContextProvider.isMessageAboutMinsbotSelfConfig(message)) return false;
         int wordCount = message.trim().split("\\s+").length;
         if (wordCount <= 2) return false;
         if (wordCount >= 16) return true;
         return SCREEN_OR_AUTOMATION_HINT.matcher(message).find();
+    }
+
+    private static boolean isSimpleToggleCommand(String message) {
+        return SIMPLE_TOGGLE_COMMAND.matcher(message.trim()).find();
     }
 
     private static boolean isSimpleConversationalQuery(String message) {

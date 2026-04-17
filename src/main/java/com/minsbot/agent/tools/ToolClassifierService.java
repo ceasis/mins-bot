@@ -70,7 +70,11 @@ public class ToolClassifierService {
             "video_creation",
             "trend_scout",
             "github",
-            "bot_window"
+            "bot_window",
+            "code_runner",
+            "file_watcher",
+            "app_usage",
+            "custom_skills"
     );
 
     private static final String SYSTEM_PROMPT = """
@@ -130,6 +134,10 @@ public class ToolClassifierService {
             - trend_scout: what's new, any updates, trending, what's happening with, latest news about, YouTube updates, track interest, my interests, scout topics, what should I know about, new release, what's trending, any news about, follow updates, tech news, product launch
             - github: github, repository, repo, pull request, PR, issue, commit, branch, gist, CI, workflow, actions, git, github notifications, github activity, merge, fork, stars, github search
             - bot_window: move yourself, move to the left, move to the right, move to the corner, minimize yourself, hide yourself, go away, come back, show yourself, restore yourself, make yourself bigger, make yourself smaller, resize yourself, get out of the way, move the bot window, bot window position, where are you
+            - code_runner: run python, execute python, run code, run script, execute code, python snippet, node.js code, run javascript, powershell script, bash script, shell command, run this code, evaluate code, test code, execute snippet, run this function, code sandbox, python output, node output, script output, run and show result
+            - file_watcher: watch folder, watch directory, notify me when file appears, alert on new file, monitor folder for changes, watch downloads folder, watch inbox folder, file watcher, notify on new file, file monitoring, folder monitoring, watch this folder, alert when file added, detect new file, track folder changes
+            - app_usage: what apps am I using, how long on computer, app time, screen time, productivity stats, which apps do I use most, app usage report, time tracking, what was I working on, app focus time, productivity breakdown, work time, app usage today, app usage this week, focus time, what have I been doing
+            - custom_skills: list my skills, what skills do you have, custom skills, my saved skills, save this as a skill, create a skill, remember this routine, teach you a skill, run the X skill, my routines, saved recipes, save routine, morning brief skill, skill file
 
             Return at most 4 of the most relevant category names, comma-separated. If none match, return: none""";
 

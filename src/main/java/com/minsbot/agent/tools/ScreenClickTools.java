@@ -1435,20 +1435,23 @@ public class ScreenClickTools {
             robot.mouseMove(x, y);
             robot.delay(150); // wait for hover effect + cursor change
 
-            // Check cursor type via native Win32 API (most reliable signal)
+            // Check cursor type via native Win32 API
+            // HAND = clickable button/link (strong positive for screenClick)
+            // IBEAM = text input field — NOT a button, do NOT use as click confirmation
+            //         (some apps show IBEAM even on close/title-bar buttons; only useful for form fields)
             if (cursorDetector.isAvailable()) {
                 var cursorType = cursorDetector.getCurrentCursor();
                 if (cursorType == com.minsbot.agent.CursorDetector.CursorType.HAND) {
                     log.info("[hoverProbe] HAND cursor at ({},{}) — clickable button/link", x, y);
                     return new int[]{x, y};
                 }
-                if (cursorType == com.minsbot.agent.CursorDetector.CursorType.IBEAM) {
-                    log.info("[hoverProbe] IBEAM cursor at ({},{}) — text input field", x, y);
-                    return new int[]{x, y};
-                }
+                // IBEAM is intentionally NOT a positive signal for click — it's for text fields.
+                // Use fillFormByTab for IBEAM targets, not screenClick.
             }
 
-            // Fallback: pixel comparison for hover effects (color/highlight changes)
+            // Fallback: pixel comparison for hover effects (color/highlight changes).
+            // This catches native buttons (X close, minimize) that use ARROW cursor
+            // but still have hover color changes.
             BufferedImage after = robot.createScreenCapture(
                     new Rectangle(rx, ry, regionSize, regionSize));
             double change = compareSmallRegion(before, after);

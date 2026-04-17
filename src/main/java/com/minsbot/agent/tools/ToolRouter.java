@@ -123,6 +123,10 @@ public class ToolRouter {
     private final TrendScoutTools trendScoutTools;
     private final GitHubTools gitHubTools;
     private final BotWindowTools botWindowTools;
+    private final CodeRunnerTools codeRunnerTools;
+    private final FileWatcherTools fileWatcherTools;
+    private final AppUsageTrackerTools appUsageTrackerTools;
+    private final CustomSkillTools customSkillTools;
 
     @Autowired(required = false)
     private ToolClassifierService classifier;
@@ -223,7 +227,11 @@ public class ToolRouter {
             RemotionVideoTools remotionVideoTools,
             TrendScoutTools trendScoutTools,
             GitHubTools gitHubTools,
-            BotWindowTools botWindowTools) {
+            BotWindowTools botWindowTools,
+            CodeRunnerTools codeRunnerTools,
+            FileWatcherTools fileWatcherTools,
+            AppUsageTrackerTools appUsageTrackerTools,
+            CustomSkillTools customSkillTools) {
 
         this.directivesTools = directivesTools;
         this.directiveDataTools = directiveDataTools;
@@ -308,6 +316,10 @@ public class ToolRouter {
         this.trendScoutTools = trendScoutTools;
         this.gitHubTools = gitHubTools;
         this.botWindowTools = botWindowTools;
+        this.codeRunnerTools = codeRunnerTools;
+        this.fileWatcherTools = fileWatcherTools;
+        this.appUsageTrackerTools = appUsageTrackerTools;
+        this.customSkillTools = customSkillTools;
 
         // Count @Tool methods on every bean (once, via reflection)
         countToolsOnAllBeans();
@@ -348,6 +360,7 @@ public class ToolRouter {
         beans.add(pdfTools);
         beans.add(playwrightTools);
         beans.add(downloadTools);
+        beans.add(codeRunnerTools);
         return beans.toArray();
     }
 
@@ -359,6 +372,25 @@ public class ToolRouter {
         if (classifier == null || !classifier.isAvailable()) return false;
         List<String> matched = classifier.classify(message);
         return matched != null && !matched.isEmpty();
+    }
+
+    /**
+     * Returns a map of category name → list of tool bean short class names, for prompt
+     * enumeration. Used by SystemPromptService to inject a built-in skills listing into
+     * the system prompt.
+     */
+    public Map<String, List<String>> getCategoryNamesByToolGroup() {
+        Map<String, List<String>> out = new LinkedHashMap<>();
+        categories.forEach((cat, beans) -> {
+            List<String> names = new ArrayList<>();
+            for (Object bean : beans) {
+                Class<?> cls = AopUtils.isAopProxy(bean)
+                        ? AopUtils.getTargetClass(bean) : bean.getClass();
+                names.add(cls.getSimpleName());
+            }
+            out.put(cat, names);
+        });
+        return Collections.unmodifiableMap(out);
     }
 
     // ═══ Selection logic (with tool count enforcement) ═══
@@ -435,7 +467,9 @@ public class ToolRouter {
                 habitDetectionTools, feedbackLoopTools, skillAutoCreateTools, windowManagerTools,
                 socialMonitorTools, intelligenceTools,
                 remotionVideoTools, trendScoutTools,
-                gitHubTools, botWindowTools
+                gitHubTools, botWindowTools,
+                codeRunnerTools, fileWatcherTools, appUsageTrackerTools,
+                customSkillTools
         };
         for (Object bean : allBeans) {
             if (bean != null && !toolCounts.containsKey(bean)) {
@@ -543,6 +577,10 @@ public class ToolRouter {
         map.put("trend_scout",   List.of(trendScoutTools, webSearchTools));
         map.put("github",        List.of(gitHubTools));
         map.put("bot_window",    List.of(botWindowTools));
+        map.put("code_runner",   List.of(codeRunnerTools));
+        map.put("file_watcher",  List.of(fileWatcherTools, fileTools));
+        map.put("app_usage",     List.of(appUsageTrackerTools, habitDetectionTools));
+        map.put("custom_skills", List.of(customSkillTools));
 
         return Collections.unmodifiableMap(map);
     }

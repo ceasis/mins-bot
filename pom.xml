@@ -277,13 +277,41 @@
                 </plugins>
             </build>
         </profile>
-        <!-- Windows installer via jpackage (JDK 17+) -->
-        <!-- Usage: mvn clean package -DskipTests -Pinstaller -->
-        <!-- Requires WiX Toolset 3.x on PATH for MSI output -->
+        <!-- Windows installer via jpackage (JDK 17+) — self-contained, bundles JRE -->
+        <!-- Usage: build-installer.bat  (recommended)                              -->
+        <!-- Or: mvn clean package -DskipTests -Pinstaller                          -->
         <profile>
             <id>installer</id>
             <build>
                 <plugins>
+                    <!-- Step 1: copy only the fat JAR into a clean input dir -->
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-resources-plugin</artifactId>
+                        <version>3.3.1</version>
+                        <executions>
+                            <execution>
+                                <id>copy-jar-for-jpackage</id>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>copy-resources</goal>
+                                </goals>
+                                <configuration>
+                                    <outputDirectory>${project.build.directory}/jpackage-input</outputDirectory>
+                                    <resources>
+                                        <resource>
+                                            <directory>${project.build.directory}</directory>
+                                            <includes>
+                                                <include>${project.build.finalName}.jar</include>
+                                            </includes>
+                                            <filtering>false</filtering>
+                                        </resource>
+                                    </resources>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <!-- Step 2: run jpackage against the clean input dir -->
                     <plugin>
                         <groupId>org.codehaus.mojo</groupId>
                         <artifactId>exec-maven-plugin</artifactId>
@@ -299,7 +327,7 @@
                                     <executable>jpackage</executable>
                                     <arguments>
                                         <argument>--input</argument>
-                                        <argument>${project.build.directory}</argument>
+                                        <argument>${project.build.directory}/jpackage-input</argument>
                                         <argument>--name</argument>
                                         <argument>MinsBot</argument>
                                         <argument>--main-jar</argument>
@@ -307,20 +335,19 @@
                                         <argument>--main-class</argument>
                                         <argument>com.minsbot.FloatingAppLauncher</argument>
                                         <argument>--type</argument>
-                                        <argument>msi</argument>
+                                        <argument>app-image</argument>
+                                        <argument>--runtime-image</argument>
+                                        <argument>${java.home}</argument>
                                         <argument>--dest</argument>
-                                        <argument>${project.build.directory}/installer</argument>
+                                        <argument>${project.build.directory}/dist</argument>
                                         <argument>--app-version</argument>
                                         <argument>1.0.0</argument>
                                         <argument>--vendor</argument>
-                                        <argument>MinsBot</argument>
+                                        <argument>Cholo Asis</argument>
                                         <argument>--description</argument>
                                         <argument>MinsBot - Your AI Desktop Assistant</argument>
-                                        <argument>--win-menu</argument>
-                                        <argument>--win-shortcut</argument>
-                                        <argument>--win-dir-chooser</argument>
                                         <argument>--java-options</argument>
-                                        <argument>-Xmx512m --add-modules javafx.controls,javafx.web,javafx.fxml --add-opens javafx.web/javafx.scene.web=ALL-UNNAMED --add-opens javafx.web/com.sun.webkit=ALL-UNNAMED</argument>
+                                        <argument>-Xmx512m --add-opens javafx.web/javafx.scene.web=ALL-UNNAMED --add-opens javafx.web/com.sun.webkit=ALL-UNNAMED</argument>
                                     </arguments>
                                 </configuration>
                             </execution>
@@ -349,6 +376,27 @@
             </resource>
         </resources>
         <plugins>
+            <!-- Exclude target/dist from mvn clean — installer output has locked MinsBot.exe -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-clean-plugin</artifactId>
+                <configuration>
+                    <excludeDefaultDirectories>true</excludeDefaultDirectories>
+                    <filesets>
+                        <fileset>
+                            <directory>${project.build.directory}</directory>
+                            <includes>
+                                <include>**/*</include>
+                            </includes>
+                            <excludes>
+                                <exclude>dist</exclude>
+                                <exclude>dist/**</exclude>
+                            </excludes>
+                            <followSymlinks>false</followSymlinks>
+                        </fileset>
+                    </filesets>
+                </configuration>
+            </plugin>
             <!-- Auto-increment build number on each build -->
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
