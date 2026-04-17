@@ -2,6 +2,8 @@ package com.minsbot.agent;
 
 import com.minsbot.PersonalityController;
 import com.minsbot.agent.tools.DirectivesTools;
+import com.minsbot.agent.tools.ToolRouter;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -26,11 +28,14 @@ public class SystemContextProvider {
 
     private final PersonalityController personalityController;
     private final SystemPromptService systemPromptService;
+    private final ToolRouter toolRouter;
 
     public SystemContextProvider(PersonalityController personalityController,
-                                 SystemPromptService systemPromptService) {
+                                 SystemPromptService systemPromptService,
+                                 @Lazy ToolRouter toolRouter) {
         this.personalityController = personalityController;
         this.systemPromptService = systemPromptService;
+        this.toolRouter = toolRouter;
     }
 
     /** Whether the directive reminder has been shown at least once this session. */
@@ -215,7 +220,8 @@ public class SystemContextProvider {
         // Placeholders are filled in with runtime values and the live skills listings.
         String osCombined = osName + " " + osVersion + " (" + osArch + ")";
         sb.append("\n");
-        sb.append(systemPromptService.render(username, computerName, osCombined, userHome, now));
+        sb.append(systemPromptService.render(username, computerName, osCombined, userHome, now,
+                toolRouter.getCategoryNamesByToolGroup()));
         sb.append("\n");
 
         // Primary prompt from minsbot_config.txt — injected at the top to shape bot personality/behavior

@@ -12,6 +12,12 @@ html, body {
   color: #e4e4e7;
 }
 
+:root {
+  --ui-hover-bg-light: rgba(212, 212, 216, 0.34);
+  --ui-hover-bg-light-pressed: rgba(212, 212, 216, 0.46);
+  --ui-hover-border-light: rgba(255, 255, 255, 0.28);
+}
+
 #root {
   width: 100%;
   height: 100%;
@@ -163,17 +169,74 @@ html, body {
   transition: background 0.1s ease, color 0.1s ease;
 }
 
+/* Force pointer + visible hover in JavaFX WebView for all top controls */
+.title-bar-btn,
+.header-watch-btn,
+.header-control-btn,
+.header-listen-btn,
+.header-mouth-btn,
+.header-autopilot-btn,
+.header-proactive-btn,
+.listen-dur-btn,
+.listen-model-select,
+#clear-btn {
+  cursor: pointer !important;
+}
+
+.title-bar-btn:hover,
+.title-bar-btn.mins-javafx-hover,
+.header-watch-btn:hover,
+.header-watch-btn.mins-javafx-hover,
+.header-control-btn:hover,
+.header-control-btn.mins-javafx-hover,
+.header-listen-btn:hover,
+.header-listen-btn.mins-javafx-hover,
+.header-mouth-btn:hover,
+.header-mouth-btn.mins-javafx-hover,
+.header-autopilot-btn:hover,
+.header-autopilot-btn.mins-javafx-hover,
+.header-proactive-btn:hover,
+.header-proactive-btn.mins-javafx-hover,
+.listen-dur-btn:hover,
+.listen-dur-btn.mins-javafx-hover,
+.listen-model-select:hover,
+.listen-model-select.mins-javafx-hover,
+#clear-btn:hover {
+  background: var(--ui-hover-bg-light) !important;
+  box-shadow: inset 0 0 0 1px var(--ui-hover-border-light) !important;
+}
+
+.title-bar-btn:active,
+.title-bar-btn.mins-javafx-hover:active,
+.header-watch-btn:active,
+.header-watch-btn.mins-javafx-hover:active,
+.header-control-btn:active,
+.header-control-btn.mins-javafx-hover:active,
+.header-listen-btn:active,
+.header-listen-btn.mins-javafx-hover:active,
+.header-mouth-btn:active,
+.header-mouth-btn.mins-javafx-hover:active,
+.header-autopilot-btn:active,
+.header-autopilot-btn.mins-javafx-hover:active,
+.header-proactive-btn:active,
+.header-proactive-btn.mins-javafx-hover:active,
+.listen-dur-btn:active,
+.listen-dur-btn.mins-javafx-hover:active,
+#clear-btn:active {
+  background: var(--ui-hover-bg-light-pressed) !important;
+}
+
 .title-bar-btn svg {
   width: 10px;
   height: 10px;
 }
 
 .title-bar-btn:hover {
-  background: rgba(255,255,255,0.18);
+  background: var(--ui-hover-bg-light);
   color: #fff;
 }
 .title-bar-btn:active {
-  background: rgba(255,255,255,0.28);
+  background: var(--ui-hover-bg-light-pressed);
 }
 
 .title-bar-close:hover {
@@ -237,10 +300,11 @@ html, body {
   transition: background 0.12s, transform 0.12s;
 }
 .header-watch-btn:hover {
-  background: rgba(255,255,255,0.16);
+  background: var(--ui-hover-bg-light);
+  box-shadow: inset 0 0 0 1px var(--ui-hover-border-light);
 }
 .header-watch-btn:active {
-  background: rgba(255,255,255,0.24);
+  background: var(--ui-hover-bg-light-pressed);
   transform: scale(0.94);
 }
 .watch-eye-svg {
@@ -252,7 +316,9 @@ html, body {
 .header-watch-btn .watch-eye-iris { fill: #52525b; }
 .header-watch-btn .watch-eye-pupil { fill: #1a1a2e; }
 .header-watch-btn:hover .watch-eye-outline { stroke: #71717a; }
+.header-watch-btn.mins-javafx-hover .watch-eye-outline { stroke: #71717a; }
 .header-watch-btn:hover .watch-eye-iris { fill: #71717a; }
+.header-watch-btn.mins-javafx-hover .watch-eye-iris { fill: #71717a; }
 
 /* Active state: red + pulsing glow */
 .header-watch-btn.active .watch-eye-outline { stroke: #ef4444; }
@@ -281,10 +347,11 @@ html, body {
   transition: background 0.12s, transform 0.12s;
 }
 .header-control-btn:hover {
-  background: rgba(255,255,255,0.16);
+  background: var(--ui-hover-bg-light);
+  box-shadow: inset 0 0 0 1px var(--ui-hover-border-light);
 }
 .header-control-btn:active {
-  background: rgba(255,255,255,0.24);
+  background: var(--ui-hover-bg-light-pressed);
   transform: scale(0.94);
 }
 .control-kbd-svg {
@@ -295,7 +362,9 @@ html, body {
 .header-control-btn .control-kbd-body { stroke: #52525b; }
 .header-control-btn .control-kbd-key { stroke: #52525b; }
 .header-control-btn:hover .control-kbd-body { stroke: #71717a; }
+.header-control-btn.mins-javafx-hover .control-kbd-body { stroke: #71717a; }
 .header-control-btn:hover .control-kbd-key { stroke: #71717a; }
+.header-control-btn.mins-javafx-hover .control-kbd-key { stroke: #71717a; }
 
 /* Active state: green + pulsing glow */
 .header-control-btn.active .control-kbd-body { stroke: #22c55e; }
@@ -323,10 +392,11 @@ html, body {
   transition: background 0.12s, transform 0.12s;
 }
 .header-listen-btn:hover {
-  background: rgba(255,255,255,0.16);
+  background: var(--ui-hover-bg-light);
+  box-shadow: inset 0 0 0 1px var(--ui-hover-border-light);
 }
 .header-listen-btn:active {
-  background: rgba(255,255,255,0.24);
+  background: var(--ui-hover-bg-light-pressed);
   transform: scale(0.94);
 }
 .listen-icon {
@@ -335,6 +405,7 @@ html, body {
   transition: color 0.2s;
 }
 .header-listen-btn:hover .listen-icon { color: #71717a; }
+.header-listen-btn.mins-javafx-hover .listen-icon { color: #71717a; }
 
 /* Active state: purple + pulsing glow */
 .header-listen-btn.active .listen-icon {
@@ -366,9 +437,9 @@ html, body {
   transition: background 0.15s, color 0.15s;
 }
 .listen-dur-btn:hover {
-  background: rgba(168, 85, 247, 0.2);
-  color: #c084fc;
-  border-color: rgba(168, 85, 247, 0.4);
+  background: var(--ui-hover-bg-light);
+  color: #d4d4d8;
+  border-color: var(--ui-hover-border-light);
 }
 .listen-dur-label {
   font-size: 11px;
@@ -392,8 +463,9 @@ html, body {
   -webkit-appearance: none;
 }
 .listen-model-select:hover {
-  border-color: rgba(168, 85, 247, 0.4);
-  color: #c084fc;
+  border-color: var(--ui-hover-border-light);
+  color: #d4d4d8;
+  background: var(--ui-hover-bg-light);
 }
 .listen-model-select option {
   background: #1e1e22;
@@ -414,10 +486,11 @@ html, body {
   transition: background 0.12s, transform 0.12s;
 }
 .header-mouth-btn:hover {
-  background: rgba(255,255,255,0.16);
+  background: var(--ui-hover-bg-light);
+  box-shadow: inset 0 0 0 1px var(--ui-hover-border-light);
 }
 .header-mouth-btn:active {
-  background: rgba(255,255,255,0.24);
+  background: var(--ui-hover-bg-light-pressed);
   transform: scale(0.94);
 }
 .mouth-icon {
@@ -426,6 +499,7 @@ html, body {
   transition: color 0.2s;
 }
 .header-mouth-btn:hover .mouth-icon { color: #71717a; }
+.header-mouth-btn.mins-javafx-hover .mouth-icon { color: #71717a; }
 
 /* Active state: orange + pulsing glow */
 .header-mouth-btn.active .mouth-icon {
@@ -454,11 +528,12 @@ html, body {
 }
 
 .btn-icon:hover {
-  background: rgba(255, 255, 255, 0.16);
+  background: rgba(82, 82, 91, 0.5);
   color: #f4f4f5;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.1);
 }
 .btn-icon:active {
-  background: rgba(255, 255, 255, 0.24);
+  background: rgba(82, 82, 91, 0.75);
   transform: scale(0.94);
 }
 
@@ -968,6 +1043,67 @@ body.embedded-minsbot .tab-bar {
 }
 .agent-card:hover {
   border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* ═══ Orchestrator / sub-agent hierarchy ═══ */
+.agent-crew {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(99, 102, 241, 0.06), rgba(99, 102, 241, 0.02));
+  position: relative;
+}
+.agent-card-orchestrator {
+  border-color: rgba(99, 102, 241, 0.5);
+  background: rgba(99, 102, 241, 0.08);
+}
+.agent-crew-children {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-left: 24px;
+  padding-left: 12px;
+  border-left: 2px solid rgba(99, 102, 241, 0.3);
+  position: relative;
+}
+.agent-card-sub {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  position: relative;
+}
+.agent-card-sub::before {
+  /* horizontal connector from parent's vertical line to this card */
+  content: '';
+  position: absolute;
+  left: -14px;
+  top: 22px;
+  width: 12px;
+  height: 2px;
+  background: rgba(99, 102, 241, 0.3);
+}
+.agent-role-badge {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.agent-role-orchestrator {
+  background: rgba(99, 102, 241, 0.25);
+  color: #c7d2fe;
+  border: 1px solid rgba(99, 102, 241, 0.5);
+}
+.agent-role-sub {
+  background: rgba(255, 255, 255, 0.08);
+  color: #a1a1aa;
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .agent-card-header {
@@ -4016,12 +4152,16 @@ body.embedded-minsbot .tab-bar {
 /* ═══ Auto-pilot button ═══ */
 
 .header-autopilot-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: none;
   border: none;
   cursor: pointer;
-  padding: 2px 4px;
-  border-radius: 4px;
-  transition: all 0.2s;
+  padding: 5px;
+  border-radius: 5px;
+  margin-left: 2px;
+  transition: background 0.12s, transform 0.12s;
 }
 
 .header-autopilot-btn .autopilot-icon {
@@ -4030,8 +4170,19 @@ body.embedded-minsbot .tab-bar {
   transition: color 0.2s, text-shadow 0.2s;
 }
 
+.header-autopilot-btn:hover {
+  background: var(--ui-hover-bg-light);
+  box-shadow: inset 0 0 0 1px var(--ui-hover-border-light);
+}
 .header-autopilot-btn:hover .autopilot-icon {
   color: rgba(255,255,255,0.6);
+}
+.header-autopilot-btn.mins-javafx-hover .autopilot-icon {
+  color: rgba(255,255,255,0.6);
+}
+.header-autopilot-btn:active {
+  background: var(--ui-hover-bg-light-pressed);
+  transform: scale(0.94);
 }
 
 .header-autopilot-btn.autopilot-active .autopilot-icon {
@@ -4128,13 +4279,18 @@ body.embedded-minsbot .tab-bar {
   background: none;
   border: none;
   cursor: pointer;
-  padding: 4px;
-  border-radius: 6px;
+  padding: 5px;
+  border-radius: 5px;
   margin-left: 2px;
-  transition: background 0.15s;
+  transition: background 0.12s, transform 0.12s;
 }
 .header-proactive-btn:hover {
-  background: rgba(255,255,255,0.08);
+  background: var(--ui-hover-bg-light);
+  box-shadow: inset 0 0 0 1px var(--ui-hover-border-light);
+}
+.header-proactive-btn:active {
+  background: var(--ui-hover-bg-light-pressed);
+  transform: scale(0.94);
 }
 .proactive-icon {
   font-size: 14px;
@@ -4142,6 +4298,9 @@ body.embedded-minsbot .tab-bar {
   transition: color 0.2s, filter 0.2s;
 }
 .header-proactive-btn:hover .proactive-icon {
+  color: #71717a;
+}
+.header-proactive-btn.mins-javafx-hover .proactive-icon {
   color: #71717a;
 }
 .header-proactive-btn.active .proactive-icon {
@@ -4365,3 +4524,72 @@ body.embedded-minsbot .tab-bar {
 /* Search highlight on messages */
 .message-wrapper.search-match .message { box-shadow: 0 0 0 1px rgba(99,102,241,0.5); }
 .message-wrapper.search-current .message { box-shadow: 0 0 0 2px #6366f1; background: rgba(99,102,241,0.15); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   FORCED HOVER FEEDBACK — last rule wins, `!important` defeats specificity.
+   Just a brighter fill, no border (Windows 11 native style).
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Kill the default browser focus outline (the dashed rectangle after clicking). */
+.title-bar-btn:focus,
+.title-bar-btn:focus-visible,
+.header-watch-btn:focus,
+.header-watch-btn:focus-visible,
+.header-control-btn:focus,
+.header-control-btn:focus-visible,
+.header-listen-btn:focus,
+.header-listen-btn:focus-visible,
+.header-mouth-btn:focus,
+.header-mouth-btn:focus-visible,
+.header-autopilot-btn:focus,
+.header-autopilot-btn:focus-visible,
+.header-proactive-btn:focus,
+.header-proactive-btn:focus-visible,
+.btn-icon:focus,
+.btn-icon:focus-visible,
+.listen-dur-btn:focus,
+.listen-dur-btn:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+.title-bar-btn:hover:not(.title-bar-close),
+.header-watch-btn:hover,
+.header-control-btn:hover,
+.header-listen-btn:hover,
+.header-mouth-btn:hover,
+.header-autopilot-btn:hover,
+.header-proactive-btn:hover,
+.btn-icon:hover,
+.listen-dur-btn:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  box-shadow: none !important;
+  border: none !important;
+  outline: none !important;
+  border-radius: 4px !important;
+  transition: background 0.08s ease !important;
+}
+
+.title-bar-btn:active:not(.title-bar-close),
+.header-watch-btn:active,
+.header-control-btn:active,
+.header-listen-btn:active,
+.header-mouth-btn:active,
+.header-autopilot-btn:active,
+.header-proactive-btn:active,
+.btn-icon:active,
+.listen-dur-btn:active {
+  background: rgba(255, 255, 255, 0.14) !important;
+  box-shadow: none !important;
+  border: none !important;
+  outline: none !important;
+}
+
+/* Close button keeps its red hover (Windows convention). */
+.title-bar-close:hover {
+  background: #e81123 !important;
+  color: #fff !important;
+  box-shadow: none !important;
+  border: none !important;
+}

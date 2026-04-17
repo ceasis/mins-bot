@@ -74,7 +74,10 @@ public class ToolClassifierService {
             "code_runner",
             "file_watcher",
             "app_usage",
-            "custom_skills"
+            "custom_skills",
+            "barge_in",
+            "restart",
+            "orchestrator"
     );
 
     private static final String SYSTEM_PROMPT = """
@@ -138,6 +141,9 @@ public class ToolClassifierService {
             - file_watcher: watch folder, watch directory, notify me when file appears, alert on new file, monitor folder for changes, watch downloads folder, watch inbox folder, file watcher, notify on new file, file monitoring, folder monitoring, watch this folder, alert when file added, detect new file, track folder changes
             - app_usage: what apps am I using, how long on computer, app time, screen time, productivity stats, which apps do I use most, app usage report, time tracking, what was I working on, app focus time, productivity breakdown, work time, app usage today, app usage this week, focus time, what have I been doing
             - custom_skills: list my skills, what skills do you have, custom skills, my saved skills, save this as a skill, create a skill, remember this routine, teach you a skill, run the X skill, my routines, saved recipes, save routine, morning brief skill, skill file
+            - barge_in: let me interrupt, stop barge-in, turn on barge-in, can I cut you off, let me interrupt you, barge in, don't interrupt yourself, interrupt TTS, stop talking when I talk, JARVIS-style interrupt
+            - restart: restart yourself, reboot, restart the bot, restart mins bot, quit and start again, relaunch, reboot yourself, restart app, reload the bot, apply new prompt and restart
+            - orchestrator: complex multi-step task, plan and execute, marketing campaign, research and produce, video production, decompose and parallelize, spawn agents, use agents, delegate subtasks, parallel work, make me a X with multiple parts, coordinate multiple agents, divide and conquer, big project, multi-phase task
 
             Return at most 4 of the most relevant category names, comma-separated. If none match, return: none""";
 

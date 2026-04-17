@@ -127,6 +127,9 @@ public class ToolRouter {
     private final FileWatcherTools fileWatcherTools;
     private final AppUsageTrackerTools appUsageTrackerTools;
     private final CustomSkillTools customSkillTools;
+    private final BargeInTools bargeInTools;
+    private final RestartTools restartTools;
+    private final OrchestratorTools orchestratorTools;
 
     @Autowired(required = false)
     private ToolClassifierService classifier;
@@ -231,7 +234,10 @@ public class ToolRouter {
             CodeRunnerTools codeRunnerTools,
             FileWatcherTools fileWatcherTools,
             AppUsageTrackerTools appUsageTrackerTools,
-            CustomSkillTools customSkillTools) {
+            CustomSkillTools customSkillTools,
+            BargeInTools bargeInTools,
+            RestartTools restartTools,
+            OrchestratorTools orchestratorTools) {
 
         this.directivesTools = directivesTools;
         this.directiveDataTools = directiveDataTools;
@@ -320,6 +326,9 @@ public class ToolRouter {
         this.fileWatcherTools = fileWatcherTools;
         this.appUsageTrackerTools = appUsageTrackerTools;
         this.customSkillTools = customSkillTools;
+        this.bargeInTools = bargeInTools;
+        this.restartTools = restartTools;
+        this.orchestratorTools = orchestratorTools;
 
         // Count @Tool methods on every bean (once, via reflection)
         countToolsOnAllBeans();
@@ -361,6 +370,8 @@ public class ToolRouter {
         beans.add(playwrightTools);
         beans.add(downloadTools);
         beans.add(codeRunnerTools);
+        // Orchestrators need to spawn & monitor sub-agents.
+        beans.add(orchestratorTools);
         return beans.toArray();
     }
 
@@ -469,7 +480,8 @@ public class ToolRouter {
                 remotionVideoTools, trendScoutTools,
                 gitHubTools, botWindowTools,
                 codeRunnerTools, fileWatcherTools, appUsageTrackerTools,
-                customSkillTools
+                customSkillTools, bargeInTools, restartTools,
+                orchestratorTools
         };
         for (Object bean : allBeans) {
             if (bean != null && !toolCounts.containsKey(bean)) {
@@ -581,6 +593,9 @@ public class ToolRouter {
         map.put("file_watcher",  List.of(fileWatcherTools, fileTools));
         map.put("app_usage",     List.of(appUsageTrackerTools, habitDetectionTools));
         map.put("custom_skills", List.of(customSkillTools));
+        map.put("barge_in",      List.of(bargeInTools));
+        map.put("restart",       List.of(restartTools));
+        map.put("orchestrator",  List.of(orchestratorTools));
 
         return Collections.unmodifiableMap(map);
     }

@@ -60,6 +60,10 @@ public class BackgroundAgentService {
         private final String mission;
         private final String name;
         private final String avatar;
+        /** Parent orchestrator agent ID, or null if this is a top-level agent. */
+        private final String parentJobId;
+        /** User-facing display name (e.g. "Marketing Agent"). Overrides random name when set. */
+        private final String displayName;
         private volatile String model = "";
         private volatile long tokenCount = 0;
         private final Instant createdAt = Instant.now();
@@ -74,8 +78,14 @@ public class BackgroundAgentService {
         private final ArrayDeque<String> logLines = new ArrayDeque<>(48);
 
         AgentJob(String id, String mission) {
+            this(id, mission, null, null);
+        }
+
+        AgentJob(String id, String mission, String parentJobId, String displayName) {
             this.id = id;
             this.mission = mission;
+            this.parentJobId = parentJobId;
+            this.displayName = (displayName == null || displayName.isBlank()) ? null : displayName.trim();
             int idx = new Random().nextInt(BOT_NAMES.length);
             this.name = BOT_NAMES[idx];
             this.avatar = BOT_AVATARS[idx];
@@ -85,6 +95,11 @@ public class BackgroundAgentService {
         public String getMission() { return mission; }
         public String getName() { return name; }
         public String getAvatar() { return avatar; }
+        public String getParentJobId() { return parentJobId; }
+        /** User-picked display name (e.g. "Marketing Agent"), or null to fall back to {@link #getName()}. */
+        public String getDisplayName() { return displayName; }
+        /** What the UI should show — prefers displayName, falls back to the random bot name. */
+        public String getEffectiveName() { return displayName != null ? displayName : name; }
         public String getModel() { return model; }
         public void setModel(String m) { this.model = m != null ? m : ""; }
         public long getTokenCount() { return tokenCount; }
@@ -169,12 +184,26 @@ public class BackgroundAgentService {
     }
 
     public String startAgent(String mission, String modelOverride) {
+        return startAgent(mission, modelOverride, null, null);
+    }
+
+    /**
+     * Start an agent with optional orchestrator parent and user-facing display name.
+     *
+     * @param parentJobId  ID of an existing agent this one reports up to (null for top-level)
+     * @param displayName  shown in the UI instead of the random bot name (e.g. "Marketing Agent")
+     */
+    public String startAgent(String mission, String modelOverride,
+                             String parentJobId, String displayName) {
         if (mission == null || mission.isBlank()) {
             throw new IllegalArgumentException("Mission text is required.");
         }
         ChatClient client = chatService.getChatClient();
         if (client == null) {
             throw new IllegalStateException("AI is not configured (set spring.ai.openai.api-key and restart).");
+        }
+        if (parentJobId != null && !parentJobId.isBlank() && !jobs.containsKey(parentJobId)) {
+            throw new IllegalArgumentException("Parent agent '" + parentJobId + "' not found.");
         }
         for (;;) {
             int cur = slotsInUse.get();
@@ -187,7 +216,9 @@ public class BackgroundAgentService {
         }
 
         String id = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
-        AgentJob job = new AgentJob(id, mission.trim());
+        AgentJob job = new AgentJob(id, mission.trim(),
+                (parentJobId != null && !parentJobId.isBlank()) ? parentJobId : null,
+                displayName);
         // Set model: use override if provided, otherwise default
         String useModel = (modelOverride != null && !modelOverride.isBlank()) ? modelOverride : defaultModel;
         job.setModel(useModel);
@@ -243,7 +274,10 @@ public class BackgroundAgentService {
         m.put("finishedAt", j.getFinishedAt() != null ? j.getFinishedAt().toEpochMilli() : 0L);
         m.put("result", j.getResult() != null ? j.getResult() : "");
         m.put("error", j.getError() != null ? j.getError() : "");
-        m.put("name", j.getName());
+        m.put("name", j.getEffectiveName());
+        m.put("botName", j.getName());
+        m.put("displayName", j.getDisplayName() != null ? j.getDisplayName() : "");
+        m.put("parentJobId", j.getParentJobId() != null ? j.getParentJobId() : "");
         m.put("model", j.getModel());
         m.put("avatar", j.getAvatar());
         m.put("tokenCount", j.getTokenCount());

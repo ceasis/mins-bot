@@ -11,9 +11,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.Comparator;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
@@ -556,6 +557,273 @@ public class FileSystemTools {
         } catch (IOException e) {
             return "Unzip failed: " + e.getMessage();
         }
+    }
+
+    // ─── Date-filtered activity ──────────────────────────────────────────────
+
+    @Tool(description = "Count files in a folder filtered by creation or modification date. "
+            + "Use when the user asks 'how many files created today', 'files modified this week', "
+            + "'how many Downloads from yesterday'. Replaces ad-hoc PowerShell scripts.")
+    public String countFilesByDate(
+            @ToolParam(description = "Folder to count files in") String folder,
+            @ToolParam(description = "Date filter: 'today', 'yesterday', 'week' (last 7 days), 'month' (last 30 days), 'year' (last 365 days), or an ISO date 'YYYY-MM-DD'") String dateFilter,
+            @ToolParam(description = "'created' or 'modified' — which date to filter on") String dateType,
+            @ToolParam(description = "true to count files in all subfolders recursively, false for top-level only") boolean recursive) {
+        notifier.notify("Counting " + dateType + " files in " + folder + " (" + dateFilter + ")...");
+        try {
+            Path dir = Paths.get(folder).toAbsolutePath();
+            if (!Files.isDirectory(dir)) return "Not a directory: " + dir;
+
+            DateRange range = parseDateFilter(dateFilter);
+            if (range == null) return "Invalid date filter: '" + dateFilter + "'. Use today, yesterday, week, month, year, or YYYY-MM-DD.";
+            boolean useCreated = resolveDateType(dateType);
+
+            AtomicLong matched = new AtomicLong();
+            AtomicLong totalSize = new AtomicLong();
+
+            if (recursive) {
+                Files.walkFileTree(dir, new SimpleFileVisitor<>() {
+                    @Override
+                    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                        if (isInRange(attrs, range, useCreated)) {
+                            matched.incrementAndGet();
+                            totalSize.addAndGet(attrs.size());
+                        }
+                        return FileVisitResult.CONTINUE;
+                    }
+                    @Override
+                    public FileVisitResult visitFileFailed(Path file, IOException exc) {
+                        return FileVisitResult.CONTINUE;
+                    }
+                });
+            } else {
+                try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
+                    for (Path entry : stream) {
+                        if (!Files.isRegularFile(entry)) continue;
+                        BasicFileAttributes attrs = Files.readAttributes(entry, BasicFileAttributes.class);
+                        if (isInRange(attrs, range, useCreated)) {
+                            matched.incrementAndGet();
+                            totalSize.addAndGet(attrs.size());
+                        }
+                    }
+                }
+            }
+
+            return matched.get() + " file(s) " + dateType + " " + describeRange(range)
+                    + " in " + dir + " (" + (recursive ? "recursive" : "top-level")
+                    + ", total " + formatSize(totalSize.get()) + ").";
+        } catch (IOException e) {
+            return "Count failed: " + e.getMessage();
+        }
+    }
+
+    @Tool(description = "Count files in EACH immediate subfolder of the given parent, filtered by creation "
+            + "or modification date. Returns a per-subfolder breakdown. "
+            + "Use when the user asks 'break down files created today by folder', 'how many files in each "
+            + "subfolder from this week', 'Downloads activity by subfolder'. Replaces ad-hoc PowerShell scripts.")
+    public String countFilesPerSubfolder(
+            @ToolParam(description = "Parent folder whose subfolders will be scanned") String parentFolder,
+            @ToolParam(description = "Date filter: 'today', 'yesterday', 'week', 'month', 'year', 'all', or ISO 'YYYY-MM-DD'") String dateFilter,
+            @ToolParam(description = "'created' or 'modified' — which date to filter on. Ignored when dateFilter is 'all'") String dateType) {
+        notifier.notify("Counting " + dateType + " files per subfolder in " + parentFolder + "...");
+        try {
+            Path dir = Paths.get(parentFolder).toAbsolutePath();
+            if (!Files.isDirectory(dir)) return "Not a directory: " + dir;
+
+            boolean countAll = "all".equalsIgnoreCase(dateFilter);
+            DateRange range = countAll ? null : parseDateFilter(dateFilter);
+            if (!countAll && range == null) {
+                return "Invalid date filter: '" + dateFilter + "'. Use today, yesterday, week, month, year, all, or YYYY-MM-DD.";
+            }
+            boolean useCreated = countAll || resolveDateType(dateType);
+
+            Map<String, long[]> perFolder = new TreeMap<>();  // name → [count, size]
+            long grandCount = 0, grandSize = 0;
+
+            try (DirectoryStream<Path> subdirs = Files.newDirectoryStream(dir, Files::isDirectory)) {
+                for (Path sub : subdirs) {
+                    long[] stats = {0, 0};
+                    Files.walkFileTree(sub, new SimpleFileVisitor<>() {
+                        @Override
+                        public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                            if (countAll || isInRange(attrs, range, useCreated)) {
+                                stats[0]++;
+                                stats[1] += attrs.size();
+                            }
+                            return FileVisitResult.CONTINUE;
+                        }
+                        @Override
+                        public FileVisitResult visitFileFailed(Path file, IOException exc) {
+                            return FileVisitResult.CONTINUE;
+                        }
+                    });
+                    perFolder.put(sub.getFileName().toString(), stats);
+                    grandCount += stats[0];
+                    grandSize += stats[1];
+                }
+            }
+
+            if (perFolder.isEmpty()) return "No subfolders found in " + dir;
+
+            String header = countAll
+                    ? "Files per subfolder in " + dir + " (all):\n"
+                    : "Files " + dateType + " " + describeRange(range) + " per subfolder in " + dir + ":\n";
+            StringBuilder sb = new StringBuilder(header);
+            for (Map.Entry<String, long[]> e : perFolder.entrySet()) {
+                long[] s = e.getValue();
+                sb.append(String.format("  %-24s %6d file(s)  %s%n",
+                        e.getKey(), s[0], formatSize(s[1])));
+            }
+            sb.append(String.format("  %-24s %6d file(s)  %s%n",
+                    "Total:", grandCount, formatSize(grandSize)));
+            return sb.toString();
+        } catch (IOException e) {
+            return "Per-subfolder count failed: " + e.getMessage();
+        }
+    }
+
+    @Tool(description = "List files filtered by creation or modification date, with name, size, and date. "
+            + "Use when the user asks 'show me files created today', 'what did I modify this week', "
+            + "'list Downloads from yesterday'.")
+    public String listFilesByDate(
+            @ToolParam(description = "Folder to scan") String folder,
+            @ToolParam(description = "Date filter: 'today', 'yesterday', 'week', 'month', 'year', or ISO 'YYYY-MM-DD'") String dateFilter,
+            @ToolParam(description = "'created' or 'modified'") String dateType,
+            @ToolParam(description = "true to search subfolders recursively, false for top-level only") boolean recursive) {
+        notifier.notify("Listing " + dateType + " files in " + folder + " (" + dateFilter + ")...");
+        try {
+            Path dir = Paths.get(folder).toAbsolutePath();
+            if (!Files.isDirectory(dir)) return "Not a directory: " + dir;
+
+            DateRange range = parseDateFilter(dateFilter);
+            if (range == null) return "Invalid date filter: '" + dateFilter + "'. Use today, yesterday, week, month, year, or YYYY-MM-DD.";
+            boolean useCreated = resolveDateType(dateType);
+
+            List<String> matches = new ArrayList<>();
+            int[] total = {0};
+
+            if (recursive) {
+                Files.walkFileTree(dir, new SimpleFileVisitor<>() {
+                    @Override
+                    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                        if (isInRange(attrs, range, useCreated)) {
+                            total[0]++;
+                            if (matches.size() < 200) {
+                                Instant when = useCreated
+                                        ? attrs.creationTime().toInstant()
+                                        : attrs.lastModifiedTime().toInstant();
+                                matches.add(String.format("  %s  %s  %s",
+                                        FMT.format(when), formatSize(attrs.size()), file));
+                            }
+                        }
+                        return FileVisitResult.CONTINUE;
+                    }
+                    @Override
+                    public FileVisitResult visitFileFailed(Path file, IOException exc) {
+                        return FileVisitResult.CONTINUE;
+                    }
+                });
+            } else {
+                try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
+                    for (Path entry : stream) {
+                        if (!Files.isRegularFile(entry)) continue;
+                        BasicFileAttributes attrs = Files.readAttributes(entry, BasicFileAttributes.class);
+                        if (isInRange(attrs, range, useCreated)) {
+                            total[0]++;
+                            if (matches.size() < 200) {
+                                Instant when = useCreated
+                                        ? attrs.creationTime().toInstant()
+                                        : attrs.lastModifiedTime().toInstant();
+                                matches.add(String.format("  %s  %s  %s",
+                                        FMT.format(when), formatSize(attrs.size()), entry));
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (total[0] == 0) {
+                return "No files " + dateType + " " + describeRange(range) + " in " + dir;
+            }
+            StringBuilder sb = new StringBuilder();
+            sb.append(total[0]).append(" file(s) ").append(dateType).append(" ").append(describeRange(range))
+                    .append(" in ").append(dir);
+            if (total[0] > matches.size()) sb.append(" (showing first ").append(matches.size()).append(")");
+            sb.append(":\n").append(String.join("\n", matches));
+            return sb.toString();
+        } catch (IOException e) {
+            return "List failed: " + e.getMessage();
+        }
+    }
+
+    // ─── Date-filter helpers ─────────────────────────────────────────────────
+
+    private record DateRange(Instant start, Instant endExclusive, String label) {}
+
+    private DateRange parseDateFilter(String filter) {
+        if (filter == null) return null;
+        String f = filter.trim().toLowerCase();
+        ZoneId zone = ZoneId.systemDefault();
+        LocalDate today = LocalDate.now(zone);
+
+        switch (f) {
+            case "today" -> {
+                return new DateRange(
+                        today.atStartOfDay(zone).toInstant(),
+                        today.plusDays(1).atStartOfDay(zone).toInstant(),
+                        "today");
+            }
+            case "yesterday" -> {
+                return new DateRange(
+                        today.minusDays(1).atStartOfDay(zone).toInstant(),
+                        today.atStartOfDay(zone).toInstant(),
+                        "yesterday");
+            }
+            case "week" -> {
+                return new DateRange(
+                        today.minusDays(7).atStartOfDay(zone).toInstant(),
+                        today.plusDays(1).atStartOfDay(zone).toInstant(),
+                        "in the last 7 days");
+            }
+            case "month" -> {
+                return new DateRange(
+                        today.minusDays(30).atStartOfDay(zone).toInstant(),
+                        today.plusDays(1).atStartOfDay(zone).toInstant(),
+                        "in the last 30 days");
+            }
+            case "year" -> {
+                return new DateRange(
+                        today.minusDays(365).atStartOfDay(zone).toInstant(),
+                        today.plusDays(1).atStartOfDay(zone).toInstant(),
+                        "in the last 365 days");
+            }
+        }
+
+        // Try ISO date
+        try {
+            LocalDate d = LocalDate.parse(f);
+            return new DateRange(
+                    d.atStartOfDay(zone).toInstant(),
+                    d.plusDays(1).atStartOfDay(zone).toInstant(),
+                    "on " + d);
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    private boolean isInRange(BasicFileAttributes attrs, DateRange range, boolean useCreated) {
+        Instant when = useCreated ? attrs.creationTime().toInstant() : attrs.lastModifiedTime().toInstant();
+        return !when.isBefore(range.start()) && when.isBefore(range.endExclusive());
+    }
+
+    private String describeRange(DateRange range) {
+        return range.label();
+    }
+
+    /** Returns true for 'created'/'create', false for 'modified'/'modify'. Defaults to modified. */
+    private boolean resolveDateType(String dateType) {
+        if (dateType == null) return false;
+        String t = dateType.trim().toLowerCase();
+        return t.startsWith("create");
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────

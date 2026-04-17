@@ -1,16 +1,13 @@
 package com.minsbot.agent;
 
-import com.minsbot.agent.tools.ToolRouter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
 import jakarta.annotation.PostConstruct;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
 
 /**
@@ -39,8 +36,6 @@ public class SystemPromptService {
     private static final String PH_BUILTIN_SKILLS = "{{builtin_skills}}";
     private static final String PH_CUSTOM_SKILLS = "{{custom_skills}}";
 
-    private final ToolRouter toolRouter;
-
     /** Cached master prompt — re-read when the file changes. */
     private volatile String cachedPromptTemplate = "";
     private volatile long cachedPromptMtime = -1;
@@ -49,8 +44,8 @@ public class SystemPromptService {
     private volatile String cachedSkillsListing = "";
     private volatile long cachedSkillsScanMs = 0;
 
-    public SystemPromptService(@Lazy ToolRouter toolRouter) {
-        this.toolRouter = toolRouter;
+    public SystemPromptService() {
+        // No dependencies — caller passes in the built-in skills listing to avoid circular deps.
     }
 
     @PostConstruct
@@ -77,7 +72,8 @@ public class SystemPromptService {
      * Uses the embedded default if the file is missing or unreadable.
      */
     public String render(String username, String computer, String os,
-                         String home, String datetime) {
+                         String home, String datetime,
+                         Map<String, List<String>> builtInSkillsByCategory) {
         String template = loadTemplate();
         return template
                 .replace(PH_USERNAME, safe(username))
@@ -85,7 +81,7 @@ public class SystemPromptService {
                 .replace(PH_OS, safe(os))
                 .replace(PH_HOME, safe(home))
                 .replace(PH_DATETIME, safe(datetime))
-                .replace(PH_BUILTIN_SKILLS, buildBuiltInSkillsListing())
+                .replace(PH_BUILTIN_SKILLS, buildBuiltInSkillsListing(builtInSkillsByCategory))
                 .replace(PH_CUSTOM_SKILLS, loadCustomSkillsListing());
     }
 
@@ -123,8 +119,7 @@ public class SystemPromptService {
 
     // ─── Built-in skills listing (from @Tool beans) ─────────────────────────
 
-    private String buildBuiltInSkillsListing() {
-        Map<String, List<String>> categories = toolRouter.getCategoryNamesByToolGroup();
+    private String buildBuiltInSkillsListing(Map<String, List<String>> categories) {
         if (categories == null || categories.isEmpty()) {
             return "(built-in skill list unavailable)";
         }
@@ -304,7 +299,39 @@ public class SystemPromptService {
             **When you see a skill name match the user's request, READ the file first** (use `readTextFile`
             on its path), then execute the steps inside. Don't guess a skill's content.
 
-            ### 3. Sensory toggles (what you can perceive)
+            ### 3. Orchestrator + sub-agents (for big tasks)
+
+            When a user request is **complex, multi-phase, or parallelizable**, don't try to do it all
+            yourself in the main chat. Spawn an **orchestrator agent** with `spawnAgent(displayName, mission, "")`.
+            The orchestrator then decomposes the work and spawns **sub-agents** by calling
+            `spawnAgent(childName, subMission, orchestratorId)` for each piece.
+
+            **Use this pattern when:**
+            - The request has 3+ distinct subtasks that can run in parallel (research, write, edit, render, …)
+            - Each subtask takes minutes, not seconds
+            - The user says "make", "build", "produce", "plan", "organize" a substantial deliverable
+
+            **Good examples:**
+            - "Make me a marketing campaign for my new app" → spawn **Marketing Agent** (orchestrator),
+              which spawns **Video Creator Agent**, **Content Creator Agent**, **Video Editor Agent**
+            - "Research and write a report on X" → spawn **Research Agent** (orchestrator), which spawns
+              **Data Gatherer Agent**, **Writer Agent**, **Fact-Checker Agent**
+            - "Plan my trip to Japan" → spawn **Travel Planner Agent** (orchestrator), which spawns
+              **Flights Agent**, **Hotels Agent**, **Itinerary Agent**
+
+            **Don't use this pattern for:**
+            - Single-step questions ("what's the weather", "count my files")
+            - Small edits ("rename this file", "open that URL")
+            - Anything where the overhead of spawning > the work itself
+
+            **Naming:** Display names should be specific and descriptive — `"Marketing Agent"`, not `"Agent 1"`.
+            Users see these names in the **Agents tab**, where orchestrators appear at the top and their
+            sub-agents are indented underneath in real time.
+
+            After spawning, tell the user which orchestrator + sub-agents you started, then let them
+            run in the background. The user can watch progress in the Agents tab.
+
+            ### 4. Sensory toggles (what you can perceive)
 
             Use these to turn your own senses on/off — they control what context you receive:
             - **Screen watching** (the eye): continuously observe the user's screen
@@ -320,6 +347,20 @@ public class SystemPromptService {
               screen regions via OCR. Only if it returns `NOT_FOUND` should you switch apps / open apps
               / take a screenshot.
             - Pass the FULL visible text, not a partial match. "Submit As Bot" not "Submit".
+
+            ### WORK SILENTLY — DON'T OPEN UI FOR DISK/FILE OPERATIONS
+            - NEVER open File Explorer, browser tabs, editors, or any visible window as part of doing
+              disk/file work. Do all file reads, counts, scans, copies, moves, zips, searches via the
+              file tools (`readTextFile`, `listDirectory`, `countFilesByDate`, `countFilesPerSubfolder`,
+              `searchInDirectory`, `copyFile`, `zipPath`, `getFileInfo`, …). These run silently in the
+              background without interrupting the user.
+            - DO NOT call `openPath` or `explorer.exe` or `powershell cd <folder>` as a setup step.
+              Those are visible side-effects the user didn't ask for.
+            - Only open a window / folder / file when the user EXPLICITLY asks: "show me the folder",
+              "open it in explorer", "reveal in explorer", "open the file", "let me see it".
+            - Prefer invisible paths: file tools over PowerShell location changes, HTTP tools over
+              opening the browser, direct file I/O over opening editors. The user should see the RESULT
+              of the operation, not the UI you used to do it.
 
             ### VERIFY AFTER EVERY ACTION
             - After any action that changes the screen: `waitSeconds(1)` → `takeScreenshot` →

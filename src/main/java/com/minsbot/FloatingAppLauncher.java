@@ -5,6 +5,7 @@ import javafx.application.Platform;
 import javafx.concurrent.Worker;
 import javafx.geometry.Rectangle2D;
 import javafx.scene.Scene;
+import javafx.scene.Cursor;
 import javafx.scene.paint.Color;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.web.WebEngine;
@@ -87,7 +88,8 @@ public class FloatingAppLauncher extends Application {
                 collapsedHeight,
                 expandedWidth,
                 expandedHeight,
-                nativeVoiceService
+                nativeVoiceService,
+                port
         );
         engine.getLoadWorker().stateProperty().addListener((obs, oldState, newState) -> {
             if (newState == Worker.State.SUCCEEDED) {
@@ -172,11 +174,32 @@ public class FloatingAppLauncher extends Application {
                     int x = (int) e.getX();
                     int y = (int) e.getY();
                     Platform.runLater(() -> {
-                        forwardClickToPage(engine, x, y);
-                        webView.requestFocus();
+                        boolean textTarget = forwardClickToPage(engine, x, y);
+                        // Preserve input caret interactions (click-in-middle, selection).
+                        // Request WebView focus only for non-text targets.
+                        if (!textTarget) {
+                            webView.requestFocus();
+                        }
                     });
                 }
             }
+        });
+        // Forward hover to WebView content so :hover styles and pointer cursor work in JavaFX.
+        scene.addEventFilter(MouseEvent.MOUSE_MOVED, e -> {
+            int x = (int) e.getX();
+            int y = (int) e.getY();
+            // Always show hand cursor on native title-bar window controls (minimize/close area).
+            if (y < titleBarHeight && x > scene.getWidth() - controlsWidth) {
+                scene.setCursor(Cursor.HAND);
+                syncHoverToPage(engine, x, y);
+                return;
+            }
+            boolean interactive = syncHoverToPage(engine, x, y);
+            scene.setCursor(interactive ? Cursor.HAND : Cursor.DEFAULT);
+        });
+        scene.addEventFilter(MouseEvent.MOUSE_EXITED, e -> {
+            syncHoverToPage(engine, -1, -1);
+            scene.setCursor(Cursor.DEFAULT);
         });
         primaryStage.setScene(scene);
         primaryStage.initStyle(StageStyle.UNDECORATED);
@@ -238,24 +261,60 @@ public class FloatingAppLauncher extends Application {
      * since SVG elements may not properly bubble synthetic click events in JavaFX WebView.
      * Dispatches a full mousedown→mouseup→click sequence for maximum compatibility.
      */
-    private static void forwardClickToPage(WebEngine engine, int x, int y) {
+    private static boolean forwardClickToPage(WebEngine engine, int x, int y) {
         try {
             String script = "(function(){"
                     + "var el = document.elementFromPoint(" + x + "," + y + ");"
-                    + "if(!el) return;"
+                    + "if(!el) return false;"
                     // If we hit an SVG child, walk up to the nearest interactive HTML ancestor
                     + "var target = el.closest('button,a,input,select,textarea,label,[onclick],[role=button]');"
                     + "if(!target) target = el;"
+                    + "var textTarget = target.matches('input:not([type=button]):not([type=submit]):not([type=checkbox]):not([type=radio]),textarea,[contenteditable]');"
+                    // For TEXT inputs/textareas/contenteditable: the native WebView has already handled
+                    // the mousedown/mouseup and placed the caret correctly. Do NOTHING here — calling
+                    // .focus() or dispatching a synthetic click would reset the caret to the end and
+                    // break click-to-position-cursor / text selection.
+                    + "if(textTarget) { return true; }"
                     + "if(typeof target.focus === 'function') target.focus();"
-                    // Dispatch full mouse event sequence for maximum compatibility
+                    // Dispatch full mouse event sequence for maximum compatibility (buttons, links, etc.)
                     + "var opts = {bubbles:true,cancelable:true,clientX:" + x + ",clientY:" + y + ",view:window};"
                     + "target.dispatchEvent(new MouseEvent('mousedown', opts));"
                     + "target.dispatchEvent(new MouseEvent('mouseup', opts));"
                     + "target.dispatchEvent(new MouseEvent('click', opts));"
+                    + "return false;"
                     + "})();";
-            engine.executeScript(script);
+            Object result = engine.executeScript(script);
+            return result instanceof Boolean b && b;
         } catch (Exception ignored) {
             // Page may not be ready or JS disabled
+            return false;
+        }
+    }
+
+    /**
+     * Keep WebView hover state in sync when JavaFX intercepts mouse events.
+     * Adds/removes `.mins-javafx-hover` on the closest interactive element and returns whether one is hovered.
+     */
+    private static boolean syncHoverToPage(WebEngine engine, int x, int y) {
+        try {
+            String script = "(function(){"
+                    + "if(!window.__minsHover){window.__minsHover=null;}"
+                    + "var target=null;"
+                    + "if(" + x + ">=0 && " + y + ">=0){"
+                    + "  var el=document.elementFromPoint(" + x + "," + y + ");"
+                    + "  if(el){target=el.closest('button,a,input,select,textarea,label,[onclick],[role=button]');}"
+                    + "}"
+                    + "if(window.__minsHover!==target){"
+                    + "  if(window.__minsHover){window.__minsHover.classList.remove('mins-javafx-hover');}"
+                    + "  if(target){target.classList.add('mins-javafx-hover');}"
+                    + "  window.__minsHover=target;"
+                    + "}"
+                    + "return !!target;"
+                    + "})();";
+            Object result = engine.executeScript(script);
+            return result instanceof Boolean b && b;
+        } catch (Exception ignored) {
+            return false;
         }
     }
 

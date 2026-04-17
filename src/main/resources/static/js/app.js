@@ -101,6 +101,7 @@
   // ═══ Custom title bar: drag, minimize, close ═══
   (function () {
     var titleBarDrag = document.querySelector('.title-bar-drag');
+    var titleBarBrowser = document.getElementById('title-bar-browser');
     var titleBarMinimize = document.getElementById('title-bar-minimize');
     var titleBarClose = document.getElementById('title-bar-close');
     var dragging = false;
@@ -133,6 +134,16 @@
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
 
+    if (titleBarBrowser) {
+      titleBarBrowser.addEventListener('click', function () {
+        if (typeof window.java !== 'undefined' && window.java.openInBrowser) {
+          window.java.openInBrowser();
+        } else {
+          // Fallback when not running inside the JavaFX shell (dev in a real browser)
+          window.open(window.location.origin + '/?full=1', '_blank');
+        }
+      });
+    }
     if (titleBarMinimize) {
       titleBarMinimize.addEventListener('click', function () {
         if (typeof window.java !== 'undefined' && window.java.minimize) window.java.minimize();
@@ -159,7 +170,8 @@
     });
   }
 
-  inputEl.addEventListener('mousedown', function () { focusInput(); });
+  // Let native click behavior place the caret where the user clicks.
+  // Forcing focus on mousedown can move caret to end in WebView.
 
   // ═══ Global keyboard shortcuts (Ctrl+K, Ctrl+/, Ctrl+L) ═══
   document.addEventListener('keydown', function (e) {
@@ -1210,8 +1222,20 @@
         listEl.innerHTML = '<p class="tab-empty">No agents yet. Start one above.</p>';
         return;
       }
-      var html = '';
+
+      // Index children by parent id so orchestrators can be rendered with their crew nested.
+      var childrenByParent = {};
+      var topLevel = [];
       agents.forEach(function (a) {
+        var parent = a.parentJobId || '';
+        if (parent) {
+          (childrenByParent[parent] = childrenByParent[parent] || []).push(a);
+        } else {
+          topLevel.push(a);
+        }
+      });
+
+      function renderCard(a, depth) {
         var st = a.status || 'UNKNOWN';
         var logLines = a.log || [];
         var logJoin = Array.isArray(logLines) ? logLines.join('\n') : '';
@@ -1228,47 +1252,78 @@
         var model = a.model || 'unknown';
         var tokens = a.tokenCount || 0;
         var tokenStr = tokens > 1000 ? (tokens / 1000).toFixed(1) + 'k' : String(tokens);
+        var isOrchestrator = depth === 0 && (childrenByParent[a.id] || []).length > 0;
+        var cardClass = 'agent-card'
+          + (depth > 0 ? ' agent-card-sub' : '')
+          + (isOrchestrator ? ' agent-card-orchestrator' : '');
 
-        html += '<div class="agent-card">';
+        var h = '<div class="' + cardClass + '" data-agent-depth="' + depth + '">';
 
         // Header with avatar, name, model, status
-        html += '<div class="agent-card-header">';
-        html += '<div class="agent-avatar">' + avatar + '</div>';
-        html += '<div class="agent-card-info">';
-        html += '<div class="agent-card-name">' + escapeHtml(name) + ' <span class="agent-status agent-status-' + escapeHtml(st) + '">' + escapeHtml(st) + '</span></div>';
-        html += '<div class="agent-card-meta">';
-        html += '<span class="agent-model-badge">' + escapeHtml(model) + '</span>';
-        html += '<span class="agent-tokens">' + tokenStr + ' tokens</span>';
-        html += '<span class="agent-card-id">' + escapeHtml(a.id) + '</span>';
-        html += '</div></div></div>';
+        h += '<div class="agent-card-header">';
+        h += '<div class="agent-avatar">' + avatar + '</div>';
+        h += '<div class="agent-card-info">';
+        var roleBadge = isOrchestrator
+          ? '<span class="agent-role-badge agent-role-orchestrator">Orchestrator</span>'
+          : (depth > 0 ? '<span class="agent-role-badge agent-role-sub">Sub-agent</span>' : '');
+        h += '<div class="agent-card-name">' + escapeHtml(name) + ' '
+          + roleBadge
+          + ' <span class="agent-status agent-status-' + escapeHtml(st) + '">' + escapeHtml(st) + '</span></div>';
+        h += '<div class="agent-card-meta">';
+        h += '<span class="agent-model-badge">' + escapeHtml(model) + '</span>';
+        h += '<span class="agent-tokens">' + tokenStr + ' tokens</span>';
+        h += '<span class="agent-card-id">' + escapeHtml(a.id) + '</span>';
+        h += '</div></div></div>';
 
         // Mission
-        html += '<div class="agent-mission">' + escapeHtml(a.mission || '') + '</div>';
+        h += '<div class="agent-mission">' + escapeHtml(a.mission || '') + '</div>';
 
         // Progress bar
-        html += '<div class="agent-progress-track" role="progressbar" aria-valuenow="' + pct + '" aria-valuemin="0" aria-valuemax="100">';
-        html += '<div class="agent-progress-fill' + fillMod + '" style="width:' + pct + '%"></div></div>';
+        h += '<div class="agent-progress-track" role="progressbar" aria-valuenow="' + pct + '" aria-valuemin="0" aria-valuemax="100">';
+        h += '<div class="agent-progress-fill' + fillMod + '" style="width:' + pct + '%"></div></div>';
 
         // Plan, progress, log, error, result
         if (a.plan) {
-          html += '<div class="agent-plan"><div class="agent-plan-label">Plan</div>';
-          html += '<pre class="agent-plan-body">' + escapeHtml(a.plan) + '</pre></div>';
+          h += '<div class="agent-plan"><div class="agent-plan-label">Plan</div>';
+          h += '<pre class="agent-plan-body">' + escapeHtml(a.plan) + '</pre></div>';
         }
-        html += '<div class="agent-progress">' + escapeHtml(a.progress || '') + '</div>';
-        if (logJoin) html += '<div class="agent-log">' + escapeHtml(logJoin) + '</div>';
-        if (a.error) html += '<div class="agent-progress" style="color:#fca5a5">' + escapeHtml(a.error) + '</div>';
-        if (a.result) html += '<div class="agent-result">' + escapeHtml(a.result) + '</div>';
+        h += '<div class="agent-progress">' + escapeHtml(a.progress || '') + '</div>';
+        if (logJoin) h += '<div class="agent-log">' + escapeHtml(logJoin) + '</div>';
+        if (a.error) h += '<div class="agent-progress" style="color:#fca5a5">' + escapeHtml(a.error) + '</div>';
+        if (a.result) h += '<div class="agent-result">' + escapeHtml(a.result) + '</div>';
 
         // Actions
-        html += '<div class="agent-actions">';
+        h += '<div class="agent-actions">';
         if (st === 'QUEUED' || st === 'RUNNING') {
-          html += '<button type="button" class="agent-btn agent-btn-danger" data-agent-cancel="' + escapeHtml(a.id) + '">Cancel</button>';
+          h += '<button type="button" class="agent-btn agent-btn-danger" data-agent-cancel="' + escapeHtml(a.id) + '">Cancel</button>';
         }
         if (a.result) {
-          html += '<button type="button" class="agent-btn agent-btn-download" data-agent-download="' + escapeHtml(a.id) + '">Download</button>';
+          h += '<button type="button" class="agent-btn agent-btn-download" data-agent-download="' + escapeHtml(a.id) + '">Download</button>';
         }
-        html += '<button type="button" class="agent-btn" data-agent-remove="' + escapeHtml(a.id) + '">Dismiss</button>';
-        html += '</div></div>';
+        h += '<button type="button" class="agent-btn" data-agent-remove="' + escapeHtml(a.id) + '">Dismiss</button>';
+        h += '</div></div>';
+        return h;
+      }
+
+      var html = '';
+      topLevel.forEach(function (orch) {
+        var kids = childrenByParent[orch.id] || [];
+        if (kids.length > 0) {
+          html += '<div class="agent-crew">';
+          html += renderCard(orch, 0);
+          html += '<div class="agent-crew-children">';
+          kids.forEach(function (k) { html += renderCard(k, 1); });
+          html += '</div></div>';
+        } else {
+          html += renderCard(orch, 0);
+        }
+      });
+      // Orphan sub-agents (parent was removed) — render them flat at the bottom.
+      Object.keys(childrenByParent).forEach(function (pid) {
+        var parentExists = agents.some(function (a) { return a.id === pid; });
+        if (!parentExists) {
+          childrenByParent[pid].forEach(function (k) { html += renderCard(k, 0); });
+        }
       });
       listEl.innerHTML = html;
       listEl.querySelectorAll('[data-agent-cancel]').forEach(function (btn) {

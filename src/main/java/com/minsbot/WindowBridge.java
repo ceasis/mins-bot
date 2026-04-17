@@ -3,6 +3,9 @@ package com.minsbot;
 import javafx.application.Platform;
 import javafx.stage.Stage;
 
+import java.awt.Desktop;
+import java.net.URI;
+
 /**
  * Exposed to the WebView JavaScript as window.java for expand/collapse.
  */
@@ -14,17 +17,20 @@ public class WindowBridge {
     private final int expandedWidth;
     private final int expandedHeight;
     private final NativeVoiceService nativeVoiceService;
+    private final int serverPort;
     private volatile boolean expanded;
 
     public WindowBridge(Stage stage, int collapsedWidth, int collapsedHeight,
                         int expandedWidth, int expandedHeight,
-                        NativeVoiceService nativeVoiceService) {
+                        NativeVoiceService nativeVoiceService,
+                        int serverPort) {
         this.stage = stage;
         this.collapsedWidth = collapsedWidth;
         this.collapsedHeight = collapsedHeight;
         this.expandedWidth = expandedWidth;
         this.expandedHeight = expandedHeight;
         this.nativeVoiceService = nativeVoiceService;
+        this.serverPort = serverPort;
     }
 
     public boolean isExpanded() {
@@ -52,6 +58,30 @@ public class WindowBridge {
     /** Minimize window to taskbar. */
     public void minimize() {
         Platform.runLater(() -> stage.setIconified(true));
+    }
+
+    /**
+     * Open Mins Bot in the user's default system browser (Chrome, Edge, etc.)
+     * with {@code ?full=1} so it shows the full UI (tab bar visible). Returns
+     * true on success.
+     */
+    public boolean openInBrowser() {
+        String url = "http://localhost:" + serverPort + "/?full=1";
+        try {
+            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+                Desktop.getDesktop().browse(new URI(url));
+                return true;
+            }
+            // Fallback for Windows if Desktop isn't supported (e.g. headless JRE)
+            new ProcessBuilder("rundll32", "url.dll,FileProtocolHandler", url)
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                    .redirectError(ProcessBuilder.Redirect.DISCARD)
+                    .start();
+            return true;
+        } catch (Exception e) {
+            System.err.println("[WindowBridge] Failed to open browser: " + e.getMessage());
+            return false;
+        }
     }
 
     /** Close the application immediately. */
