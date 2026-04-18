@@ -93,9 +93,25 @@ public class SystemTools {
         return systemControl.closeApp(appName);
     }
 
-    @Tool(description = "Launch or open an application by name")
+    @Tool(description = "Launch or open an application by name (chrome, calculator, terminal, spotify, etc.). "
+            + "For File Explorer specifically, prefer backend file tools (listDirectory, countDirectoryContents, "
+            + "searchInDirectory) to answer filesystem questions in chat. "
+            + "Only use openFolderInExplorer if the user explicitly asks to SEE a folder in Explorer.")
     public String openApp(
             @ToolParam(description = "Name of the application to open, e.g. 'chrome', 'calculator', 'terminal'") String appName) {
+        // Soft guard: when the AI asks for Explorer, redirect it toward the right tools
+        // instead of launching an empty Explorer window. If the user genuinely wants a folder
+        // shown, they can use openFolderInExplorer(path).
+        if (appName != null) {
+            String n = appName.trim().toLowerCase();
+            if (n.equals("explorer") || n.equals("explorer.exe") || n.equals("file explorer")
+                    || n.equals("files") || n.equals("windows explorer")) {
+                return "Backend-first: don't open an empty File Explorer. "
+                        + "To answer filesystem questions, use listDirectory / countDirectoryContents / searchInDirectory. "
+                        + "To show a specific folder to the user in a window, use openFolderInExplorer(fullFolderPath). "
+                        + "To open a file in its default app, use openDocument(name) or openPath(fullFilePath).";
+            }
+        }
         notifier.notify("Opening " + appName + "...");
         return systemControl.openApp(appName);
     }

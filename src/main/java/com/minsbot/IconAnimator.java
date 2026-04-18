@@ -54,6 +54,7 @@ public class IconAnimator {
     private boolean blinking = false;
     private long blinkUntil = 0;
     private long nextBlinkAt = 0;
+    private int pendingDoubleBlinks = 0;  // N more blinks queued (for double/triple blinks)
 
     // Mouse-follow state
     private Point lastMouse;
@@ -71,7 +72,7 @@ public class IconAnimator {
             return;
         }
         long now = System.currentTimeMillis();
-        nextBlinkAt = now + 2000 + (long)(Math.random() * 3000);
+        nextBlinkAt = now + 1500 + (long)(Math.random() * 2500);
 
         scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "mins-icon-anim");
@@ -93,13 +94,33 @@ public class IconAnimator {
         try {
             long now = System.currentTimeMillis();
 
-            // Blink state machine
+            // Blink state machine — variable duration, occasional double/triple blinks
             if (blinking && now >= blinkUntil) {
                 blinking = false;
-                nextBlinkAt = now + 2500 + (long)(Math.random() * 4000);
+                if (pendingDoubleBlinks > 0) {
+                    // Schedule the next quick blink very soon (80-150ms gap)
+                    pendingDoubleBlinks--;
+                    nextBlinkAt = now + 80 + (long)(Math.random() * 70);
+                } else {
+                    // Random gap until next blink cluster: 1.2s to 7.5s
+                    nextBlinkAt = now + 1200 + (long)(Math.random() * 6300);
+                }
             } else if (!blinking && now >= nextBlinkAt) {
                 blinking = true;
-                blinkUntil = now + 110;
+                // Variable blink duration: 90ms (quick) to 260ms (sleepy)
+                long duration;
+                double r = Math.random();
+                if (r < 0.15) duration = 220 + (long)(Math.random() * 100);   // 15% sleepy blink
+                else if (r < 0.35) duration = 140 + (long)(Math.random() * 60); // 20% medium
+                else duration = 90 + (long)(Math.random() * 50);               // 65% quick
+                blinkUntil = now + duration;
+                // When starting a fresh blink cluster (not already mid-chain), 20% chance to double,
+                // 5% chance to triple-blink (feels more natural / alive)
+                if (pendingDoubleBlinks == 0) {
+                    double c = Math.random();
+                    if (c < 0.05) pendingDoubleBlinks = 2;
+                    else if (c < 0.25) pendingDoubleBlinks = 1;
+                }
             }
 
             // Mouse tracking: check cursor position, detect movement

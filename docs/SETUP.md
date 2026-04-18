@@ -553,5 +553,5 @@ MinsBot stores user data in `~/mins_bot_data/`:
 - `downloads/` -- downloaded files
 - `exports/` -- exported conversations
 - `videos/` -- downloaded videos
-- `google_integrations/tokens.json` -- Google OAuth tokens
+- `mins_google_integrations/tokens.json` -- Google OAuth tokens
 - `remotion/` -- video creation project (if used)

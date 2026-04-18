@@ -313,6 +313,16 @@ public class TtsTools {
     public String speak(
             @ToolParam(description = "Text to speak aloud") String text) {
         if (text == null || text.isBlank()) return "No text to speak.";
+        if (!autoSpeak) {
+            log.debug("[TTS] speak() suppressed — autoSpeak is OFF (silent mode)");
+            return "Silent mode — skipped speaking.";
+        }
+        // Avoid Bluetooth codec switch (A2DP → HSP/HFP) that wrecks music quality.
+        // When background music is playing, suppress TTS entirely.
+        if (MusicControlTools.MUSIC_ACTIVE.get()) {
+            log.debug("[TTS] speak() suppressed — music is playing");
+            return "Music is playing — skipped speaking to keep audio quality.";
+        }
         notifier.notify("Speaking: " + (text.length() > 30 ? text.substring(0, 30) + "..." : text));
         return doSpeak(text);
     }
@@ -465,6 +475,14 @@ public class TtsTools {
      */
     public void speakAsync(String text) {
         if (text == null || text.isBlank()) return;
+        if (!autoSpeak) {
+            log.debug("[TTS] speakAsync() suppressed — silent mode");
+            return;
+        }
+        if (MusicControlTools.MUSIC_ACTIVE.get()) {
+            log.debug("[TTS] speakAsync() suppressed — music is playing");
+            return;
+        }
         // Strip markdown/formatting for cleaner speech
         String clean = cleanForSpeech(text);
         if (clean.isBlank()) return;
@@ -486,6 +504,14 @@ public class TtsTools {
      */
     public void speakAsyncWithVoice(String text, String gender) {
         if (text == null || text.isBlank()) return;
+        if (!autoSpeak) {
+            log.debug("[TTS] speakAsyncWithVoice() suppressed — silent mode");
+            return;
+        }
+        if (MusicControlTools.MUSIC_ACTIVE.get()) {
+            log.debug("[TTS] speakAsyncWithVoice() suppressed — music is playing");
+            return;
+        }
         String clean = cleanForSpeech(text);
         if (clean.isBlank()) return;
         ttsExecutor.submit(() -> {

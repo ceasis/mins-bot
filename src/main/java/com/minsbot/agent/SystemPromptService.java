@@ -2,13 +2,16 @@ package com.minsbot.agent;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import jakarta.annotation.PostConstruct;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Loads the master system prompt from ~/mins_bot_data/system-prompt.md
@@ -40,12 +43,21 @@ public class SystemPromptService {
     private volatile String cachedPromptTemplate = "";
     private volatile long cachedPromptMtime = -1;
 
-    /** Cached skills listing — re-scanned when files change. */
-    private volatile String cachedSkillsListing = "";
-    private volatile long cachedSkillsScanMs = 0;
+    /** One entry per skill file under {@link #SKILLS_DIR}. Built by {@link #reindexSkills()}. */
+    public record SkillEntry(String name, String description, Path path, long mtime, long sizeBytes) {}
+
+    /** Skill name → metadata. Rebuilt every minute by the scheduled reindex. */
+    private final Map<String, SkillEntry> skillIndex = new ConcurrentHashMap<>();
+
+    /** Wall-clock ms of the last successful reindex, for diagnostics. */
+    private volatile long lastReindexMs = 0;
+
+    /** Optional — registers our reindex action so file-driven scheduling can dispatch to it. */
+    @Autowired(required = false)
+    private RecurringTasksService recurringTasksService;
 
     public SystemPromptService() {
-        // No dependencies — caller passes in the built-in skills listing to avoid circular deps.
+        // No constructor deps — built-in skills are passed into render() to avoid circular deps.
     }
 
     @PostConstruct
@@ -64,6 +76,13 @@ public class SystemPromptService {
             }
         } catch (IOException e) {
             log.warn("[SystemPrompt] Failed to initialize files: {}", e.getMessage());
+        }
+        // Build the index immediately — don't wait for the first scheduled scan.
+        reindexSkills();
+        // Register so a task file at ~/mins_bot_data/mins_recurring_tasks/reindex-skills.md
+        // can drive the cadence (default: every 5 minutes per the bundled task file).
+        if (recurringTasksService != null) {
+            recurringTasksService.registerAction("reindex_skills", this::reindexSkills);
         }
     }
 
@@ -91,10 +110,59 @@ public class SystemPromptService {
         log.info("[SystemPrompt] Template cache invalidated — next request will re-read.");
     }
 
-    /** Called by ConfigScanService when any skills/*.md file changes. */
+    /** Called by ConfigScanService when any skills/*.md file changes — forces an immediate reindex. */
     public void reloadSkills() {
-        cachedSkillsScanMs = 0;
-        log.info("[SystemPrompt] Skills cache invalidated — next request will re-scan.");
+        log.info("[SystemPrompt] Skills change detected — reindexing now.");
+        reindexSkills();
+    }
+
+    /**
+     * Scans {@link #SKILLS_DIR} and rebuilds {@link #skillIndex}.
+     * Each entry stores the skill name, one-line description, path, mtime, and size.
+     * <p>
+     * Scheduling is driven by {@code ~/mins_bot_data/mins_recurring_tasks/reindex-skills.md}
+     * (registered as the {@code reindex_skills} action). Also runs immediately on startup
+     * via {@link #init()} so the index is hot before the first chat.
+     */
+    public void reindexSkills() {
+        if (!Files.isDirectory(SKILLS_DIR)) {
+            skillIndex.clear();
+            lastReindexMs = System.currentTimeMillis();
+            return;
+        }
+        Map<String, SkillEntry> fresh = new LinkedHashMap<>();
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(SKILLS_DIR, "*.md")) {
+            for (Path file : stream) {
+                String filename = file.getFileName().toString();
+                if (filename.equalsIgnoreCase("README.md")) continue;
+                String skillName = filename.substring(0, filename.length() - 3);
+                String description = readFirstNonHeadingLine(file);
+                long mtime;
+                long size;
+                try {
+                    mtime = Files.getLastModifiedTime(file).toMillis();
+                    size = Files.size(file);
+                } catch (IOException e) {
+                    mtime = 0;
+                    size = 0;
+                }
+                fresh.put(skillName, new SkillEntry(
+                        skillName,
+                        description == null ? "" : description,
+                        file,
+                        mtime,
+                        size));
+            }
+        } catch (IOException e) {
+            log.warn("[SystemPrompt] Reindex failed: {}", e.getMessage());
+            return;
+        }
+        // Atomic-ish swap: clear and replace. Reads are tolerant via ConcurrentHashMap.
+        skillIndex.keySet().retainAll(fresh.keySet());
+        skillIndex.putAll(fresh);
+        lastReindexMs = System.currentTimeMillis();
+        Instant when = Instant.ofEpochMilli(lastReindexMs);
+        log.info("[SystemPrompt] Reindexed {} custom skill(s) at {}", skillIndex.size(), when);
     }
 
     // ─── Template loading ───────────────────────────────────────────────────
@@ -135,46 +203,22 @@ public class SystemPromptService {
     // ─── Custom skills listing (from ~/mins_bot_data/skills/*.md) ───────────
 
     private String loadCustomSkillsListing() {
-        // Re-scan at most every 5 seconds
-        long now = System.currentTimeMillis();
-        if (now - cachedSkillsScanMs < 5000 && !cachedSkillsListing.isEmpty()) {
-            return cachedSkillsListing;
+        if (skillIndex.isEmpty()) {
+            return "(no custom skills saved yet — drop `<skill-name>.md` files into "
+                    + SKILLS_DIR + " to add new ones)";
         }
-        try {
-            if (!Files.isDirectory(SKILLS_DIR)) {
-                cachedSkillsListing = "(no skills folder yet)";
-                cachedSkillsScanMs = now;
-                return cachedSkillsListing;
-            }
-            List<String> entries = new ArrayList<>();
-            try (DirectoryStream<Path> stream = Files.newDirectoryStream(SKILLS_DIR, "*.md")) {
-                for (Path file : stream) {
-                    String name = file.getFileName().toString();
-                    if (name.equalsIgnoreCase("README.md")) continue;
-                    String skillName = name.substring(0, name.length() - 3); // drop .md
-                    String oneLiner = readFirstNonHeadingLine(file);
-                    if (oneLiner != null && !oneLiner.isBlank()) {
-                        entries.add("- **" + skillName + "**: " + oneLiner);
-                    } else {
-                        entries.add("- **" + skillName + "**");
-                    }
-                }
-            }
-            if (entries.isEmpty()) {
-                cachedSkillsListing = "(no custom skills saved yet — drop `<skill-name>.md` files into "
-                        + SKILLS_DIR + " to add new ones)";
+        List<String> entries = new ArrayList<>();
+        for (SkillEntry s : skillIndex.values()) {
+            if (s.description() != null && !s.description().isBlank()) {
+                entries.add("- **" + s.name() + "**: " + s.description());
             } else {
-                entries.sort(String::compareToIgnoreCase);
-                cachedSkillsListing = String.join("\n", entries)
-                        + "\n\nTo use a custom skill, open its file at "
-                        + SKILLS_DIR + "\\\\<skill-name>.md, read its instructions, then follow the steps.";
+                entries.add("- **" + s.name() + "**");
             }
-            cachedSkillsScanMs = now;
-            return cachedSkillsListing;
-        } catch (IOException e) {
-            log.warn("[SystemPrompt] Failed to scan skills folder: {}", e.getMessage());
-            return "(skills folder unreadable)";
         }
+        entries.sort(String::compareToIgnoreCase);
+        return String.join("\n", entries)
+                + "\n\nTo use a custom skill, open its file at "
+                + SKILLS_DIR + "\\\\<skill-name>.md, read its instructions, then follow the steps.";
     }
 
     /** Reads the first non-blank, non-heading line of a markdown file (the one-line description). */
@@ -201,20 +245,27 @@ public class SystemPromptService {
     public Path getSystemPromptPath() { return SYSTEM_PROMPT_PATH; }
     public Path getSkillsDir() { return SKILLS_DIR; }
 
-    /** List custom skill names (filenames without .md, excluding README). */
+    /** List custom skill names (sorted). Backed by the in-memory index. */
     public List<String> listCustomSkills() {
-        List<String> out = new ArrayList<>();
-        if (!Files.isDirectory(SKILLS_DIR)) return out;
-        try (DirectoryStream<Path> stream = Files.newDirectoryStream(SKILLS_DIR, "*.md")) {
-            for (Path file : stream) {
-                String name = file.getFileName().toString();
-                if (name.equalsIgnoreCase("README.md")) continue;
-                out.add(name.substring(0, name.length() - 3));
-            }
-        } catch (IOException ignored) {}
-        Collections.sort(out);
+        List<String> out = new ArrayList<>(skillIndex.keySet());
+        Collections.sort(out, String::compareToIgnoreCase);
         return out;
     }
+
+    /** Return all skill metadata (name + description + path + mtime). */
+    public Collection<SkillEntry> listCustomSkillEntries() {
+        List<SkillEntry> out = new ArrayList<>(skillIndex.values());
+        out.sort(Comparator.comparing(SkillEntry::name, String.CASE_INSENSITIVE_ORDER));
+        return out;
+    }
+
+    /** Look up a skill's metadata by name. Returns null if no such skill is indexed. */
+    public SkillEntry getSkillEntry(String skillName) {
+        return skillName == null ? null : skillIndex.get(skillName);
+    }
+
+    /** Wall-clock ms of the last successful reindex (for diagnostics / tools). */
+    public long getLastReindexMs() { return lastReindexMs; }
 
     /** Read the full content of a custom skill file. Returns null if not found. */
     public String readCustomSkill(String skillName) {

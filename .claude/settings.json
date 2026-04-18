@@ -11,7 +11,9 @@
       "Bash(mvn clean *)",
       "Bash(jobs -l)",
       "Read(//c/Users/cholo/**)",
-      "Bash(dir \"c:\\\\Users\\\\cholo\\\\eclipse-workspace\\\\mins-bot\\\\src\\\\main\\\\java\\\\com\\\\minsbot\\\\memory\")"
+      "Bash(dir \"c:\\\\Users\\\\cholo\\\\eclipse-workspace\\\\mins-bot\\\\src\\\\main\\\\java\\\\com\\\\minsbot\\\\memory\")",
+      "Bash(grep -oP '\\(?<=integration-card-planned[^<]*?\\)<h3[^>]*>\\\\K[^<]+|\\(?<=integration-card-planned\\)[^$]{0,500}' src/main/resources/static/index.html)",
+      "Bash(javap -p target/classes/com/minsbot/agent/tools/FileSystemTools.class)"
     ]
   }
 }

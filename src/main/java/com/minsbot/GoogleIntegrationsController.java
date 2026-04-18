@@ -84,11 +84,16 @@ public class GoogleIntegrationsController {
     @PostMapping(value = "/disconnect", produces = MediaType.APPLICATION_JSON_VALUE)
     public Map<String, String> disconnect(@RequestBody Map<String, String> body) {
         String integration = body != null ? body.get("integration") : null;
+        String email = body != null ? body.get("email") : null; // optional — per-account disconnect
         if (integration == null || integration.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "integration is required");
         }
         try {
-            oauthService.disconnect(integration.strip().toLowerCase());
+            if (email != null && !email.isBlank()) {
+                oauthService.disconnect(integration.strip().toLowerCase(), email.strip());
+            } else {
+                oauthService.disconnect(integration.strip().toLowerCase());
+            }
             return Map.of("status", "ok");
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());

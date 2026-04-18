@@ -17,6 +17,8 @@ import com.minsbot.skills.piiredactor.PiiRedactorConfig;
 import com.minsbot.skills.piiredactor.PiiRedactorService;
 import com.minsbot.skills.pomodoroplanner.PomodoroPlannerConfig;
 import com.minsbot.skills.pomodoroplanner.PomodoroPlannerService;
+import com.minsbot.skills.queryexpander.QueryExpanderConfig;
+import com.minsbot.skills.queryexpander.QueryExpanderService;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
@@ -37,6 +39,7 @@ public class SkillExtrasTools {
     private final EncryptionAesService aes; private final EncryptionAesConfig.EncryptionAesProperties aesProps;
     private final FlashcardMakerService flash; private final FlashcardMakerConfig.FlashcardMakerProperties flashProps;
     private final PomodoroPlannerService pomo; private final PomodoroPlannerConfig.PomodoroPlannerProperties pomoProps;
+    private final QueryExpanderService queryExpander; private final QueryExpanderConfig.QueryExpanderProperties queryProps;
 
     public SkillExtrasTools(MarkdownHtmlService mdHtml, MarkdownHtmlConfig.MarkdownHtmlProperties mdHtmlProps,
                             HeadlineAnalyzerService headline, HeadlineAnalyzerConfig.HeadlineAnalyzerProperties headlineProps,
@@ -45,7 +48,8 @@ public class SkillExtrasTools {
                             ExifStripperService exif, ExifStripperConfig.ExifStripperProperties exifProps,
                             EncryptionAesService aes, EncryptionAesConfig.EncryptionAesProperties aesProps,
                             FlashcardMakerService flash, FlashcardMakerConfig.FlashcardMakerProperties flashProps,
-                            PomodoroPlannerService pomo, PomodoroPlannerConfig.PomodoroPlannerProperties pomoProps) {
+                            PomodoroPlannerService pomo, PomodoroPlannerConfig.PomodoroPlannerProperties pomoProps,
+                            QueryExpanderService queryExpander, QueryExpanderConfig.QueryExpanderProperties queryProps) {
         this.mdHtml = mdHtml; this.mdHtmlProps = mdHtmlProps;
         this.headline = headline; this.headlineProps = headlineProps;
         this.numWords = numWords; this.numProps = numProps;
@@ -54,6 +58,7 @@ public class SkillExtrasTools {
         this.aes = aes; this.aesProps = aesProps;
         this.flash = flash; this.flashProps = flashProps;
         this.pomo = pomo; this.pomoProps = pomoProps;
+        this.queryExpander = queryExpander; this.queryProps = queryProps;
     }
 
     @Tool(description = "Convert Markdown to HTML or HTML to Markdown. Direction: 'to-html' or 'to-markdown'.")
@@ -134,6 +139,18 @@ public class SkillExtrasTools {
             int w = workMinutes <= 0 ? 25 : (int) workMinutes;
             return toJson(pomo.plan(tasks, startTime, w, 5, 15, 4));
         } catch (Exception e) { return "Error: " + e.getMessage(); }
+    }
+
+    @Tool(description = "Expand a vague or ambiguous user request into structured intent: action verb, "
+            + "nouns with synonyms (e.g. 'cv' → resume/curriculum vitae), likely file extensions, "
+            + "temporal hints (latest/today/this week), location hints (Documents/Downloads/Desktop), "
+            + "quantity (top-N/all), and a suggested tool chain. Call this FIRST for fuzzy requests "
+            + "like 'open my latest cv', 'find photos from last week', 'show me that invoice'.")
+    public String expandQuery(@ToolParam(description = "The raw user query") String query) {
+        if (!queryProps.isEnabled()) return disabled("queryexpander");
+        if (query == null) return "Error: query required";
+        if (query.length() > queryProps.getMaxInputChars()) return "Error: query exceeds maxInputChars";
+        return toJson(queryExpander.expand(query));
     }
 
     private String disabled(String name) { return "Skill '" + name + "' is disabled. Enable via app.skills." + name + ".enabled=true"; }

@@ -44,8 +44,8 @@ public class ToolCallLogger {
         }
 
         if (!quiet) {
-            System.out.println("[TOOL-CALL] >>> " + methodName + "(" + params + ")");
-            System.out.println("[TOOL-CALL]     description: " + tool.description());
+            // Compact JARVIS-style format: @tool ClassName.method(arg=val, ...)
+            System.out.println("@tool " + methodName + "(" + params + ")");
         }
 
         long start = System.currentTimeMillis();
@@ -57,14 +57,14 @@ public class ToolCallLogger {
             if (result instanceof String s && s.length() > MAX_OUTPUT_CHARS) {
                 result = s.substring(0, MAX_OUTPUT_CHARS)
                         + "\n...(output truncated at " + MAX_OUTPUT_CHARS + " chars, total was " + s.length() + ")";
-                if (!quiet) System.out.println("[TOOL-CALL] <<< " + methodName + " returned in " + elapsed + "ms => TRUNCATED from " + s.length() + " to " + MAX_OUTPUT_CHARS + " chars");
+                if (!quiet) System.out.println("       └─ ok (" + elapsed + "ms, truncated " + s.length() + "→" + MAX_OUTPUT_CHARS + ")");
             } else {
-                if (!quiet) System.out.println("[TOOL-CALL] <<< " + methodName + " returned in " + elapsed + "ms => " + truncate(result, 200));
+                if (!quiet) System.out.println("       └─ ok (" + elapsed + "ms) " + truncate(result, 160));
             }
             return result;
         } catch (Throwable ex) {
             long elapsed = System.currentTimeMillis() - start;
-            if (!quiet) System.out.println("[TOOL-CALL] !!! " + methodName + " FAILED in " + elapsed + "ms => " + ex.getClass().getSimpleName() + ": " + ex.getMessage());
+            if (!quiet) System.out.println("       └─ FAILED (" + elapsed + "ms) " + ex.getClass().getSimpleName() + ": " + ex.getMessage());
             throw ex;
         }
     }

@@ -43,7 +43,6 @@ public class SystemContextProvider {
 
     private static final String PERSONAL_CONFIG_FILENAME = "personal_config.txt";
     private static final String SYSTEM_CONFIG_FILENAME = "system_config.txt";
-    private static final String CRON_CONFIG_FILENAME = "cron_config.txt";
     private static final String MINSBOT_CONFIG_FILENAME = "minsbot_config.txt";
 
     /**
@@ -167,23 +166,6 @@ public class SystemContextProvider {
 
             ## Directives
             - reminder_interval: 5
-            """;
-
-    private static final String DEFAULT_CRON_CONFIG = """
-            # Cron / scheduled checks
-            Recurring checks and reminders the user wants to track.
-
-            ## Daily checks
-            -
-
-            ## Weekly checks
-            -
-
-            ## Reminders
-            -
-
-            ## Other schedule
-            -
             """;
 
     public String buildSystemMessage() {
@@ -328,6 +310,17 @@ public class SystemContextProvider {
                 collectImagesFromBrowser, readBrowserPage, downloadImagesFromBrowser) when the user explicitly says \
                 "in-browser", "chat browser", "in the chat browser", or similar phrases indicating the Mins Bot built-in browser.
                 - For research/information gathering, use searchWeb(query) first. Use browsePage only for specific URLs.
+
+                FILE SYSTEM QUESTIONS (answer programmatically, DO NOT open Explorer):
+                - "how many files in X", "count items in Y" → call countDirectoryContents(path)
+                - "what's in my Downloads", "list files in X", "show contents of Y" → call listDirectory(path)
+                - "find all PDFs in X", "any .txt files here" → call searchInDirectory(path, pattern)
+                - "files I changed today", "recent files" → call listFilesByDate(path, "modified", N)
+                - NEVER call openPath / openApp('explorer') for listing or counting — those tools READ THE DISK DIRECTLY \
+                and return text. Opening Explorer for a count question wastes time and makes the user do the counting.
+                - Only use openPath/openDocument when the user explicitly wants to SEE the folder/file in Explorer or open it in an app.
+                - Common folder paths on Windows: Desktop = %USERPROFILE%\\Desktop, Downloads = %USERPROFILE%\\Downloads, \
+                Documents = %USERPROFILE%\\Documents. Resolve %USERPROFILE% using the SYSTEM CONTEXT home directory.
 
                 FORM FILLING STRATEGY (FAST — USE TAB):
                 - When filling out forms (web forms, dialogs, sign-up pages, etc.), use TAB to move between fields \
@@ -486,6 +479,25 @@ public class SystemContextProvider {
                 - Check the target folder to see how many files already exist and only download the remaining amount.
                 - Only ask for confirmation if the requested count exceeds the download confirm_threshold in the Bot Config \
                 (default 1000). Below that threshold, just do it.
+
+                SKILLS-FIRST PRIORITY (IMPORTANT):
+                - The bot has a library of dedicated SKILLS (purpose-built, persisted, optimized for a single job): \
+                dev tools, productivity tools, SEO/marketing tools, security tools, profession tools, extra data tools, \
+                calc skills, extras skills, and custom named workflows from the Skills tab. \
+                These tool methods typically live in classes starting with "Skill..." (e.g. skillDev..., skillProductivity..., \
+                skillCalc..., skillExtras..., skillDataExtra..., skillSeoMarketing..., skillSecurity..., skillProfession...).
+                - RULE: When a user request could be satisfied EITHER by a skill OR a general-purpose tool, ALWAYS choose the skill. \
+                Skills are more reliable, produce consistent output, and honor user-tuned preferences. General tools are a fallback.
+                - Examples:
+                  • "Extract keywords from this text" → use the skill keyword extractor, NOT raw LLM summarization.
+                  • "Generate hashtags" → use the hashtag-suggest skill, NOT ad-hoc generation.
+                  • "Detect the language" → use the lang-detector skill, NOT guessing.
+                  • "Slugify / capitalize / snake_case this" → use the relevant text skill, NOT string manipulation in your reply.
+                  • "Convert PDF to text", "format JSON", "calculate X" → check skills first.
+                - If you are unsure whether a skill covers the request, list your available skill tools, scan for relevant ones, \
+                then call the best match. Only fall back to general tools (webSearch, writeFile, runCommand, etc.) when NO skill applies.
+                - Custom skills (user-created named workflows) also take priority. If the user's message matches a trigger phrase \
+                they've saved via skillAutoCreate, run that saved skill instead of improvising.
 
                 IDENTITY — CONVERSATIONAL AGENT:
                 - You are Mins Bot, a fully conversational AI agent. You can SEE (screen + webcam), HEAR (audio capture), \
@@ -1056,21 +1068,56 @@ public class SystemContextProvider {
     }
 
     /**
-     * Load scheduled checks from ~/mins_bot_data/cron_config.txt.
-     * If the file does not exist, creates mins_bot_data and writes a default template.
+     * Load scheduled checks from ~/mins_bot_data/mins_recurring_tasks/ (one Markdown file per task).
+     * Returns a compact summary for injection into the AI system prompt.
+     * Returns null if the folder has no tasks.
      */
     private String loadCronConfig() {
-        Path dataDir = Paths.get(System.getProperty("user.home"), "mins_bot_data");
-        Path path = dataDir.resolve(CRON_CONFIG_FILENAME);
-        try {
-            if (!Files.exists(path)) {
-                Files.createDirectories(dataDir);
-                Files.writeString(path, DEFAULT_CRON_CONFIG);
-                return null;
+        Path tasksDir = Paths.get(System.getProperty("user.home"), "mins_bot_data", "mins_recurring_tasks");
+        if (!Files.isDirectory(tasksDir)) return null;
+        try (var stream = Files.list(tasksDir)) {
+            var files = stream
+                    .filter(p -> p.toString().endsWith(".md"))
+                    .filter(p -> !p.getFileName().toString().equalsIgnoreCase("README.md"))
+                    .sorted()
+                    .toList();
+            if (files.isEmpty()) return null;
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("# Recurring tasks (from mins_recurring_tasks/)\n\n");
+            for (Path f : files) {
+                String label = null, cron = null, prompt = null;
+                boolean inPromptBody = false;
+                StringBuilder bodyBuf = new StringBuilder();
+                for (String raw : Files.readAllLines(f)) {
+                    String line = raw.trim();
+                    if (inPromptBody) {
+                        if (line.startsWith("## ") || line.startsWith("# ")) break;
+                        bodyBuf.append(raw).append("\n");
+                        continue;
+                    }
+                    if (line.equalsIgnoreCase("## Prompt")) { inPromptBody = true; continue; }
+                    if (line.startsWith("# ") && label == null) { label = line.substring(2).trim(); continue; }
+                    int colon = line.indexOf(':');
+                    if (colon <= 0) continue;
+                    String k = line.substring(0, colon).trim().toLowerCase();
+                    String v = line.substring(colon + 1).trim();
+                    switch (k) {
+                        case "label" -> { if (label == null) label = v; }
+                        case "cron" -> cron = v;
+                        case "prompt" -> { if (prompt == null) prompt = v; }
+                        default -> { /* ignore */ }
+                    }
+                }
+                if (bodyBuf.length() > 0) prompt = bodyBuf.toString().trim();
+                String display = label != null ? label : (prompt != null ? prompt : f.getFileName().toString());
+                sb.append("- ").append(display);
+                if (cron != null && !cron.isBlank()) sb.append(" — cron: ").append(cron);
+                sb.append("\n");
             }
-            String content = Files.readString(path).trim();
-            return content.isEmpty() ? null : content;
-        } catch (IOException ignored) {
+            String out = sb.toString().trim();
+            return out.isEmpty() ? null : out;
+        } catch (IOException e) {
             return null;
         }
     }

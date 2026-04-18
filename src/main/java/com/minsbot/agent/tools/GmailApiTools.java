@@ -16,6 +16,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Locale;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -73,7 +74,7 @@ public class GmailApiTools {
 
             HttpResponse<String> listResp = httpClient.send(listReq, HttpResponse.BodyHandlers.ofString());
             if (listResp.statusCode() != 200) {
-                return "Gmail API error (HTTP " + listResp.statusCode() + "). Try reconnecting in Integrations tab.";
+                return formatApiError("getUnreadEmails", listResp);
             }
 
             JsonNode listRoot = mapper.readTree(listResp.body());
@@ -130,7 +131,7 @@ public class GmailApiTools {
 
             HttpResponse<String> listResp = httpClient.send(listReq, HttpResponse.BodyHandlers.ofString());
             if (listResp.statusCode() != 200) {
-                return "Gmail API error (HTTP " + listResp.statusCode() + ").";
+                return formatApiError("getRecentEmails", listResp);
             }
 
             JsonNode listRoot = mapper.readTree(listResp.body());
@@ -213,6 +214,205 @@ public class GmailApiTools {
         }
     }
 
+    @Tool(description = "Read the FULL body of a specific Gmail message by ID, including sender, recipients, date, "
+            + "subject, and the complete plain-text body (HTML stripped). Use when the user asks to 'read the email', "
+            + "'what does this email say', 'show me the content of that message', or after getUnreadEmails to dig into a specific one. "
+            + "Get the message ID from getUnreadEmails / searchEmails / getRecentEmails (each result contains an id field).")
+    public String readEmail(
+            @ToolParam(description = "Gmail message ID (e.g. '18f4c2a90ab12def'). Get this from getUnreadEmails or searchEmails.")
+            String messageId) {
+        if (messageId == null || messageId.isBlank()) return "Message ID is required.";
+        notifier.notify("Reading email " + messageId + "...");
+
+        String accessToken = oauthService.getValidAccessToken("gmail");
+        if (accessToken == null) {
+            return "Gmail API not connected. Connect Gmail in the Integrations tab first.";
+        }
+
+        try {
+            // format=full returns payload with MIME parts including bodies
+            String url = GMAIL_API + "/messages/" + messageId + "?format=full";
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("Authorization", "Bearer " + accessToken)
+                    .GET().build();
+            HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+            if (resp.statusCode() != 200) {
+                return formatApiError("readEmail", resp);
+            }
+
+            JsonNode root = mapper.readTree(resp.body());
+            StringBuilder sb = new StringBuilder();
+
+            // Headers
+            String from = "", to = "", cc = "", subject = "", date = "";
+            JsonNode headers = root.path("payload").path("headers");
+            if (headers.isArray()) {
+                for (JsonNode h : headers) {
+                    String n = h.get("name").asText();
+                    String v = h.get("value").asText();
+                    if ("From".equalsIgnoreCase(n)) from = v;
+                    else if ("To".equalsIgnoreCase(n)) to = v;
+                    else if ("Cc".equalsIgnoreCase(n)) cc = v;
+                    else if ("Subject".equalsIgnoreCase(n)) subject = v;
+                    else if ("Date".equalsIgnoreCase(n)) date = formatDate(v);
+                }
+            }
+            sb.append("From: ").append(from).append("\n");
+            sb.append("To: ").append(to).append("\n");
+            if (!cc.isBlank()) sb.append("Cc: ").append(cc).append("\n");
+            sb.append("Date: ").append(date).append("\n");
+            sb.append("Subject: ").append(subject).append("\n");
+            sb.append("\n");
+
+            // Body: walk MIME parts, prefer text/plain, fall back to text/html (stripped)
+            String body = extractBody(root.path("payload"));
+            if (body == null || body.isBlank()) {
+                // Fallback — some messages only have a snippet
+                body = root.has("snippet") ? root.get("snippet").asText() : "(empty body)";
+            }
+
+            // Cap at 10,000 chars to avoid blowing the chat response size
+            if (body.length() > 10000) {
+                body = body.substring(0, 10000) + "\n\n[...truncated — " + (body.length() - 10000) + " more chars]";
+            }
+            sb.append(body);
+
+            return sb.toString();
+        } catch (Exception e) {
+            log.error("[GmailApi] readEmail failed: {}", e.getMessage(), e);
+            return "Failed to read email: " + e.getMessage();
+        }
+    }
+
+    @Tool(description = "Search Gmail with a query string (Gmail search syntax: from:, to:, subject:, has:attachment, "
+            + "newer_than:7d, label:work, etc.) and return matching message IDs + headers. "
+            + "Example queries: 'from:boss@company.com', 'subject:invoice newer_than:30d', 'has:attachment pdf'. "
+            + "Use when the user asks to 'find the email from X', 'show emails about Y', 'search my inbox for Z'. "
+            + "Combine with readEmail(id) to read the full body of a specific result.")
+    public String searchEmails(
+            @ToolParam(description = "Gmail search query, e.g. 'from:alice subject:report newer_than:14d'") String query,
+            @ToolParam(description = "Max results to return (1-20)") double maxResults) {
+        if (query == null || query.isBlank()) return "Search query is required.";
+        int max = Math.max(1, Math.min(20, (int) Math.round(maxResults)));
+        notifier.notify("Searching Gmail: " + query);
+
+        String accessToken = oauthService.getValidAccessToken("gmail");
+        if (accessToken == null) return "Gmail API not connected.";
+
+        try {
+            String url = GMAIL_API + "/messages?q=" + URLEncoder.encode(query, StandardCharsets.UTF_8)
+                    + "&maxResults=" + max;
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("Authorization", "Bearer " + accessToken)
+                    .GET().build();
+            HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+            if (resp.statusCode() != 200) return formatApiError("searchEmails", resp);
+
+            JsonNode root = mapper.readTree(resp.body());
+            JsonNode messages = root.get("messages");
+            if (messages == null || !messages.isArray() || messages.isEmpty()) {
+                return "No emails match query: " + query;
+            }
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("Found ").append(messages.size()).append(" email(s) matching \"").append(query).append("\":\n\n");
+
+            int count = 0;
+            for (JsonNode msg : messages) {
+                if (count >= max) break;
+                String msgId = msg.get("id").asText();
+                String detail = fetchMessageDetail(accessToken, msgId);
+                if (detail != null) {
+                    count++;
+                    sb.append(count).append(". ID: ").append(msgId).append("\n   ").append(detail).append("\n\n");
+                }
+            }
+            sb.append("To read the full body of any result, call readEmail(<id>).");
+            return sb.toString();
+        } catch (Exception e) {
+            log.error("[GmailApi] searchEmails failed: {}", e.getMessage(), e);
+            return "Search failed: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Walk Gmail's nested MIME payload tree, decode base64url bodies,
+     * prefer text/plain parts and fall back to HTML (with tags stripped).
+     */
+    private String extractBody(JsonNode payload) {
+        if (payload == null || payload.isMissingNode()) return null;
+
+        // Try text/plain first at current level
+        String mimeType = payload.path("mimeType").asText("");
+        if (mimeType.startsWith("text/plain")) {
+            String decoded = decodeBody(payload.path("body"));
+            if (decoded != null && !decoded.isBlank()) return decoded;
+        }
+
+        // Recurse into parts
+        JsonNode parts = payload.get("parts");
+        if (parts != null && parts.isArray()) {
+            // First pass: find text/plain
+            for (JsonNode p : parts) {
+                if (p.path("mimeType").asText("").startsWith("text/plain")) {
+                    String body = decodeBody(p.path("body"));
+                    if (body != null && !body.isBlank()) return body;
+                }
+            }
+            // Second pass: any multipart/* → recurse
+            for (JsonNode p : parts) {
+                String mt = p.path("mimeType").asText("");
+                if (mt.startsWith("multipart/")) {
+                    String body = extractBody(p);
+                    if (body != null && !body.isBlank()) return body;
+                }
+            }
+            // Third pass: text/html stripped
+            for (JsonNode p : parts) {
+                if (p.path("mimeType").asText("").startsWith("text/html")) {
+                    String body = decodeBody(p.path("body"));
+                    if (body != null && !body.isBlank()) return stripHtml(body);
+                }
+            }
+        }
+
+        // HTML at top level → strip
+        if (mimeType.startsWith("text/html")) {
+            String decoded = decodeBody(payload.path("body"));
+            if (decoded != null && !decoded.isBlank()) return stripHtml(decoded);
+        }
+
+        return null;
+    }
+
+    private String decodeBody(JsonNode bodyNode) {
+        if (bodyNode == null || bodyNode.isMissingNode()) return null;
+        String data = bodyNode.path("data").asText(null);
+        if (data == null) return null;
+        try {
+            byte[] decoded = Base64.getUrlDecoder().decode(data);
+            return new String(decoded, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String stripHtml(String html) {
+        return html.replaceAll("<script[^>]*>[\\s\\S]*?</script>", "")
+                .replaceAll("<style[^>]*>[\\s\\S]*?</style>", "")
+                .replaceAll("<[^>]+>", " ")
+                .replaceAll("&nbsp;", " ")
+                .replaceAll("&amp;", "&")
+                .replaceAll("&lt;", "<")
+                .replaceAll("&gt;", ">")
+                .replaceAll("&quot;", "\"")
+                .replaceAll("&#39;", "'")
+                .replaceAll("\\s+", " ")
+                .trim();
+    }
+
     private String fetchMessageDetail(String accessToken, String messageId) {
         try {
             String url = GMAIL_API + "/messages/" + messageId + "?format=metadata"
@@ -242,7 +442,9 @@ public class GmailApiTools {
                 }
             }
 
-            return "From: " + from + "\n   Subject: " + subject
+            return "ID: " + messageId
+                    + "\n   From: " + from
+                    + "\n   Subject: " + subject
                     + "\n   Date: " + date
                     + "\n   Preview: " + (snippet.length() > 150 ? snippet.substring(0, 150) + "..." : snippet);
 
@@ -261,6 +463,117 @@ public class GmailApiTools {
                     .format(DateTimeFormatter.ofPattern("MMM d, h:mm a"));
         } catch (Exception e) {
             return rawDate;
+        }
+    }
+
+    /**
+     * Build a diagnostic error message from a non-2xx Gmail API response.
+     * Includes the status code, the message Google returned, and a hint based on
+     * the most common failures (401 invalid creds, 403 missing scope, 429 rate-limited).
+     */
+    private String formatApiError(String op, HttpResponse<String> resp) {
+        int code = resp.statusCode();
+        String body = resp.body() == null ? "" : resp.body();
+        String googleMessage = extractGoogleErrorMessage(body);
+        String googleStatus = extractGoogleErrorField(body, "status");
+        String googleReason = extractGoogleErrorField(body, "reason");
+
+        String hint;
+        if (code == 401) {
+            hint = "Token is invalid or revoked. Disconnect and re-connect Gmail in the Integrations tab.";
+        } else if (code == 403) {
+            // Google 403s come in several flavors — pick the right hint based on reason.
+            String reasonLower = googleReason.toLowerCase(Locale.ROOT);
+            String msgLower = googleMessage.toLowerCase(Locale.ROOT);
+            String activationUrl = extractActivationUrl(body);
+            if (reasonLower.contains("accessnotconfigured") || reasonLower.contains("service_disabled")
+                    || msgLower.contains("has not been used in project")
+                    || msgLower.contains("it is disabled")) {
+                hint = "The Gmail API is NOT enabled in your Google Cloud project. "
+                     + "Open " + (activationUrl.isBlank()
+                            ? "https://console.developers.google.com/apis/library/gmail.googleapis.com"
+                            : activationUrl)
+                     + " → click Enable → wait ~2 minutes → retry. This is a one-time project setup, "
+                     + "not an auth problem (your token is fine).";
+            } else if (reasonLower.contains("ratelimitexceeded") || reasonLower.contains("userratelimit")) {
+                hint = "Hit a Gmail quota. Wait a few minutes and retry.";
+            } else if (reasonLower.contains("insufficientpermissions")
+                    || msgLower.contains("insufficient authentication scopes")
+                    || msgLower.contains("request had insufficient")) {
+                hint = "Token is missing a required scope. Disconnect Gmail, then reconnect and ensure "
+                     + "you grant BOTH 'Read your emails' and 'Send email' on the Google consent screen "
+                     + "(don't uncheck any boxes).";
+            } else {
+                hint = "403 from Google. See the message above for specifics.";
+            }
+        } else if (code == 429) {
+            hint = "Hit Gmail rate limit. Wait a minute and retry.";
+        } else if (code >= 500) {
+            hint = "Google server error. Retry shortly.";
+        } else {
+            hint = "Unexpected response. See log for full body.";
+        }
+
+        log.warn("[GmailApi] {} → HTTP {} {} {} body={}", op, code, googleStatus, googleReason,
+                body.length() > 500 ? body.substring(0, 500) + "..." : body);
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("Gmail API ").append(op).append(" failed: HTTP ").append(code);
+        if (!googleStatus.isBlank()) sb.append(" (").append(googleStatus).append(")");
+        sb.append(".\n");
+        if (!googleMessage.isBlank()) sb.append("Google says: ").append(googleMessage).append("\n");
+        sb.append("Hint: ").append(hint);
+        return sb.toString();
+    }
+
+    private String extractGoogleErrorMessage(String body) {
+        try {
+            JsonNode root = mapper.readTree(body);
+            JsonNode err = root.get("error");
+            if (err == null) return "";
+            JsonNode msg = err.get("message");
+            return msg != null ? msg.asText("") : "";
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private String extractGoogleErrorField(String body, String field) {
+        try {
+            JsonNode root = mapper.readTree(body);
+            JsonNode err = root.get("error");
+            if (err == null) return "";
+            JsonNode v = err.get(field);
+            if (v != null) return v.asText("");
+            JsonNode errors = err.get("errors");
+            if (errors != null && errors.isArray() && errors.size() > 0) {
+                JsonNode f = errors.get(0).get(field);
+                if (f != null) return f.asText("");
+            }
+            return "";
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    /**
+     * Pulls the activation URL out of a SERVICE_DISABLED error body, which looks like:
+     * {@code error.details[].metadata.activationUrl}. Returns empty string if absent.
+     */
+    private String extractActivationUrl(String body) {
+        try {
+            JsonNode root = mapper.readTree(body);
+            JsonNode details = root.path("error").path("details");
+            if (details.isArray()) {
+                for (JsonNode d : details) {
+                    JsonNode md = d.path("metadata");
+                    JsonNode url = md.get("activationUrl");
+                    if (url != null && !url.asText("").isBlank()) return url.asText();
+                }
+            }
+            return "";
+        } catch (Exception e) {
+            return "";
         }
     }
 }

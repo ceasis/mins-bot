@@ -57,6 +57,29 @@ public class WindowBridge {
         });
     }
 
+    /**
+     * Open an arbitrary URL in the user's default system browser.
+     * Used for OAuth flows so the user has real back/forward/close controls
+     * instead of being trapped inside the WebView.
+     */
+    public boolean openUrl(String url) {
+        if (url == null || url.isBlank()) return false;
+        try {
+            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+                Desktop.getDesktop().browse(new URI(url));
+                return true;
+            }
+            new ProcessBuilder("rundll32", "url.dll,FileProtocolHandler", url)
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                    .redirectError(ProcessBuilder.Redirect.DISCARD)
+                    .start();
+            return true;
+        } catch (Exception e) {
+            System.err.println("[WindowBridge] Failed to open URL: " + e.getMessage());
+            return false;
+        }
+    }
+
     /** Minimize window to taskbar. */
     public void minimize() {
         Platform.runLater(() -> stage.setIconified(true));

@@ -392,19 +392,57 @@ public class PlaywrightService {
 
     // ─── Viewer API (for browser tab) ─────────────────────────────────────
 
-    /** Get or create the persistent viewer page (with stealth). */
+    /**
+     * Get or create the persistent viewer page (with stealth).
+     * Uses launchPersistentContext against ~/mins_bot_data/browser_profile so cookies
+     * (YouTube/Google sign-in, etc.) survive across app restarts.
+     */
     public synchronized Page getViewerPage() {
         if (viewerPage == null || viewerPage.isClosed()) {
-            viewerContext = getBrowser().newContext(
-                    new Browser.NewContextOptions()
-                            .setUserAgent(CHROME_UA)
-                            .setViewportSize(1280, 720)
-                            .setLocale("en-US")
-                            .setTimezoneId("America/New_York")
-            );
-            viewerContext.setDefaultTimeout(30000);
-            viewerContext.addInitScript(STEALTH_JS);
-            viewerPage = viewerContext.newPage();
+            if (viewerContext == null) {
+                try {
+                    java.nio.file.Path profileDir = java.nio.file.Paths.get(
+                            System.getProperty("user.home"), "mins_bot_data", "browser_profile");
+                    java.nio.file.Files.createDirectories(profileDir);
+
+                    Playwright pw = ensurePlaywright();
+                    viewerContext = pw.chromium().launchPersistentContext(
+                            profileDir,
+                            new BrowserType.LaunchPersistentContextOptions()
+                                    .setHeadless(true)
+                                    .setUserAgent(CHROME_UA)
+                                    .setViewportSize(1280, 720)
+                                    .setLocale("en-US")
+                                    .setTimezoneId("America/New_York")
+                                    .setArgs(List.of(
+                                            "--disable-gpu",
+                                            "--disable-blink-features=AutomationControlled",
+                                            "--no-first-run",
+                                            "--no-default-browser-check"
+                                    ))
+                    );
+                    viewerContext.setDefaultTimeout(30000);
+                    viewerContext.addInitScript(STEALTH_JS);
+                    log.info("[Playwright] Viewer using persistent profile: {}", profileDir);
+                } catch (Exception e) {
+                    log.warn("[Playwright] Persistent context failed, falling back to transient: {}", e.getMessage());
+                    viewerContext = getBrowser().newContext(
+                            new Browser.NewContextOptions()
+                                    .setUserAgent(CHROME_UA)
+                                    .setViewportSize(1280, 720)
+                                    .setLocale("en-US")
+                                    .setTimezoneId("America/New_York")
+                    );
+                    viewerContext.setDefaultTimeout(30000);
+                    viewerContext.addInitScript(STEALTH_JS);
+                }
+            }
+            // Persistent context already has an initial page; reuse it if present
+            if (!viewerContext.pages().isEmpty()) {
+                viewerPage = viewerContext.pages().get(0);
+            } else {
+                viewerPage = viewerContext.newPage();
+            }
         }
         return viewerPage;
     }

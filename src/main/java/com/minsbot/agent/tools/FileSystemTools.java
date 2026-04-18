@@ -34,7 +34,11 @@ public class FileSystemTools {
 
     // ─── Browse & inspect ────────────────────────────────────────────────────
 
-    @Tool(description = "List the contents of a directory showing name, type (file/dir), size, and last modified date")
+    @Tool(description = "List the contents of a directory programmatically and return the names as text — "
+            + "does NOT open File Explorer. Returns name, type (file/dir), size, and last modified date. "
+            + "USE THIS when the user asks 'what's in my Downloads folder', 'list files in X', "
+            + "'show me contents of Y', 'what files are in Z'. "
+            + "NEVER call openPath / openApp('explorer') for listing/counting questions — this tool reads the directory directly.")
     public String listDirectory(
             @ToolParam(description = "Full path to the directory to list") String path) {
         notifier.notify("Listing " + path + "...");
@@ -66,7 +70,10 @@ public class FileSystemTools {
         }
     }
 
-    @Tool(description = "Count how many files and directories are in a given directory (non-recursive, top-level only)")
+    @Tool(description = "Count how many files and directories are in a given directory (non-recursive, top-level only). "
+            + "USE THIS when the user asks 'how many files in my Downloads', 'how many items in X folder', "
+            + "'count files in Y', 'how many things are in Z'. Returns a text count — does NOT open File Explorer. "
+            + "NEVER open Explorer for counting questions.")
     public String countDirectoryContents(
             @ToolParam(description = "Full path to the directory to inspect") String path) {
         notifier.notify("Counting contents of " + path + "...");
@@ -190,6 +197,143 @@ public class FileSystemTools {
             return "Written " + content.length() + " chars to " + p;
         } catch (IOException e) {
             return "Failed to write file: " + e.getMessage();
+        }
+    }
+
+    // ─── Document discovery ─────────────────────────────────────────────────
+
+    @Tool(description = "Find the LATEST document file matching name keywords across common locations "
+            + "(Desktop, Downloads, Documents by default — searched recursively). "
+            + "Use when the user asks 'find my latest CV', 'find my most recent invoice', "
+            + "'where's my latest report', 'open my newest contract'. "
+            + "Filters by document extensions (.pdf .doc .docx .odt .rtf .txt .pages .md), "
+            + "matches keywords case-insensitively in the filename, sorts by last-modified date "
+            + "(newest first). Returns the top 5 matches and (if openTopMatch=true) opens the latest "
+            + "in the user's default app. ENTIRELY background — does NOT open File Explorer.")
+    public String findLatestDocument(
+            @ToolParam(description = "Keywords to match in filename, comma-separated. "
+                    + "Examples: 'cv,resume,curriculum', 'invoice,bill,receipt', 'contract,agreement,nda', 'report'") String keywords,
+            @ToolParam(description = "Folders to search, semicolon-separated. Empty string = default "
+                    + "Desktop + Downloads + Documents under user's home.") String locations,
+            @ToolParam(description = "true to OPEN the latest match in the default app, false to just list matches without opening") boolean openTopMatch) {
+        notifier.notify("Finding latest document matching: " + keywords);
+        try {
+            // 1. Parse keywords (lowercase, trim, drop empty)
+            List<String> kws = new ArrayList<>();
+            if (keywords != null) {
+                for (String k : keywords.split(",")) {
+                    String s = k.trim().toLowerCase();
+                    if (!s.isEmpty()) kws.add(s);
+                }
+            }
+            if (kws.isEmpty()) return "No keywords provided.";
+
+            // 2. Resolve locations
+            List<Path> roots = new ArrayList<>();
+            if (locations == null || locations.isBlank()) {
+                Path home = Paths.get(System.getProperty("user.home"));
+                for (String name : new String[]{"Desktop", "Downloads", "Documents"}) {
+                    Path p = home.resolve(name);
+                    if (Files.isDirectory(p)) roots.add(p);
+                }
+            } else {
+                for (String loc : locations.split(";")) {
+                    String s = loc.trim();
+                    if (s.isEmpty()) continue;
+                    Path p = Paths.get(s).toAbsolutePath();
+                    if (Files.isDirectory(p)) roots.add(p);
+                }
+            }
+            if (roots.isEmpty()) return "No valid folders to search.";
+
+            // 3. Recursively find matches (cap at 1000 candidates to bound work)
+            Set<String> docExts = Set.of(".pdf", ".doc", ".docx", ".odt", ".rtf", ".txt", ".pages", ".md");
+            Set<String> skipDirs = Set.of("node_modules", ".git", "$recycle.bin",
+                    "system volume information", ".gradle", "target", "build", ".idea", ".vscode");
+
+            List<Path> matches = new ArrayList<>();
+            int[] scanned = {0};
+            for (Path root : roots) {
+                Files.walkFileTree(root, new SimpleFileVisitor<>() {
+                    @Override
+                    public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                        if (skipDirs.contains(dir.getFileName().toString().toLowerCase())) {
+                            return FileVisitResult.SKIP_SUBTREE;
+                        }
+                        return FileVisitResult.CONTINUE;
+                    }
+                    @Override
+                    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                        if (scanned[0]++ > 50_000) return FileVisitResult.TERMINATE;
+                        String name = file.getFileName().toString().toLowerCase();
+                        int dot = name.lastIndexOf('.');
+                        if (dot < 0) return FileVisitResult.CONTINUE;
+                        String ext = name.substring(dot);
+                        if (!docExts.contains(ext)) return FileVisitResult.CONTINUE;
+                        String stem = name.substring(0, dot);
+                        for (String kw : kws) {
+                            if (stem.contains(kw)) {
+                                matches.add(file);
+                                break;
+                            }
+                        }
+                        return FileVisitResult.CONTINUE;
+                    }
+                    @Override
+                    public FileVisitResult visitFileFailed(Path file, IOException exc) {
+                        return FileVisitResult.CONTINUE;
+                    }
+                });
+            }
+
+            if (matches.isEmpty()) {
+                return "No documents found matching " + kws + " in " + roots
+                        + ". (Searched " + scanned[0] + " files.)";
+            }
+
+            // 4. Sort by lastModifiedTime descending
+            matches.sort((a, b) -> {
+                try {
+                    return Files.getLastModifiedTime(b).compareTo(Files.getLastModifiedTime(a));
+                } catch (IOException e) {
+                    return 0;
+                }
+            });
+
+            // 5. Build report
+            StringBuilder sb = new StringBuilder();
+            sb.append("Found ").append(matches.size()).append(" matching document(s) for ")
+                    .append(kws).append(". Top ").append(Math.min(5, matches.size())).append(":\n");
+            int n = Math.min(5, matches.size());
+            for (int i = 0; i < n; i++) {
+                Path p = matches.get(i);
+                Instant mod = Files.getLastModifiedTime(p).toInstant();
+                long size = Files.size(p);
+                sb.append(String.format("  %d. %s  (%s, %s)%n",
+                        i + 1, p, FMT.format(mod), formatSize(size)));
+            }
+
+            // 6. Optionally open the top match
+            if (openTopMatch) {
+                Path top = matches.get(0);
+                try {
+                    if (Desktop.isDesktopSupported()) {
+                        Desktop.getDesktop().open(top.toFile());
+                        sb.append("\nOpened the latest: ").append(top);
+                    } else {
+                        new ProcessBuilder("explorer.exe", top.toString())
+                                .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                                .redirectError(ProcessBuilder.Redirect.DISCARD)
+                                .start();
+                        sb.append("\nOpened the latest: ").append(top);
+                    }
+                } catch (Exception e) {
+                    sb.append("\nFound the latest but couldn't open it: ").append(e.getMessage());
+                }
+            }
+            return sb.toString();
+        } catch (IOException e) {
+            return "Search failed: " + e.getMessage();
         }
     }
 
@@ -393,13 +537,25 @@ public class FileSystemTools {
 
     // ─── Open ────────────────────────────────────────────────────────────────
 
-    @Tool(description = "Open a file or folder on the PC by its full path in file explorer or default application")
+    @Tool(description = "Open a SPECIFIC file in its default application (Word, Acrobat, Excel, image viewer, etc.). "
+            + "Use when the user wants to OPEN/VIEW a specific file by full path — e.g. a .docx, .pdf, .xlsx. "
+            + "If a folder path is passed, this tool will SILENTLY switch to listDirectory and return the contents as text "
+            + "(backend-first behavior — no Explorer window). "
+            + "To explicitly open a folder in File Explorer, use openFolderInExplorer instead.")
     public String openPath(
-            @ToolParam(description = "Full path to the file or folder to open") String path) {
-        notifier.notify("Opening " + path + "...");
+            @ToolParam(description = "Full path to a specific file") String path) {
         try {
             Path p = Paths.get(path).toAbsolutePath();
             if (!Files.exists(p)) return "Path not found: " + p;
+
+            // BACKEND-FIRST: if it's a folder, silently return the listing instead of opening Explorer.
+            // The user can still ask explicitly via openFolderInExplorer if they want a visible window.
+            if (Files.isDirectory(p)) {
+                notifier.notify("Listing " + p + " (backend, no Explorer)...");
+                return listDirectory(p.toString());
+            }
+
+            notifier.notify("Opening " + p + "...");
             if (Desktop.isDesktopSupported()) {
                 Desktop.getDesktop().open(p.toFile());
                 return "Opened: " + p;
@@ -411,54 +567,264 @@ public class FileSystemTools {
         }
     }
 
+    @Tool(description = "Open a folder in File Explorer — a visible window showing the folder contents. "
+            + "Use ONLY when the user explicitly asks to 'open the folder in Explorer', 'show me the folder', "
+            + "'reveal in Explorer', or similar visual-browse requests. "
+            + "For answering questions about files (count, list, search), prefer the backend tools: "
+            + "listDirectory, countDirectoryContents, searchInDirectory — those answer in chat without opening a window.")
+    public String openFolderInExplorer(
+            @ToolParam(description = "Full path to the folder to open in File Explorer") String folderPath) {
+        notifier.notify("Opening " + folderPath + " in File Explorer...");
+        try {
+            Path p = Paths.get(folderPath).toAbsolutePath();
+            if (!Files.exists(p)) return "Path not found: " + p;
+            if (!Files.isDirectory(p)) return "Not a folder: " + p + " — use openPath for files.";
+            new ProcessBuilder("explorer.exe", p.toString()).start();
+            return "Opened File Explorer at: " + p;
+        } catch (Exception e) {
+            return "Failed to open Explorer: " + e.getMessage();
+        }
+    }
+
+    @Tool(description = "Open a document (Word .docx, PDF, Excel .xlsx, PowerPoint .pptx, text, image, etc.) by name "
+            + "— searches Desktop, Documents, Downloads, OneDrive, and recent folders. Partial name matches work. "
+            + "Opens the file with its default application (Word, Acrobat, Excel, etc.). "
+            + "Use when the user says 'open my Q4 report', 'open the budget spreadsheet', 'show me the resume PDF', "
+            + "'open budget.xlsx', 'open that document about X'. "
+            + "If multiple files match, lists the top 10 so the user can pick. "
+            + "File types supported: .docx .doc .pdf .xlsx .xls .pptx .ppt .txt .md .rtf .odt .ods .odp .csv "
+            + ".png .jpg .jpeg .gif .bmp .svg .mp3 .mp4 .mov .avi .zip .7z .html .htm and more.")
+    public String openDocument(
+            @ToolParam(description = "Document name or part of it, e.g. 'Q4 report', 'resume', 'budget 2026', 'presentation.pptx'")
+            String nameOrFragment) {
+
+        if (nameOrFragment == null || nameOrFragment.isBlank()) return "Document name is required.";
+        String query = nameOrFragment.trim().toLowerCase();
+        notifier.notify("Searching for '" + nameOrFragment + "'...");
+
+        // Search roots — ordered by likely-usefulness
+        String home = System.getProperty("user.home");
+        List<Path> roots = new ArrayList<>();
+        for (String sub : new String[]{"Desktop", "Documents", "Downloads", "OneDrive",
+                                        "OneDrive\\Desktop", "OneDrive\\Documents",
+                                        "OneDrive - Personal\\Desktop", "OneDrive - Personal\\Documents"}) {
+            Path p = Paths.get(home, sub);
+            if (Files.isDirectory(p)) roots.add(p);
+        }
+        if (roots.isEmpty()) roots.add(Paths.get(home));
+
+        // Extensions that count as "documents"
+        Set<String> docExts = Set.of(
+                "docx", "doc", "pdf", "xlsx", "xls", "pptx", "ppt",
+                "txt", "md", "rtf", "odt", "ods", "odp", "csv",
+                "png", "jpg", "jpeg", "gif", "bmp", "svg", "webp",
+                "mp3", "mp4", "mov", "avi", "mkv", "wav", "flac",
+                "zip", "7z", "rar", "tar", "gz",
+                "html", "htm", "xml", "json", "yaml", "yml",
+                "py", "java", "js", "ts", "cpp", "c", "h", "cs",
+                "epub", "mobi", "psd", "ai", "sketch", "fig"
+        );
+
+        List<Map.Entry<Path, Long>> matches = new ArrayList<>();
+        long cap = 500; // cap files scanned per root to keep it fast
+        for (Path root : roots) {
+            try (Stream<Path> walk = Files.walk(root, 4)) {
+                walk.filter(Files::isRegularFile)
+                    .limit(cap)
+                    .forEach(p -> {
+                        String name = p.getFileName().toString().toLowerCase();
+                        String ext = getExt(name);
+                        if (!docExts.contains(ext)) return;
+                        if (!name.contains(query) && !query.contains(stripExt(name))) return;
+                        try {
+                            long mtime = Files.getLastModifiedTime(p).toMillis();
+                            matches.add(Map.entry(p, mtime));
+                        } catch (IOException ignored) {}
+                    });
+            } catch (IOException ignored) {}
+        }
+
+        if (matches.isEmpty()) {
+            return "No documents matching '" + nameOrFragment + "' found in Desktop, Documents, Downloads, or OneDrive. "
+                    + "Try a different name, or provide a full path via openPath.";
+        }
+
+        // Sort by recency (most recently modified first)
+        matches.sort((a, b) -> Long.compare(b.getValue(), a.getValue()));
+
+        // If 1 clear match OR the top match is much more recent, just open it
+        if (matches.size() == 1) {
+            return openFileWithDefault(matches.get(0).getKey());
+        }
+
+        // Multiple matches — prefer exact filename match if present
+        for (Map.Entry<Path, Long> e : matches) {
+            String nm = e.getKey().getFileName().toString().toLowerCase();
+            if (nm.equals(query) || stripExt(nm).equals(query)) {
+                return openFileWithDefault(e.getKey());
+            }
+        }
+
+        // Otherwise open the most recent + show the list
+        Path top = matches.get(0).getKey();
+        String opened = openFileWithDefault(top);
+
+        StringBuilder sb = new StringBuilder(opened);
+        if (matches.size() > 1) {
+            sb.append("\n\n").append(matches.size()).append(" documents matched — opened the most recent. Others found:\n");
+            int shown = 0;
+            for (int i = 1; i < matches.size() && shown < 9; i++) {
+                sb.append("  ").append(matches.get(i).getKey()).append("\n");
+                shown++;
+            }
+            if (matches.size() > 10) sb.append("  ... and ").append(matches.size() - 10).append(" more");
+        }
+        return sb.toString();
+    }
+
+    private String openFileWithDefault(Path p) {
+        try {
+            if (Desktop.isDesktopSupported()) {
+                Desktop.getDesktop().open(p.toFile());
+                return "Opened: " + p;
+            }
+            new ProcessBuilder("cmd", "/c", "start", "", p.toString()).start();
+            return "Opened: " + p;
+        } catch (Exception e) {
+            return "Failed to open " + p + ": " + e.getMessage();
+        }
+    }
+
+    private static String getExt(String name) {
+        int dot = name.lastIndexOf('.');
+        return dot < 0 ? "" : name.substring(dot + 1);
+    }
+
+    private static String stripExt(String name) {
+        int dot = name.lastIndexOf('.');
+        return dot < 0 ? name : name.substring(0, dot);
+    }
+
+    /**
+     * Resolve a directory string to one or more real paths.
+     * Handles:
+     *  - Full absolute paths as-is
+     *  - Shortcuts like "Desktop", "Downloads", "Documents", "Pictures", "Videos", "Music", "OneDrive"
+     *  - Windows OneDrive-redirected Desktop/Documents (both user-home and OneDrive locations are returned if they exist)
+     */
+    private List<Path> resolveDirectoryRoots(String input) {
+        List<Path> out = new ArrayList<>();
+        if (input == null || input.isBlank()) return out;
+        String raw = input.trim();
+
+        // If it looks like a full path (drive letter or starts with /), try it directly first
+        Path direct = Paths.get(raw).toAbsolutePath();
+        if (Files.isDirectory(direct)) {
+            out.add(direct);
+            return out;
+        }
+
+        String home = System.getProperty("user.home");
+        String lower = raw.toLowerCase();
+
+        // Normalize common shortcuts
+        String sub = switch (lower) {
+            case "desktop" -> "Desktop";
+            case "downloads", "download" -> "Downloads";
+            case "documents", "my documents" -> "Documents";
+            case "pictures" -> "Pictures";
+            case "videos", "movies" -> "Videos";
+            case "music" -> "Music";
+            case "onedrive" -> "OneDrive";
+            default -> null;
+        };
+
+        if (sub != null) {
+            // Include both the user-home location AND the OneDrive-redirected version
+            Path userHomePath = Paths.get(home, sub);
+            if (Files.isDirectory(userHomePath)) out.add(userHomePath);
+            for (String oneDriveRoot : new String[]{"OneDrive", "OneDrive - Personal"}) {
+                Path od = Paths.get(home, oneDriveRoot, sub);
+                if (Files.isDirectory(od) && !out.contains(od)) out.add(od);
+            }
+        }
+
+        return out;
+    }
+
     // ─── Search ──────────────────────────────────────────────────────────────
 
     @Tool(description = "Search for files or directories by name pattern within a starting directory. Supports wildcards * and ?. "
-            + "Returns the total count of ALL matches and lists the first 100 with details.")
+            + "Returns the total count of ALL matches and lists the first 100 with details. "
+            + "Matching is case-insensitive, so '*.pdf' finds both .pdf and .PDF files. "
+            + "You can pass shortcuts like 'Desktop', 'Downloads', 'Documents' instead of full paths — "
+            + "they resolve to the user's home folder AND the OneDrive-redirected location if present. "
+            + "USE THIS when the user asks to find/search for files on their PC.")
     public String searchInDirectory(
-            @ToolParam(description = "Directory to search in") String directory,
-            @ToolParam(description = "Name pattern, e.g. '*.txt', 'report*', '*.log'") String pattern) {
+            @ToolParam(description = "Directory to search in — full path OR shortcut ('Desktop', 'Downloads', 'Documents', 'OneDrive')") String directory,
+            @ToolParam(description = "Name pattern, e.g. '*.pdf', 'report*', '*.log'. Case-insensitive.") String pattern) {
         notifier.notify("Searching for " + pattern + " in " + directory + "...");
+
+        // Resolve directory — handle shortcuts + OneDrive-redirected paths
+        List<Path> roots = resolveDirectoryRoots(directory);
+        if (roots.isEmpty()) return "Directory not found: " + directory;
+
         try {
-            Path dir = Paths.get(directory).toAbsolutePath();
-            if (!Files.exists(dir) || !Files.isDirectory(dir)) return "Directory not found: " + dir;
-            PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + pattern);
+            // Case-insensitive glob: normalize to lowercase and let the matcher operate on lowercase names
+            String normalizedPattern = pattern.toLowerCase();
+            PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + normalizedPattern);
+
             StringBuilder sb = new StringBuilder();
             int[] listed = {0};
             AtomicLong totalCount = new AtomicLong(0);
-            Files.walkFileTree(dir, new SimpleFileVisitor<>() {
-                @Override
-                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-                    if (matcher.matches(file.getFileName())) {
-                        totalCount.incrementAndGet();
-                        if (listed[0] < 100) {
-                            sb.append(file).append(" (").append(formatSize(attrs.size())).append(")\n");
-                            listed[0]++;
+
+            for (Path dir : roots) {
+                Files.walkFileTree(dir, new SimpleFileVisitor<>() {
+                    @Override
+                    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                        String lower = file.getFileName().toString().toLowerCase();
+                        if (matcher.matches(Paths.get(lower))) {
+                            totalCount.incrementAndGet();
+                            if (listed[0] < 100) {
+                                sb.append(file).append(" (").append(formatSize(attrs.size())).append(")\n");
+                                listed[0]++;
+                            }
                         }
+                        return FileVisitResult.CONTINUE;
                     }
-                    return FileVisitResult.CONTINUE;
-                }
-                @Override
-                public FileVisitResult preVisitDirectory(Path d, BasicFileAttributes attrs) {
-                    if (!d.equals(dir) && matcher.matches(d.getFileName())) {
-                        totalCount.incrementAndGet();
-                        if (listed[0] < 100) {
-                            sb.append(d).append(" (DIR)\n");
-                            listed[0]++;
+                    @Override
+                    public FileVisitResult preVisitDirectory(Path d, BasicFileAttributes attrs) {
+                        if (!d.equals(dir)) {
+                            String lower = d.getFileName().toString().toLowerCase();
+                            if (matcher.matches(Paths.get(lower))) {
+                                totalCount.incrementAndGet();
+                                if (listed[0] < 100) {
+                                    sb.append(d).append(" (DIR)\n");
+                                    listed[0]++;
+                                }
+                            }
                         }
+                        return FileVisitResult.CONTINUE;
                     }
-                    return FileVisitResult.CONTINUE;
-                }
-                @Override
-                public FileVisitResult visitFileFailed(Path file, IOException exc) {
-                    return FileVisitResult.CONTINUE;
-                }
-            });
+                    @Override
+                    public FileVisitResult visitFileFailed(Path file, IOException exc) {
+                        return FileVisitResult.CONTINUE;
+                    }
+                });
+            }
+
             long total = totalCount.get();
-            if (total == 0) return "No matches found for '" + pattern + "' in " + dir;
+            if (total == 0) {
+                String locations = roots.stream().map(Path::toString)
+                        .reduce((a, b) -> a + " and " + b).orElse(directory);
+                return "No matches found for '" + pattern + "' in " + locations;
+            }
             String header = "Found " + total + " match(es)";
             if (total > 100) {
                 header += " (showing first 100)";
+            }
+            if (roots.size() > 1) {
+                header += " across " + roots.size() + " locations";
             }
             return header + ":\n" + sb;
         } catch (IOException e) {

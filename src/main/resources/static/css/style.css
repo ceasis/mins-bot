@@ -140,6 +140,17 @@ html, body {
   display: none;
 }
 
+.title-bar-icon {
+  width: 16px;
+  height: 16px;
+  margin-right: 8px;
+  flex-shrink: 0;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
+}
+
 .title-bar-app-name {
   font-size: 12px;
   font-weight: 500;
@@ -229,6 +240,13 @@ html, body {
 .title-bar-btn svg {
   width: 10px;
   height: 10px;
+}
+
+/* Browser-launch button gets a larger glyph — it's an external-link icon that
+   reads poorly at 10px and it's an action, not a window control. */
+#title-bar-browser svg {
+  width: 16px;
+  height: 16px;
 }
 
 .title-bar-btn:hover {
@@ -543,6 +561,12 @@ html, body {
   fill: currentColor;
 }
 
+/* Clear-chat trash icon is a primary action — slightly larger for better tap target. */
+.btn-clear .icon {
+  width: 19px;
+  height: 19px;
+}
+
 .btn-close:hover {
   color: #f87171;
 }
@@ -810,6 +834,187 @@ body:not(.embedded-minsbot) .title-bar {
   color: #cbd5e1;
 }
 
+.integration-badge-builtin {
+  background: rgba(74, 222, 128, 0.15);
+  color: #86efac;
+}
+
+.integration-badge-configurable {
+  background: rgba(79, 195, 247, 0.15);
+  color: #93c5fd;
+}
+
+.integration-oauth-configure {
+  background: rgba(79, 195, 247, 0.2);
+  border: 1px solid rgba(79, 195, 247, 0.4);
+  color: #93c5fd;
+  cursor: pointer;
+}
+
+.integration-oauth-configure:hover {
+  background: rgba(79, 195, 247, 0.3);
+}
+
+.integration-card-configured {
+  border-color: rgba(74, 222, 128, 0.35);
+}
+
+.integration-card-configured .integration-oauth-configure {
+  background: rgba(74, 222, 128, 0.18);
+  border-color: rgba(74, 222, 128, 0.4);
+  color: #86efac;
+}
+
+/* ── Integration credential modal ── */
+.integration-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.integration-modal[hidden] { display: none; }
+
+.integration-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
+}
+
+.integration-modal-dialog {
+  position: relative;
+  width: min(460px, 92vw);
+  max-height: 90vh;
+  overflow-y: auto;
+  background: #1e1e22;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 20px 22px;
+  color: #e4e4e7;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+
+.integration-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.integration-modal-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  flex: 1;
+}
+
+.integration-modal-close {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 6px;
+}
+.integration-modal-close:hover { color: #fff; }
+
+.integration-modal-hint {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 12px;
+  margin: 0 0 16px;
+  line-height: 1.45;
+}
+
+.integration-modal-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.integration-modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.integration-modal-field-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.integration-modal-input {
+  padding: 9px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(39, 39, 42, 0.9);
+  color: #e4e4e7;
+  font-family: 'Consolas', 'Menlo', monospace;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.integration-modal-input:focus { border-color: rgba(79, 195, 247, 0.6); }
+
+.integration-modal-field-help {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.integration-modal-error {
+  padding: 8px 10px;
+  margin-bottom: 12px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 6px;
+  color: #fca5a5;
+  font-size: 12px;
+}
+
+.integration-modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.integration-modal-docs {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 12px;
+  text-decoration: none;
+}
+.integration-modal-docs:hover { color: #93c5fd; }
+
+.integration-modal-btn {
+  padding: 8px 14px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.integration-modal-btn-primary {
+  background: rgba(79, 195, 247, 0.25);
+  border-color: rgba(79, 195, 247, 0.5);
+  color: #93c5fd;
+}
+.integration-modal-btn-primary:hover { background: rgba(79, 195, 247, 0.4); color: #fff; }
+
+.integration-modal-btn-danger {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+}
+.integration-modal-btn-danger:hover { background: rgba(239, 68, 68, 0.3); color: #fff; }
+
 .integration-oauth-planned .integration-oauth-hint {
   min-height: 0;
   color: rgba(255, 255, 255, 0.38);
@@ -962,6 +1167,11 @@ body:not(.embedded-minsbot) .title-bar {
   background: rgba(34, 197, 94, 0.2);
   color: #86efac;
 }
+.integration-badge-status.is-degraded {
+  background: rgba(251, 191, 36, 0.18);
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.4);
+}
 
 .integration-oauth {
   flex-shrink: 0;
@@ -976,6 +1186,72 @@ body:not(.embedded-minsbot) .title-bar {
   margin: 0 0 8px;
   line-height: 1.35;
   min-height: calc(2 * 1.35em);
+}
+
+/* ─── Per-account list inside an integration card ─── */
+.int-account-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 0 0;
+}
+
+.int-account-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: rgba(99,102,241,0.08);
+  border: 1px solid rgba(99,102,241,0.2);
+  border-radius: 5px;
+  font-size: 11px;
+}
+
+.int-account-row.is-degraded {
+  background: rgba(251,191,36,0.08);
+  border-color: rgba(251,191,36,0.3);
+}
+
+.int-account-email {
+  flex: 1;
+  min-width: 0;
+  color: #a5b4fc;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.int-account-email i {
+  margin-right: 4px;
+  opacity: 0.7;
+}
+
+.int-account-row.is-degraded .int-account-email {
+  color: #fbbf24;
+}
+
+.int-account-warn {
+  font-size: 10px;
+  color: #fbbf24;
+  flex-shrink: 0;
+}
+
+.int-account-remove {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.35);
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 6px;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: background 0.12s, color 0.12s;
+}
+
+.int-account-remove:hover {
+  background: rgba(239,68,68,0.15);
+  color: #f87171;
 }
 
 .integration-oauth-actions {
@@ -1407,9 +1683,19 @@ body:not(.embedded-minsbot) .title-bar {
 }
 
 @media (min-width: 1200px) {
+  /* Indent tab content 20% on wide screens. Use padding (not margin) so the tab-content's
+     flex: 1 vertical sizing isn't disrupted — margins on a flex item can leave a large
+     empty region at the top. */
   .tab-content {
-    margin-left: 20%;
-    margin-right: 20%;
+    padding-left: 20%;
+    padding-right: 20%;
+  }
+  /* Two-column layouts (Skills / Schedules / Integrations) already fill width via their own sidebars. */
+  #tab-skills,
+  #tab-schedules,
+  #tab-integrations {
+    padding-left: 0;
+    padding-right: 0;
   }
 }
 
@@ -2059,6 +2345,7 @@ body:not(.embedded-minsbot) .title-bar {
   padding: 10px 12px;
   display: flex;
   flex-direction: column;
+  justify-content: flex-start; /* guarantees content hugs the top, never centered/bottomed */
   gap: 8px;
   min-height: 0;
 }
@@ -2206,38 +2493,40 @@ body:not(.embedded-minsbot) .title-bar {
 .todo-card {
   background: rgba(255,255,255,0.04);
   border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 8px;
-  padding: 8px 10px;
+  border-radius: 10px;
+  padding: 12px 14px;
 }
 
 .todo-title {
   color: #e4e4e7;
-  font-size: 11px;
-  font-weight: 500;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
 }
 
 .todo-time {
-  color: rgba(255,255,255,0.3);
-  font-size: 9px;
-  margin-top: 1px;
+  color: rgba(255,255,255,0.4);
+  font-size: 11px;
+  margin-top: 3px;
 }
 
 .todo-steps {
-  margin-top: 5px;
+  margin-top: 10px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 5px;
 }
 
 .todo-step {
-  font-size: 10px;
-  padding: 1px 0;
+  font-size: 13px;
+  line-height: 1.45;
+  padding: 2px 0;
 }
 
-.todo-step.done { color: rgba(74,222,128,0.7); }
-.todo-step.pending { color: rgba(255,255,255,0.5); }
+.todo-step.done { color: rgba(74,222,128,0.8); }
+.todo-step.pending { color: rgba(255,255,255,0.7); }
 
-.todo-step .step-icon { margin-right: 4px; font-size: 9px; }
+.todo-step .step-icon { margin-right: 6px; font-size: 12px; }
 
 /* ─── Directives tab ─── */
 .directive-item {
@@ -3969,16 +4258,23 @@ body:not(.embedded-minsbot) .title-bar {
 
 /* ═══ Multi-Agent Chat ═══ */
 
+/* The .ma-inner div also carries .tab-scroll-container — these styles win
+   because they come later in the file. Use flex:1 to fill the tab height
+   (percentage heights are unreliable under flex parents). */
 .ma-inner {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  padding: 10px;
+  justify-content: flex-start;
+  flex: 1;
+  min-height: 0;
+  padding: 10px 12px;
+  gap: 8px;
+  /* Override the tab-scroll-container gap so our section spacing is explicit. */
 }
 
-.ma-header { margin-bottom: 8px; }
+.ma-header { margin-bottom: 0; flex: 0 0 auto; }
 
-.ma-personas-section { margin-bottom: 10px; }
+.ma-personas-section { margin-bottom: 0; flex: 0 0 auto; }
 
 .ma-label {
   font-size: 10px;
@@ -4038,20 +4334,33 @@ body:not(.embedded-minsbot) .title-bar {
 }
 
 .ma-chat-area {
-  flex: 1;
-  min-height: 0;
+  flex: 1 1 0;
+  min-height: 120px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  border: 1px dashed rgba(255,255,255,0.08);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.015);
 }
 
 .ma-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 6px 0;
+  padding: 10px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+/* Empty-state hint when no messages have been exchanged yet. */
+.ma-messages:empty::before {
+  content: 'No messages yet. Pick personas above, then type below to start.';
+  color: rgba(255,255,255,0.25);
+  font-size: 11px;
+  text-align: center;
+  margin: auto;
+  font-style: italic;
 }
 
 .ma-msg {
@@ -4089,7 +4398,8 @@ body:not(.embedded-minsbot) .title-bar {
 .ma-input-row {
   display: flex;
   gap: 6px;
-  margin-top: 8px;
+  margin-top: 0;
+  flex: 0 0 auto;
 }
 
 .ma-thinking {
@@ -4295,7 +4605,7 @@ body:not(.embedded-minsbot) .title-bar {
 /* Arrow */
 [data-tip]::before {
   content: '';
-  border: 5px solid transparent;
+  border: 6px solid transparent;
   border-top-color: #27272a;
   bottom: calc(100% + 2px);
   transform: translateX(-50%) translateY(0);
@@ -4305,17 +4615,17 @@ body:not(.embedded-minsbot) .title-bar {
   content: attr(data-tip);
   bottom: calc(100% + 10px);
   transform: translateX(-50%) translateY(2px);
-  padding: 5px 9px;
+  padding: 7px 12px;
   background: #27272a;
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 6px;
-  color: #e4e4e7;
-  font-size: 11px;
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 7px;
+  color: #f4f4f5;
+  font-size: 13px;
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-  font-weight: 400;
+  font-weight: 500;
   white-space: nowrap;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
-  letter-spacing: 0;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.5);
+  letter-spacing: 0.01em;
 }
 [data-tip]:hover::before,
 [data-tip]:hover::after {
@@ -4350,6 +4660,38 @@ body:not(.embedded-minsbot) .title-bar {
 /* Never show tooltip on hidden elements */
 [hidden][data-tip]::before,
 [hidden][data-tip]::after { display: none; }
+
+/* ═══ Inline action buttons in chat messages (via [action:*] markers) ═══ */
+.inline-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.04);
+  color: #e4e4e7;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  cursor: pointer;
+  margin: 4px 0 8px;
+  transition: all 0.15s ease;
+}
+.inline-action-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+}
+.inline-action-spotify {
+  background: rgba(29,185,84,0.15);
+  border-color: rgba(29,185,84,0.45);
+  color: #1db954;
+}
+.inline-action-spotify:hover {
+  background: rgba(29,185,84,0.28);
+  border-color: rgba(29,185,84,0.7);
+}
+.inline-action-spotify i { font-size: 15px; }
 
 /* ═══ Proactive Action Mode button (lightning bolt) ═══ */
 .header-proactive-btn {

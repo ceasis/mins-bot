@@ -140,6 +140,10 @@ public class ToolRouter {
     private final SkillDataToolsExtra skillDataToolsExtra;
     private final SkillCalcTools skillCalcTools;
     private final SkillExtrasTools skillExtrasTools;
+    private final com.minsbot.integration.IntegrationCallTools integrationCallTools;
+    private final MapsTools mapsTools;
+    private final com.minsbot.skills.upcoming.UpcomingTools upcomingTools;
+    private final com.minsbot.skills.recurringtask.RecurringTaskTools recurringTaskTools;
 
     @Autowired(required = false)
     private ToolClassifierService classifier;
@@ -256,7 +260,11 @@ public class ToolRouter {
             SkillProfessionTools skillProfessionTools,
             SkillDataToolsExtra skillDataToolsExtra,
             SkillCalcTools skillCalcTools,
-            SkillExtrasTools skillExtrasTools) {
+            SkillExtrasTools skillExtrasTools,
+            com.minsbot.integration.IntegrationCallTools integrationCallTools,
+            MapsTools mapsTools,
+            com.minsbot.skills.upcoming.UpcomingTools upcomingTools,
+            com.minsbot.skills.recurringtask.RecurringTaskTools recurringTaskTools) {
 
         this.directivesTools = directivesTools;
         this.directiveDataTools = directiveDataTools;
@@ -357,6 +365,10 @@ public class ToolRouter {
         this.skillDataToolsExtra = skillDataToolsExtra;
         this.skillCalcTools = skillCalcTools;
         this.skillExtrasTools = skillExtrasTools;
+        this.integrationCallTools = integrationCallTools;
+        this.mapsTools = mapsTools;
+        this.upcomingTools = upcomingTools;
+        this.recurringTaskTools = recurringTaskTools;
 
         // Count @Tool methods on every bean (once, via reflection)
         countToolsOnAllBeans();
@@ -509,7 +521,7 @@ public class ToolRouter {
                 gitHubTools, botWindowTools,
                 codeRunnerTools, fileWatcherTools, appUsageTrackerTools,
                 customSkillTools, bargeInTools, restartTools,
-                orchestratorTools, youTubeTools
+                orchestratorTools, youTubeTools, mapsTools, upcomingTools, recurringTaskTools
         };
         for (Object bean : allBeans) {
             if (bean != null && !toolCounts.containsKey(bean)) {
@@ -635,6 +647,10 @@ public class ToolRouter {
         map.put("data_skills_extra",  List.of(skillDataToolsExtra));
         map.put("calc_skills",        List.of(skillCalcTools));
         map.put("extras_skills",      List.of(skillExtrasTools));
+        map.put("integrations",       List.of(integrationCallTools));
+        map.put("maps",               List.of(mapsTools));
+        map.put("upcoming",           List.of(upcomingTools));
+        map.put("recurring_task",     List.of(recurringTaskTools, scheduledTaskTools));
 
         return Collections.unmodifiableMap(map);
     }

@@ -157,18 +157,18 @@
   })();
 
   // Clear chat — also clears AI memory so the bot starts fresh
-  if (clearBtn) {
-    clearBtn.addEventListener('click', function () {
-      messagesEl.innerHTML = '';
-      appendMessage('Chat cleared. How can I help?', false);
-      // Clear watch feed panel
-      var wfInner = document.getElementById('watch-feed-inner');
-      var wfEl = document.getElementById('watch-feed');
-      if (wfInner) wfInner.innerHTML = '';
-      if (wfEl) wfEl.hidden = true;
-      fetch('/api/chat/clear', { method: 'POST' }).catch(function () {});
-    });
+  function doClearChat() {
+    messagesEl.innerHTML = '';
+    appendMessage('Chat cleared. How can I help?', false);
+    var wfInner = document.getElementById('watch-feed-inner');
+    var wfEl = document.getElementById('watch-feed');
+    if (wfInner) wfInner.innerHTML = '';
+    if (wfEl) wfEl.hidden = true;
+    fetch('/api/chat/clear', { method: 'POST' }).catch(function () {});
   }
+  if (clearBtn) clearBtn.addEventListener('click', doClearChat);
+  var titleBarClearBtn = document.getElementById('title-bar-clear');
+  if (titleBarClearBtn) titleBarClearBtn.addEventListener('click', doClearChat);
 
   // Let native click behavior place the caret where the user clicks.
   // Forcing focus on mousedown can move caret to end in WebView.
@@ -249,6 +249,32 @@
     if (text.indexOf('<small>') !== -1 && text.indexOf('</small>') !== -1) {
       el.innerHTML = text.replace(/\n/g, '<br>');
       return;
+    }
+
+    // Action-button marker: [action:connect-spotify]
+    // Strip the marker and prepend a live button to the message.
+    if (text.indexOf('[action:connect-spotify]') !== -1) {
+      text = text.replace(/\[action:connect-spotify\]\s*/g, '');
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'inline-action-btn inline-action-spotify';
+      btn.innerHTML = '<i class="fa-brands fa-spotify"></i> Connect Spotify';
+      btn.addEventListener('click', function () {
+        var authUrl = location.origin + '/api/integrations/spotify/authorize';
+        if (typeof startOAuthPopup === 'function') {
+          startOAuthPopup(authUrl, 'spotify', 'Spotify',
+            '/api/integrations/spotify/status',
+            function (d) { return d && d.connected; },
+            (typeof refreshSpotifyStatus === 'function') ? refreshSpotifyStatus : function(){});
+        } else if (window.java && typeof window.java.openUrl === 'function') {
+          window.java.openUrl(authUrl);
+        } else {
+          window.location.href = authUrl;
+        }
+      });
+      el.appendChild(btn);
+      el.appendChild(document.createElement('br'));
+      // Fall through so the rest of the message text renders below the button
     }
 
     // Extract [img:URL] markers and split text around them
@@ -358,6 +384,9 @@
     wrapper.appendChild(time);
     messagesEl.appendChild(wrapper);
 
+    // Only auto-scroll if user was already near the bottom; preserves manual scroll-up
+    var wasAtBottom = isAtBottom(messagesEl);
+
     if (typewriter && !isUser && text) {
       // Typewriter animation: reveal character by character
       var i = 0;
@@ -366,7 +395,9 @@
         if (i < text.length) {
           msg.textContent += text.charAt(i);
           i++;
-          messagesEl.scrollTop = messagesEl.scrollHeight;
+          if (wasAtBottom && isAtBottom(messagesEl, 40)) {
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+          }
         } else {
           clearInterval(timer);
           // Rebuild with proper formatting after animation completes
@@ -380,7 +411,14 @@
       addCopyListener(msg);
     }
 
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    if (wasAtBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  /** True if the element is scrolled to (or very close to) the bottom. */
+  function isAtBottom(el, slop) {
+    if (!el) return true;
+    var threshold = slop != null ? slop : 80;
+    return (el.scrollHeight - el.scrollTop - el.clientHeight) < threshold;
   }
 
   function showThinking() {
@@ -398,8 +436,9 @@
       dot.className = 'thinking-dot';
       el.appendChild(dot);
     }
+    var wasAtBottom = isAtBottom(messagesEl);
     messagesEl.appendChild(el);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    if (wasAtBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 
   function hideThinking() {
@@ -417,8 +456,9 @@
     var el = document.createElement('div');
     el.className = 'message-status';
     el.textContent = text;
+    var wasAtBottom = isAtBottom(messagesEl);
     messagesEl.appendChild(el);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    if (wasAtBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
     if (window._minsSound) window._minsSound.notification();
   }
 
@@ -1108,32 +1148,85 @@
       document.querySelectorAll('#tab-integrations .integration-card[data-oauth-provider="google"][data-integration]').forEach(function (card) {
         var id = card.getAttribute('data-integration');
         var info = map[id] || {};
-        var connected = !!info.connected;
+        var accounts = Array.isArray(info.accounts) ? info.accounts : [];
+        var connected = !!info.connected && accounts.length > 0;
+        var anyDegraded = accounts.some(function (a) { return a.healthy === false; });
+        var allDegraded = connected && accounts.every(function (a) { return a.healthy === false; });
+
         var badge = card.querySelector('[data-role="badge"]');
         var hint = card.querySelector('[data-role="hint"]');
         var btnC = card.querySelector('.integration-oauth-connect');
         var btnD = card.querySelector('.integration-oauth-disconnect');
+
         if (badge) {
-          badge.textContent = connected ? 'Connected' : (configured ? 'Not connected' : 'Setup required');
-          badge.classList.toggle('is-connected', connected);
+          if (allDegraded) {
+            badge.textContent = 'Needs reconnect';
+          } else if (connected) {
+            badge.textContent = accounts.length > 1
+              ? (accounts.length + ' accounts')
+              : 'Connected';
+          } else {
+            badge.textContent = configured ? 'Not connected' : 'Setup required';
+          }
+          badge.classList.toggle('is-connected', connected && !allDegraded);
+          badge.classList.toggle('is-degraded', anyDegraded);
         }
+
         if (hint) {
-          hint.textContent = configured
-            ? (connected ? 'Signed in for this integration.' : 'Click Sign in to grant API scopes for this service only.')
-            : 'Add Google OAuth in Setup: spring.security.oauth2.client.registration.google client ID & secret (same as TelliChat), or app.integrations.google.* as fallback.';
+          if (!configured) {
+            hint.textContent = 'Add Google OAuth in Setup: spring.security.oauth2.client.registration.google client ID & secret (same as TelliChat), or app.integrations.google.* as fallback.';
+          } else if (!connected) {
+            hint.textContent = 'Click Sign in to grant API scopes for this service only.';
+          } else {
+            // Render per-account rows with per-account disconnect
+            var html = '<div class="int-account-list">';
+            accounts.forEach(function (a) {
+              var degraded = a.healthy === false;
+              var label = a.name ? (escapeHtml(a.name) + ' · ' + escapeHtml(a.email)) : escapeHtml(a.email || '(unknown account)');
+              html += '<div class="int-account-row' + (degraded ? ' is-degraded' : '') + '">';
+              html += '<span class="int-account-email"><i class="fa-solid fa-user-circle" aria-hidden="true"></i> ' + label + '</span>';
+              if (degraded) {
+                html += '<span class="int-account-warn" title="' + escapeHtml(a.healthReason || 'Needs reconnect') + '">⚠ stale</span>';
+              }
+              html += '<button type="button" class="int-account-remove" data-integration="' + escapeHtml(id) + '" data-email="' + escapeHtml(a.email || '') + '" title="Disconnect this account">×</button>';
+              html += '</div>';
+            });
+            html += '</div>';
+            hint.innerHTML = html;
+          }
         }
+
+        // Sign-in button: ALWAYS enabled when configured — users can add more accounts anytime
         if (btnC) {
-          btnC.disabled = connected;
-          btnC.hidden = connected;
+          btnC.disabled = !configured;
+          btnC.hidden = false;
+          btnC.textContent = connected ? 'Add another account' : 'Sign in with Google';
         }
+        // Legacy "disconnect all" button — hide it; per-account × buttons handle disconnect now
         if (btnD) {
-          btnD.hidden = !connected;
+          btnD.hidden = true;
         }
       });
     }).catch(function () {
       if (hintEl) hintEl.hidden = true;
     });
   }
+
+  // Delegated click handler for per-account × disconnect buttons
+  document.addEventListener('click', function (ev) {
+    var t = ev.target;
+    if (!t || !t.classList || !t.classList.contains('int-account-remove')) return;
+    var integration = t.getAttribute('data-integration');
+    var email = t.getAttribute('data-email');
+    if (!integration || !email) return;
+    if (!window.confirm('Disconnect ' + email + ' from ' + integration + '?')) return;
+    fetch('/api/integrations/google/disconnect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ integration: integration, email: email })
+    }).then(function () { refreshGoogleIntegrationsPanel(); })
+      .catch(function () { refreshGoogleIntegrationsPanel(); });
+  });
 
   (function wireGoogleIntegrationsTab() {
     var tabPanel = document.getElementById('tab-integrations');
@@ -1143,12 +1236,70 @@
       if (!t || !t.closest) return;
       var connect = t.closest('.integration-oauth-connect');
       if (connect && !connect.disabled) {
+        var provider = connect.getAttribute('data-provider');
+        if (provider === 'spotify') {
+          startOAuthPopup(location.origin + '/api/integrations/spotify/authorize',
+                          'spotify', 'Spotify',
+                          '/api/integrations/spotify/status',
+                          function (data) { return data && data.connected; },
+                          refreshSpotifyStatus);
+          return;
+        }
         var id = connect.getAttribute('data-integration');
-        if (id) window.location.href = '/api/integrations/google/authorize?integration=' + encodeURIComponent(id);
+        if (id) {
+          var authUrl = location.origin + '/api/integrations/google/authorize?integration=' + encodeURIComponent(id);
+          // Prefer the system browser so the user has back/forward/close controls
+          // (the JavaFX WebView has none of those).
+          var openedExternally = false;
+          try {
+            if (window.java && typeof window.java.openUrl === 'function') {
+              openedExternally = window.java.openUrl(authUrl);
+            }
+          } catch (e) { openedExternally = false; }
+          if (openedExternally) {
+            // Poll for connection so the UI updates once OAuth completes in the external browser.
+            var banner = document.getElementById('integrations-oauth-banner');
+            if (banner) {
+              banner.hidden = false;
+              banner.className = 'integrations-oauth-banner is-info';
+              banner.textContent = 'Google sign-in opened in your browser — complete it there. This page will update automatically.';
+            }
+            var deadline = Date.now() + 5 * 60 * 1000;
+            var poll = setInterval(function () {
+              if (Date.now() > deadline) { clearInterval(poll); return; }
+              fetch('/api/integrations/google/status')
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (data) {
+                  if (!data) return;
+                  var entry = data[id] || (data.integrations && data.integrations[id]);
+                  if (entry && entry.connected) {
+                    clearInterval(poll);
+                    if (banner) {
+                      banner.className = 'integrations-oauth-banner is-success';
+                      banner.textContent = 'Connected: ' + id + '.';
+                    }
+                    if (typeof refreshGoogleIntegrationsPanel === 'function') {
+                      refreshGoogleIntegrationsPanel();
+                    }
+                  }
+                })
+                .catch(function () {});
+            }, 2000);
+          } else {
+            // Fallback: navigate in the WebView (older behavior)
+            window.location.href = authUrl;
+          }
+        }
         return;
       }
       var disc = t.closest('.integration-oauth-disconnect');
       if (disc && !disc.hidden) {
+        if (disc.getAttribute('data-provider') === 'spotify') {
+          fetch('/api/integrations/spotify/disconnect', { method: 'POST' })
+            .then(function () { refreshSpotifyStatus(); })
+            .catch(function () { refreshSpotifyStatus(); });
+          return;
+        }
         var id2 = disc.getAttribute('data-integration');
         if (id2) {
           fetch('/api/integrations/google/disconnect', {
@@ -1160,6 +1311,112 @@
       }
     });
   })();
+
+  /* ─── Spotify integration helpers ─── */
+  function refreshSpotifyStatus() {
+    fetch('/api/integrations/spotify/status')
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        var card = document.querySelector('.integration-card[data-oauth-provider="spotify"]');
+        if (!card || !data) return;
+        var badge = card.querySelector('[data-role="spotify-badge"]');
+        var hint = card.querySelector('[data-role="spotify-hint"]');
+        var connect = card.querySelector('.integration-oauth-connect');
+        var disc = card.querySelector('.integration-oauth-disconnect');
+        if (!data.configured) {
+          if (badge) { badge.textContent = 'Not configured'; badge.className = 'integration-badge integration-badge-status'; }
+          if (hint) hint.textContent = 'Set app.spotify.client-id and app.spotify.client-secret in properties, then restart.';
+          if (connect) connect.disabled = true;
+          if (disc) disc.hidden = true;
+        } else if (data.connected) {
+          if (badge) { badge.textContent = 'Connected'; badge.className = 'integration-badge integration-badge-status is-connected'; }
+          if (hint) hint.textContent = 'Spotify is connected — the bot can search and control playback.';
+          if (connect) { connect.hidden = true; connect.disabled = false; }
+          if (disc) disc.hidden = false;
+        } else {
+          if (badge) { badge.textContent = 'Not connected'; badge.className = 'integration-badge integration-badge-status'; }
+          if (hint) hint.textContent = 'Click Sign in to grant Spotify API scopes.';
+          if (connect) { connect.hidden = false; connect.disabled = false; }
+          if (disc) disc.hidden = true;
+        }
+      })
+      .catch(function () {});
+  }
+
+  /* Generic OAuth popup helper — opens auth URL in system browser, polls status until connected */
+  function startOAuthPopup(authUrl, providerKey, label, statusUrl, isConnectedFn, refreshFn) {
+    var openedExternally = false;
+    try {
+      if (window.java && typeof window.java.openUrl === 'function') {
+        openedExternally = window.java.openUrl(authUrl);
+      }
+    } catch (e) { openedExternally = false; }
+    if (!openedExternally) { window.location.href = authUrl; return; }
+    var banner = document.getElementById('integrations-oauth-banner');
+    if (banner) {
+      banner.hidden = false;
+      banner.className = 'integrations-oauth-banner is-info';
+      banner.textContent = label + ' sign-in opened in your browser — complete it there. This page will update automatically.';
+    }
+    var deadline = Date.now() + 5 * 60 * 1000;
+    var poll = setInterval(function () {
+      if (Date.now() > deadline) { clearInterval(poll); return; }
+      fetch(statusUrl)
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (data) {
+          if (!data) return;
+          if (isConnectedFn(data)) {
+            clearInterval(poll);
+            if (banner) {
+              banner.className = 'integrations-oauth-banner is-success';
+              banner.textContent = label + ' connected.';
+            }
+            if (typeof refreshFn === 'function') refreshFn();
+          }
+        })
+        .catch(function () {});
+    }, 2000);
+  }
+
+  (function handleSpotifyOAuthReturn() {
+    var qs = new URLSearchParams(window.location.search);
+    var sp = qs.get('spotify_oauth');
+    if (!sp) return;
+    var reason = qs.get('reason') || '';
+    var path = window.location.pathname || '/';
+    var full = qs.get('full');
+    var newSearch = full ? '?full=' + encodeURIComponent(full) : '';
+    history.replaceState({}, '', path + newSearch);
+    setTimeout(function () {
+      var tab = document.querySelector('.tab[data-tab="integrations"]');
+      if (tab) tab.click();
+      var banner = document.getElementById('integrations-oauth-banner');
+      if (banner) {
+        banner.hidden = false;
+        if (sp === 'ok') {
+          banner.className = 'integrations-oauth-banner is-success';
+          banner.textContent = 'Spotify connected.';
+        } else {
+          banner.className = 'integrations-oauth-banner is-error';
+          var msgs = {
+            not_configured: 'Set app.spotify.client-id and app.spotify.client-secret in properties.',
+            bad_state: 'Spotify sign-in expired; try again.',
+            missing_params: 'Spotify OAuth callback incomplete.',
+            token_exchange: 'Could not complete Spotify sign-in.'
+          };
+          banner.textContent = msgs[reason] || ('Spotify sign-in error: ' + reason);
+        }
+      }
+      refreshSpotifyStatus();
+    }, 100);
+  })();
+
+  /* Refresh Spotify status when Integrations tab becomes active */
+  document.addEventListener('DOMContentLoaded', function () {
+    var intTab = document.querySelector('.tab[data-tab="integrations"]');
+    if (intTab) intTab.addEventListener('click', refreshSpotifyStatus);
+    setTimeout(refreshSpotifyStatus, 500);
+  });
 
   (function handleGoogleOAuthReturn() {
     var qs = new URLSearchParams(window.location.search);
@@ -1454,7 +1711,10 @@
       var info = await fetch('/api/browser/info');
       if (info.ok) {
         var data = await info.json();
-        browserUrl.value = data.url || '';
+        // Don't overwrite the URL input while the user is typing in it
+        if (browserUrl && document.activeElement !== browserUrl) {
+          browserUrl.value = data.url || '';
+        }
       }
     } catch (e) { /* ignore */ }
   }
@@ -4036,8 +4296,32 @@
         soundEnabled = !soundEnabled;
         localStorage.setItem('minsbot-sound', soundEnabled ? 'on' : 'off');
         updateBtn();
+        // Also tell the backend to mute/unmute all TTS speech (proactive, autopilot,
+        // health alerts, etc.) — when the speaker icon is off, the bot should stay silent.
+        try {
+          fetch('/api/tts/auto-speak', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled: soundEnabled })
+          }).catch(function () {});
+        } catch (e) { /* ignore */ }
       });
     }
+    // On load, take the BACKEND TTS state as the source of truth (it persists in
+    // minsbot_config.txt across restarts). Don't overwrite it — just sync the UI
+    // icon to match. Otherwise a page reload would silently re-enable TTS.
+    try {
+      fetch('/api/tts/config')
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (data) {
+          if (data && typeof data.autoSpeak === 'boolean') {
+            soundEnabled = data.autoSpeak;
+            localStorage.setItem('minsbot-sound', soundEnabled ? 'on' : 'off');
+            updateBtn();
+          }
+        })
+        .catch(function () {});
+    } catch (e) { /* ignore */ }
     updateBtn();
   })();
 

@@ -74,6 +74,17 @@ public class ChatService {
                     + "|^(mute|unmute|louder|quieter)[.!?\\s]*$");
 
     /**
+     * Direct file-system operations — single tool call, no planning or screen capture.
+     * Covers "open X", "count files in Y", "list files in Z", "find *.pdf in W", etc.
+     */
+    private static final Pattern SIMPLE_FILE_OPERATION = Pattern.compile(
+            "(?i)^(can\\s+you\\s+)?(please\\s+)?"
+                    + "(open|count|list|show|find|search(?:\\s+for)?)\\s+"
+                    + ".{0,120}?"
+                    + "\\b(desktop|downloads?|documents?|pictures?|videos?|music|onedrive|folder|directory|file|files|pdf|pdfs|docx?|xlsx?|pptx?|txt|md|mp3|mp4|jpg|jpeg|png)\\b"
+                    + ".{0,120}?[.!?]?\\s*$");
+
+    /**
      * If the message is long or mentions UI/automation, live screen context helps.
      * Short chat-only questions skip capture when {@code app.chat.live-screen-on-message} is on.
      */
@@ -115,6 +126,18 @@ public class ChatService {
             ⬜ 4. Verify — read file back to confirm changes saved
 
             User: "what time is it?"
+            SKIP
+
+            User: "open claude architect pdf in my desktop"
+            SKIP
+
+            User: "how many files in my downloads folder"
+            SKIP
+
+            User: "find all PDFs on my desktop"
+            SKIP
+
+            User: "list files in my documents"
             SKIP
 
             User: "prepare my morning briefing"
@@ -855,6 +878,18 @@ public class ChatService {
                 return null;
             }
             String generatedPlan = plan.strip();
+
+            // Terminal output: clean banner so devs can see the plan + upcoming tool calls inline.
+            String taskPreview = trimmed.length() > 80 ? trimmed.substring(0, 80) + "..." : trimmed;
+            StringBuilder banner = new StringBuilder();
+            banner.append("\n═══ PLAN ════════════════════════════════════════════\n");
+            banner.append("  Task: ").append(taskPreview).append("\n");
+            for (String line : generatedPlan.split("\\R")) {
+                if (!line.isBlank()) banner.append("  ").append(line).append("\n");
+            }
+            banner.append("═════════════════════════════════════════════════════");
+            System.out.println(banner);
+
             asyncMessages.push(generatedPlan);
             transcriptService.save("BOT(plan)", generatedPlan);
 
@@ -917,6 +952,10 @@ public class ChatService {
         if (wordCount <= 2) return false;
         if (isSimpleConversationalQuery(message)) return false;
         if (isSimpleToggleCommand(message)) return false;
+        if (isSimpleFileOperation(message)) return false;
+        if (isSimpleMusicCommand(message)) return false;
+        if (isSimpleMapsCommand(message)) return false;
+        if (isSimpleFileOpenCommand(message)) return false;
         if (SystemContextProvider.isMessageAboutMinsbotSelfConfig(message)) return false;
         return true;
     }
@@ -929,6 +968,10 @@ public class ChatService {
         if (message == null || message.isBlank()) return false;
         if (isSimpleConversationalQuery(message)) return false;
         if (isSimpleToggleCommand(message)) return false;
+        if (isSimpleFileOperation(message)) return false;
+        if (isSimpleMusicCommand(message)) return false;
+        if (isSimpleMapsCommand(message)) return false;
+        if (isSimpleFileOpenCommand(message)) return false;
         if (SystemContextProvider.isMessageAboutMinsbotSelfConfig(message)) return false;
         int wordCount = message.trim().split("\\s+").length;
         if (wordCount <= 2) return false;
@@ -936,8 +979,71 @@ public class ChatService {
         return SCREEN_OR_AUTOMATION_HINT.matcher(message).find();
     }
 
+    /**
+     * "Play X", "pause", "skip", "next song", "volume up" — all one-shot music tool calls.
+     * No need to plan or grab a screenshot; the spotifyPlay / media-key tools are self-contained.
+     */
+    private static boolean isSimpleMusicCommand(String message) {
+        String m = message.trim().toLowerCase();
+        if (m.isEmpty()) return false;
+        return m.startsWith("play ")
+                || m.equals("play")
+                || m.equals("pause") || m.startsWith("pause ")
+                || m.equals("resume") || m.startsWith("resume ")
+                || m.equals("stop") || m.startsWith("stop music")
+                || m.startsWith("skip") || m.startsWith("next song") || m.startsWith("next track")
+                || m.startsWith("previous") || m.startsWith("prev song")
+                || m.startsWith("volume up") || m.startsWith("volume down")
+                || m.startsWith("louder") || m.startsWith("quieter")
+                || m.startsWith("mute") || m.startsWith("unmute")
+                || m.startsWith("listen to ") || m.startsWith("put on ")
+                || m.contains(" on spotify") || m.startsWith("spotify ");
+    }
+
+    /**
+     * "Open maps to X", "where is X", "directions to X" — one-shot Maps tool calls,
+     * no planning or screen capture needed.
+     */
+    private static boolean isSimpleMapsCommand(String message) {
+        String m = message.trim().toLowerCase();
+        if (m.isEmpty()) return false;
+        return m.startsWith("open maps")
+                || m.startsWith("open google maps")
+                || m.startsWith("show me ") && m.contains("map")
+                || m.startsWith("where is ")
+                || m.startsWith("directions ")
+                || m.startsWith("how do i get to ")
+                || m.startsWith("navigate to ")
+                || m.startsWith("take me to ") && m.contains("map");
+    }
+
+    /**
+     * "Open the X PDF on my desktop", "find the report file", "open X.docx" —
+     * these should go straight to file tools (listDirectory / openPath) instead of
+     * the planner writing visual "click here, double-click there" steps.
+     */
+    private static boolean isSimpleFileOpenCommand(String message) {
+        String m = message.trim().toLowerCase();
+        if (m.isEmpty()) return false;
+        // "open the X file/pdf/doc/xlsx/...", "open X on [my] desktop/downloads"
+        boolean openFileIntent = (m.startsWith("open ") || m.startsWith("show ") || m.startsWith("find "))
+                && (m.contains(".pdf") || m.contains(".doc") || m.contains(".xls")
+                    || m.contains(".ppt") || m.contains(".txt") || m.contains(".csv")
+                    || m.contains(".png") || m.contains(".jpg") || m.contains(".jpeg")
+                    || m.contains(".mp4") || m.contains(".mp3") || m.contains(".zip")
+                    || m.contains(" file") || m.contains(" pdf") || m.contains(" document")
+                    || m.contains(" spreadsheet") || m.contains(" image") || m.contains(" photo"));
+        boolean locationHint = m.contains("desktop") || m.contains("downloads")
+                || m.contains("documents") || m.contains("folder") || m.contains("in my ");
+        return openFileIntent || (m.startsWith("open ") && locationHint);
+    }
+
     private static boolean isSimpleToggleCommand(String message) {
         return SIMPLE_TOGGLE_COMMAND.matcher(message.trim()).find();
+    }
+
+    private static boolean isSimpleFileOperation(String message) {
+        return SIMPLE_FILE_OPERATION.matcher(message.trim()).find();
     }
 
     private static boolean isSimpleConversationalQuery(String message) {
