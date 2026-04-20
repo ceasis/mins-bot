@@ -48,6 +48,32 @@ public class ScreenClickTools {
 
     private static final Logger log = LoggerFactory.getLogger(ScreenClickTools.class);
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.minsbot.MousePermissionService mousePermission;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.minsbot.agent.AsyncMessageService mouseAsyncMessages;
+
+    /**
+     * Check mouse-control permission. If not granted, push a chat message with
+     * three inline buttons (Allow Today / Allow 3h / Don't Allow) and return
+     * a short-circuit reason string. Returns null when it's OK to proceed.
+     */
+    private String checkMousePermission() {
+        if (mousePermission == null) return null;  // service not wired in older builds
+        if (mousePermission.isAllowed()) return null;
+        if (mousePermission.currentDecision() == com.minsbot.MousePermissionService.Decision.DENIED) {
+            return "Mouse control is currently denied (until midnight). "
+                    + "Say 'allow mouse control today' to re-enable.";
+        }
+        // Unset → prompt the user in chat with inline buttons
+        String msg = "[action:mouse-permission]\n"
+                + "The bot wants to move/click your mouse. How long do you want to allow this?";
+        if (mouseAsyncMessages != null) mouseAsyncMessages.push(msg);
+        return "PERMISSION_REQUIRED: mouse control. I've sent a prompt in chat — pick "
+                + "'Allow Today', 'Allow 3 Hours', or 'Don't Allow' and try again.";
+    }
+
     private final SystemControlService systemControl;
     private final ScreenMemoryService screenMemoryService;
     private final DocumentAiService documentAiService;
@@ -323,6 +349,10 @@ public class ScreenClickTools {
             @ToolParam(description = "The EXACT visible text of the element to click. Use FULL button text to avoid ambiguity — e.g. 'Submit As Bot' not just 'Submit', 'Sign In with Google' not just 'Sign In'")
             String targetText) {
 
+        // Gate: require explicit mouse-control permission before driving the cursor.
+        String perm = checkMousePermission();
+        if (perm != null) return perm;
+
         String search = targetText.trim();
         notifier.notify("Scanning screen for '" + search + "'...");
         log.info("[screenClick] Looking for '{}'", search);
@@ -433,6 +463,9 @@ public class ScreenClickTools {
             String firstFieldLabel,
             @ToolParam(description = "Pipe-separated values in tab order, e.g. 'bob@demo.org|555-3456|Martinez|Hannah|28'")
             String pipeValues) {
+
+        String perm = checkMousePermission();
+        if (perm != null) return perm;
 
         if (pipeValues == null || pipeValues.isBlank()) return "No values provided.";
         String[] values = pipeValues.split("\\|");
@@ -1089,6 +1122,9 @@ public class ScreenClickTools {
     public String screenNavigate(
             @ToolParam(description = "Comma-separated click targets in order, e.g. 'History, Shorts, Music'")
             String path) {
+
+        String perm = checkMousePermission();
+        if (perm != null) return perm;
 
         String[] steps = path.split(",");
         for (int i = 0; i < steps.length; i++) steps[i] = steps[i].trim();

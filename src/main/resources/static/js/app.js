@@ -304,6 +304,45 @@
       // Fall through so the rest of the message text renders below the button
     }
 
+    // Mouse-permission marker: [action:mouse-permission]
+    // Renders three inline buttons: Allow Today / Allow 3 Hours / Don't Allow.
+    // Button click POSTs to /api/mouse-permission/grant and disables the row.
+    if (text.indexOf('[action:mouse-permission]') !== -1) {
+      text = text.replace(/\[action:mouse-permission\]\s*/g, '');
+      var mpRow = document.createElement('div');
+      mpRow.className = 'inline-action-row';
+
+      function mkMpBtn(label, cls, choice) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'inline-action-btn ' + cls;
+        b.textContent = label;
+        b.addEventListener('click', function () {
+          fetch('/api/mouse-permission/grant', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ choice: choice })
+          }).then(function () {
+            mpRow.querySelectorAll('button').forEach(function (x) { x.disabled = true; });
+            var note = document.createElement('div');
+            note.className = 'inline-action-note';
+            note.textContent = (choice === 'deny')
+              ? 'Mouse control denied until midnight.'
+              : (choice === '3h'
+                  ? 'Mouse control allowed for 3 hours.'
+                  : 'Mouse control allowed until midnight.');
+            mpRow.appendChild(note);
+          }).catch(function () {});
+        });
+        return b;
+      }
+
+      mpRow.appendChild(mkMpBtn('Allow Today', 'inline-action-allow', 'today'));
+      mpRow.appendChild(mkMpBtn('Allow 3 Hours', 'inline-action-allow', '3h'));
+      mpRow.appendChild(mkMpBtn("Don't Allow", 'inline-action-deny', 'deny'));
+      el.appendChild(mpRow);
+    }
+
     // Extract [img:URL] markers and split text around them
     var imgRegex = /\[img:(\/api\/screenshot\?file=[^\]]+)\]/g;
     var segments = [];
@@ -451,16 +490,23 @@
 
   // ═══ Chat history sync (between JavaFX window and browser tab) ═══
   //
-  // The server (TranscriptService) is the single source of truth. Each client
-  // polls /api/chat/history and reconciles:
-  //   • Messages with a fingerprint already in _syncedKeys: skip.
-  //   • Messages matching a locally-appended pending wrapper: adopt the
-  //     fingerprint onto the existing DOM (no duplicate render).
-  //   • New server messages with no local echo: render fresh.
-  //   • Server shorter than local (clear happened elsewhere): wipe & rebuild.
+  // The server (TranscriptService) is the single source of truth. Each client:
+  //   1. Does a one-shot REST load of /api/chat/history on page open so the
+  //      full transcript paints immediately.
+  //   2. Opens an SSE stream /api/chat/stream; every save/clear on the
+  //      server pushes a live event — sub-second cross-window sync.
+  //   3. Falls back to 5s polling if SSE can't connect or bounces.
+  //
+  // For each incoming server message:
+  //   • If fingerprint already synced: skip (dedup).
+  //   • If a locally-sent wrapper is waiting with data-pending-match:
+  //     adopt the fingerprint onto the existing DOM (no duplicate render).
+  //   • Else: render fresh.
 
   var _syncedKeys = new Set();
   var _syncInFlight = false;
+  var _sse = null;
+  var _ssePollTimer = null;
 
   function historyKey(m) { return m.speaker + '|' + m.fullTime + '|' + m.text; }
 
@@ -471,6 +517,29 @@
       if (pending[i].getAttribute('data-pending-match') === wanted) return pending[i];
     }
     return null;
+  }
+
+  function applyServerMessage(m) {
+    if (!m || !m.text) return;
+    var key = historyKey(m);
+    if (_syncedKeys.has(key)) return;
+    var wasAtBottom = isAtBottom(messagesEl);
+    var pending = findPendingWrapper(!!m.isUser);
+    if (pending) {
+      pending.setAttribute('data-hist-key', key);
+      pending.removeAttribute('data-pending-match');
+    } else {
+      appendMessage(m.text, !!m.isUser, false, { histKey: key, displayTime: m.time });
+    }
+    _syncedKeys.add(key);
+    if (wasAtBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  function applyServerCleared() {
+    messagesEl.querySelectorAll('[data-hist-key],[data-pending-match]').forEach(function (el) {
+      el.remove();
+    });
+    _syncedKeys = new Set();
   }
 
   async function syncHistory() {
@@ -484,45 +553,51 @@
       var serverKeys = new Set();
       for (var i = 0; i < serverMsgs.length; i++) serverKeys.add(historyKey(serverMsgs[i]));
 
-      // If the server is missing any key we previously synced, a clear happened.
-      // Wipe all history wrappers + pending matches and rebuild from server.
       var clearDetected = false;
       _syncedKeys.forEach(function (k) { if (!serverKeys.has(k)) clearDetected = true; });
-      if (clearDetected) {
-        messagesEl.querySelectorAll('[data-hist-key],[data-pending-match]').forEach(function (el) {
-          el.remove();
-        });
-        _syncedKeys = new Set();
-      }
+      if (clearDetected) applyServerCleared();
 
-      var wasAtBottom = isAtBottom(messagesEl);
-      for (var j = 0; j < serverMsgs.length; j++) {
-        var m = serverMsgs[j];
-        var key = historyKey(m);
-        if (_syncedKeys.has(key)) continue;
-
-        var pending = findPendingWrapper(!!m.isUser);
-        if (pending) {
-          pending.setAttribute('data-hist-key', key);
-          pending.removeAttribute('data-pending-match');
-          _syncedKeys.add(key);
-          continue;
-        }
-        appendMessage(m.text, !!m.isUser, false, { histKey: key, displayTime: m.time });
-        _syncedKeys.add(key);
-      }
-      if (wasAtBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
+      for (var j = 0; j < serverMsgs.length; j++) applyServerMessage(serverMsgs[j]);
     } catch (_) {
-      // Network blip — try again on next tick.
+      // Network blip — SSE or next poll will catch up.
     } finally {
       _syncInFlight = false;
     }
   }
 
-  // Initial load + periodic reconciliation. 2s is fast enough that cross-window
-  // sync feels near-live without hammering the server.
-  syncHistory();
-  setInterval(syncHistory, 2000);
+  function startPollingFallback() {
+    if (_ssePollTimer) return;
+    _ssePollTimer = setInterval(syncHistory, 5000);
+  }
+  function stopPollingFallback() {
+    if (_ssePollTimer) { clearInterval(_ssePollTimer); _ssePollTimer = null; }
+  }
+
+  function openChatStream() {
+    if (typeof EventSource === 'undefined') { startPollingFallback(); return; }
+    try {
+      _sse = new EventSource('/api/chat/stream');
+    } catch (_) { startPollingFallback(); return; }
+
+    _sse.addEventListener('ready', function () {
+      // Stream is live — drop the polling fallback if it was running.
+      stopPollingFallback();
+    });
+    _sse.addEventListener('message', function (ev) {
+      try { applyServerMessage(JSON.parse(ev.data)); } catch (_) {}
+    });
+    _sse.addEventListener('cleared', function () {
+      applyServerCleared();
+    });
+    _sse.onerror = function () {
+      // EventSource auto-reconnects; keep state fresh via poll in the
+      // meantime so we never silently drift while the stream bounces.
+      startPollingFallback();
+    };
+  }
+
+  // 1) Paint the full transcript immediately. 2) Open the live stream.
+  syncHistory().then(openChatStream);
 
   /** True if the element is scrolled to (or very close to) the bottom. */
   function isAtBottom(el, slop) {
@@ -2621,6 +2696,108 @@
     _confirmCancel.addEventListener('click', function () { _closeConfirm(false); });
     _confirmModal.querySelectorAll('[data-confirm-close]').forEach(function (el) {
       el.addEventListener('click', function () { _closeConfirm(false); });
+    });
+  }
+
+  // ═══ Generic prompt modal (styled replacement for window.prompt) ═══
+
+  var _promptModal = document.getElementById('prompt-modal');
+  var _promptTitle = document.getElementById('prompt-modal-title');
+  var _promptMessage = document.getElementById('prompt-modal-message');
+  var _promptInput = document.getElementById('prompt-modal-input');
+  var _promptOk = document.getElementById('prompt-modal-ok');
+  var _promptCancel = document.getElementById('prompt-modal-cancel');
+  var _promptResolver = null;
+  var _promptKeyHandler = null;
+
+  function _closePrompt(result) {
+    if (!_promptModal) return;
+    _promptModal.hidden = true;
+    if (_promptKeyHandler) {
+      document.removeEventListener('keydown', _promptKeyHandler);
+      _promptKeyHandler = null;
+    }
+    var r = _promptResolver;
+    _promptResolver = null;
+    if (r) r(result);
+  }
+
+  /** Styled prompt dialog. Returns Promise<string|null> — null on cancel. */
+  function showPrompt(opts) {
+    opts = opts || {};
+    return new Promise(function (resolve) {
+      if (!_promptModal) {
+        console.warn('[showPrompt] No modal element — treating as cancel');
+        resolve(null);
+        return;
+      }
+      if (_promptResolver) _closePrompt(null);
+
+      _promptTitle.textContent = opts.title || 'Enter a name';
+      _promptMessage.textContent = opts.message || '';
+      _promptInput.placeholder = opts.placeholder || '';
+      _promptInput.value = opts.defaultValue || '';
+      _promptOk.textContent = opts.okText || 'OK';
+      _promptCancel.textContent = opts.cancelText || 'Cancel';
+
+      _promptResolver = resolve;
+      _promptModal.hidden = false;
+      setTimeout(function () {
+        try {
+          _promptInput.focus();
+          _promptInput.select();
+        } catch (_) {}
+      }, 0);
+
+      _promptKeyHandler = function (e) {
+        if (e.key === 'Escape') { e.preventDefault(); _closePrompt(null); }
+        else if (e.key === 'Enter') { e.preventDefault(); _closePrompt((_promptInput.value || '').trim()); }
+      };
+      document.addEventListener('keydown', _promptKeyHandler);
+    });
+  }
+
+  if (_promptModal) {
+    _promptOk.addEventListener('click', function () { _closePrompt((_promptInput.value || '').trim()); });
+    _promptCancel.addEventListener('click', function () { _closePrompt(null); });
+    _promptModal.querySelectorAll('[data-prompt-close]').forEach(function (el) {
+      el.addEventListener('click', function () { _closePrompt(null); });
+    });
+  }
+
+  // ═══ New-chat button (auto-archive + clean slate) ═══
+
+  var newChatBtn = document.getElementById('title-bar-new-chat');
+  if (newChatBtn) {
+    newChatBtn.addEventListener('click', function () {
+      // Optimistically disable the button + show a spinner-ish state so rapid clicks don't double-fire
+      if (newChatBtn.disabled) return;
+      newChatBtn.disabled = true;
+      newChatBtn.style.opacity = '0.55';
+
+      // Empty body → backend auto-names via gpt-4o-mini from the transcript
+      fetch('/api/chat/archive', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      }).then(function (r) { return r.json(); }).then(function (data) {
+        messagesEl.innerHTML = '';
+        var wfInner = document.getElementById('watch-feed-inner');
+        var wfEl = document.getElementById('watch-feed');
+        if (wfInner) wfInner.innerHTML = '';
+        if (wfEl) wfEl.hidden = true;
+        var archivedName = data && data.name ? data.name : null;
+        var greeting = (data && data.archived && archivedName)
+          ? 'Archived previous chat as "' + archivedName + '". Clean slate — how can I help?'
+          : 'Clean slate — how can I help?';
+        appendMessage(greeting, false);
+      }).catch(function (err) {
+        console.warn('[new-chat] archive failed:', err);
+        appendMessage('Could not archive chat — ' + (err && err.message ? err.message : 'unknown error') + '.', false);
+      }).finally(function () {
+        newChatBtn.disabled = false;
+        newChatBtn.style.opacity = '';
+      });
     });
   }
 

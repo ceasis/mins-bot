@@ -146,6 +146,7 @@ public class ToolRouter {
     private final MapsTools mapsTools;
     private final com.minsbot.skills.upcoming.UpcomingTools upcomingTools;
     private final com.minsbot.skills.recurringtask.RecurringTaskTools recurringTaskTools;
+    private final WindowsSettingsTools windowsSettingsTools;
 
     @Autowired(required = false)
     private ToolClassifierService classifier;
@@ -268,7 +269,8 @@ public class ToolRouter {
             com.minsbot.integration.IntegrationCallTools integrationCallTools,
             MapsTools mapsTools,
             com.minsbot.skills.upcoming.UpcomingTools upcomingTools,
-            com.minsbot.skills.recurringtask.RecurringTaskTools recurringTaskTools) {
+            com.minsbot.skills.recurringtask.RecurringTaskTools recurringTaskTools,
+            WindowsSettingsTools windowsSettingsTools) {
 
         this.directivesTools = directivesTools;
         this.directiveDataTools = directiveDataTools;
@@ -375,6 +377,7 @@ public class ToolRouter {
         this.mapsTools = mapsTools;
         this.upcomingTools = upcomingTools;
         this.recurringTaskTools = recurringTaskTools;
+        this.windowsSettingsTools = windowsSettingsTools;
 
         // Count @Tool methods on every bean (once, via reflection)
         countToolsOnAllBeans();
@@ -529,7 +532,8 @@ public class ToolRouter {
                 customSkillTools, bargeInTools, restartTools,
                 orchestratorTools, youTubeTools, mapsTools, upcomingTools, recurringTaskTools,
                 remindersTools,
-                driveTools
+                driveTools,
+                windowsSettingsTools
         };
         for (Object bean : allBeans) {
             if (bean != null && !toolCounts.containsKey(bean)) {
@@ -661,6 +665,7 @@ public class ToolRouter {
         map.put("maps",               List.of(mapsTools));
         map.put("upcoming",           List.of(upcomingTools));
         map.put("recurring_task",     List.of(recurringTaskTools, scheduledTaskTools));
+        map.put("windows_settings",   List.of(windowsSettingsTools, musicControlTools));
 
         return Collections.unmodifiableMap(map);
     }

@@ -28,6 +28,18 @@ html, body {
   background: linear-gradient(145deg, #18181b 0%, #1e1e22 50%, #27272a 100%);
 }
 
+/* JavaFX floating window has a transparent stage — give #root rounded corners so the
+   visible window shape is a rounded rectangle (the area outside the radius is see-through). */
+body.embedded-minsbot,
+body.embedded-minsbot html {
+  background: transparent !important;
+}
+body.embedded-minsbot #root {
+  border-radius: 12px;
+  /* overflow: hidden already set above — ensures content (incl. WebView) clips to the rounded shape */
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
 /* Prevent accidental drag-start in non-input UI regions ("Copy" ghost on Windows). */
 #root,
 .title-bar,
@@ -2822,13 +2834,15 @@ body.embedded-minsbot .panel-header::-webkit-scrollbar { display: none; }
 
 .confirm-modal-dialog {
   position: relative;
-  width: min(420px, 92vw);
+  width: min(440px, 92vw);
   background: #1e1e22;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  padding: 20px 22px;
+  border-radius: 14px;
+  padding: 22px 24px;
   color: #e4e4e7;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  font-family: 'Inter', 'Segoe UI Variable', 'Segoe UI', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  letter-spacing: -0.01em;
 }
 
 .confirm-modal-header {
@@ -2840,9 +2854,11 @@ body.embedded-minsbot .panel-header::-webkit-scrollbar { display: none; }
 
 .confirm-modal-header h3 {
   margin: 0;
-  font-size: 16px;
-  font-weight: 600;
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
   flex: 1;
+  color: #f4f4f5;
 }
 
 .confirm-modal-close {
@@ -2862,6 +2878,25 @@ body.embedded-minsbot .panel-header::-webkit-scrollbar { display: none; }
   line-height: 1.5;
   margin: 4px 0 18px;
   white-space: pre-wrap;
+}
+
+.prompt-modal-input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #e4e4e7;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  margin-bottom: 16px;
+  box-sizing: border-box;
+}
+
+.prompt-modal-input:focus {
+  border-color: rgba(99, 102, 241, 0.5);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .confirm-modal-actions {

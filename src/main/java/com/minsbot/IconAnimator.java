@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import javax.imageio.ImageIO;
+import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.GraphicsEnvironment;
@@ -17,7 +18,12 @@ import java.awt.MouseInfo;
 import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
+import java.awt.Shape;
+import java.awt.geom.AffineTransform;
+import java.awt.geom.Arc2D;
 import java.awt.geom.Ellipse2D;
+import java.awt.geom.Path2D;
+import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
 import java.io.InputStream;
 import java.util.concurrent.Executors;
@@ -42,7 +48,28 @@ public class IconAnimator {
     private static final double PUPIL_RADIUS = 0.06;
     private static final double PUPIL_RANGE  = 0.055; // max offset from eye center
 
-    private static final int TICK_MS = 125;
+    // Mouth position (centered, below eyes)
+    private static final double MOUTH_CX         = 0.50;
+    private static final double MOUTH_CY         = 0.68;
+    private static final double MOUTH_WIDTH      = 0.22;
+    private static final double MOUTH_HEIGHT_MAX = 0.09;
+    private static final double MOUTH_HEIGHT_MIN = 0.015;  // closed-line thickness
+
+    // Ears — small nubs on the sides
+    private static final double EAR_LEFT_CX   = 0.10;
+    private static final double EAR_RIGHT_CX  = 0.90;
+    private static final double EAR_CY        = 0.48;
+    private static final double EAR_WIDTH     = 0.06;
+    private static final double EAR_HEIGHT    = 0.12;
+
+    private static final int TICK_MS = 80;  // a touch faster for smoother mouth/ear motion
+
+    // Bored = no bot activity for this long
+    private static final long BORED_THRESHOLD_MS = 45_000;
+    // Mouth "talking" duration when bot posts a message
+    private static final long TALK_MIN_MS = 1200;
+    private static final long TALK_PER_CHAR_MS = 35;
+    private static final long TALK_MAX_MS = 5000;
 
     private BufferedImage base32, base64, base256;
     private Stage primaryStage;
@@ -55,6 +82,15 @@ public class IconAnimator {
     private long blinkUntil = 0;
     private long nextBlinkAt = 0;
     private int pendingDoubleBlinks = 0;  // N more blinks queued (for double/triple blinks)
+
+    // Mouth state
+    private long talkingUntil = 0;          // while > now, mouth animates open/close
+    private long mouthClosedUntil = 0;      // occasional "mouth neutral-closed" moments
+    private long nextMouthCloseAt = 0;
+
+    // Boredom / ear wiggle state
+    private long lastBotActivityAt = System.currentTimeMillis();
+    private double earWigglePhase = 0;       // 0..2π sine phase
 
     // Mouse-follow state
     private Point lastMouse;
@@ -73,6 +109,8 @@ public class IconAnimator {
         }
         long now = System.currentTimeMillis();
         nextBlinkAt = now + 1500 + (long)(Math.random() * 2500);
+        nextMouthCloseAt = now + 4000 + (long)(Math.random() * 8000);
+        lastBotActivityAt = now;
 
         scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "mins-icon-anim");
@@ -165,6 +203,16 @@ public class IconAnimator {
             currentX += (targetX - currentX) * 0.22;
             currentY += (targetY - currentY) * 0.22;
 
+            // Random "mouth closed" moments — only when NOT currently talking
+            if (talkingUntil <= now && mouthClosedUntil <= now && now >= nextMouthCloseAt) {
+                mouthClosedUntil = now + 400 + (long)(Math.random() * 1100);
+                nextMouthCloseAt = now + 4000 + (long)(Math.random() * 10000);
+            }
+
+            // Advance ear wiggle phase (only renders while bored)
+            earWigglePhase += 0.35;
+            if (earWigglePhase > Math.PI * 2) earWigglePhase -= Math.PI * 2;
+
             Image i256 = render(base256);
             Image i64  = render(base64);
             Image i32  = render(base32);
@@ -182,11 +230,17 @@ public class IconAnimator {
     private Image render(BufferedImage base) {
         int w = base.getWidth();
         int h = base.getHeight();
+        long now = System.currentTimeMillis();
+        boolean bored = (now - lastBotActivityAt) > BORED_THRESHOLD_MS;
+
         BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = out.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
         g.drawImage(base, 0, 0, null);
+
+        // Ears first (behind/beside the head) — wiggle when bored
+        drawEars(g, w, h, bored);
 
         double eyeR   = w * EYE_RADIUS;
         double pupilR = w * PUPIL_RADIUS;
@@ -195,8 +249,117 @@ public class IconAnimator {
         drawEye(g, w * LEFT_EYE_X,  h * LEFT_EYE_Y,  eyeR, pupilR, range);
         drawEye(g, w * RIGHT_EYE_X, h * RIGHT_EYE_Y, eyeR, pupilR, range);
 
+        drawMouth(g, w, h, now);
+
         g.dispose();
         return SwingFXUtils.toFXImage(out, null);
+    }
+
+    /**
+     * Draw the mouth. Three states:
+     *  - talking (cycles between open oval and closed line every ~140ms, while talkingUntil > now)
+     *  - closed  (thin dark line, during random closed moments OR bored)
+     *  - smile   (default resting — gentle upward arc)
+     */
+    private void drawMouth(Graphics2D g, int w, int h, long now) {
+        double cx = w * MOUTH_CX;
+        double cy = h * MOUTH_CY;
+        double mw = w * MOUTH_WIDTH;
+        double mhMax = h * MOUTH_HEIGHT_MAX;
+        double mhMin = h * MOUTH_HEIGHT_MIN;
+
+        Color lineColor = new Color(25, 28, 40);
+        Color mouthFill = new Color(140, 30, 50);  // dark inner
+        g.setColor(lineColor);
+
+        if (talkingUntil > now) {
+            // Talking — oscillate mouth height using a fast sine so it reads as speech
+            double t = (now % 320) / 320.0;
+            double openness = (Math.sin(t * Math.PI * 2) + 1) / 2.0; // 0..1
+            // Add jitter so it doesn't look metronomic
+            openness = Math.max(0.15, openness);
+            double mh = mhMin + openness * (mhMax - mhMin);
+            double narrowing = 0.75 + 0.25 * (1 - openness); // mouth narrows when closing
+            Shape oval = new Ellipse2D.Double(cx - (mw * narrowing) / 2, cy - mh / 2, mw * narrowing, mh);
+            g.setColor(mouthFill);
+            g.fill(oval);
+            g.setColor(lineColor);
+            g.setStroke(new BasicStroke(Math.max(1f, (float)(w * 0.006))));
+            g.draw(oval);
+            return;
+        }
+
+        boolean closed = mouthClosedUntil > now;
+        if (closed) {
+            // Flat dark line — expressionless/neutral-closed
+            double lh = Math.max(1.2, mhMin);
+            g.fill(new RoundRectangle2D.Double(cx - mw / 2, cy - lh / 2, mw, lh, lh, lh));
+        } else {
+            // Default: gentle smile arc
+            g.setStroke(new BasicStroke(Math.max(1.2f, (float)(w * 0.012)),
+                    BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            double smileH = mhMax * 0.55;
+            Arc2D smile = new Arc2D.Double(cx - mw / 2, cy - smileH, mw, smileH * 2, 200, 140, Arc2D.OPEN);
+            g.draw(smile);
+        }
+    }
+
+    /**
+     * Draw small rounded ear-nubs on the left and right of the head.
+     * When bored, they wiggle up/down using the current earWigglePhase.
+     */
+    private void drawEars(Graphics2D g, int w, int h, boolean bored) {
+        double leftX  = w * EAR_LEFT_CX;
+        double rightX = w * EAR_RIGHT_CX;
+        double cy     = h * EAR_CY;
+        double ew     = w * EAR_WIDTH;
+        double eh     = h * EAR_HEIGHT;
+
+        // Wiggle offsets — only when bored. Left and right wiggle out of phase for more life.
+        double leftTilt  = bored ? Math.sin(earWigglePhase)          * 0.35 : 0; // radians
+        double rightTilt = bored ? Math.sin(earWigglePhase + Math.PI) * 0.35 : 0;
+
+        drawEar(g, leftX, cy, ew, eh, leftTilt, true);
+        drawEar(g, rightX, cy, ew, eh, rightTilt, false);
+    }
+
+    private void drawEar(Graphics2D g, double cx, double cy, double ew, double eh,
+                         double tiltRadians, boolean isLeft) {
+        AffineTransform prev = g.getTransform();
+        // Rotate around an anchor near the head (inner side of the ear) so the tip swings
+        double anchorX = cx + (isLeft ? ew * 0.5 : -ew * 0.5);
+        g.rotate(tiltRadians, anchorX, cy);
+
+        // Outer ear — softer rounded rect
+        g.setColor(new Color(70, 95, 150));
+        Shape body = new RoundRectangle2D.Double(cx - ew / 2, cy - eh / 2, ew, eh, ew, ew);
+        g.fill(body);
+
+        // Outline
+        g.setColor(new Color(25, 28, 40, 180));
+        g.setStroke(new BasicStroke(Math.max(1f, (float)(ew * 0.18))));
+        g.draw(body);
+
+        // Inner highlight
+        g.setColor(new Color(150, 180, 230, 180));
+        double innerW = ew * 0.45;
+        double innerH = eh * 0.55;
+        g.fill(new RoundRectangle2D.Double(cx - innerW / 2, cy - innerH / 2, innerW, innerH, innerW, innerW));
+
+        g.setTransform(prev);
+    }
+
+    /**
+     * Public hook — call this whenever the bot posts a new chat message.
+     * Triggers the "mouth talking" animation proportional to the message length,
+     * and resets the boredom timer (ears stop wiggling).
+     */
+    public void onBotMessage(String text) {
+        long now = System.currentTimeMillis();
+        int len = text == null ? 0 : text.length();
+        long duration = Math.max(TALK_MIN_MS, Math.min(TALK_MAX_MS, (long)(len * TALK_PER_CHAR_MS)));
+        talkingUntil = Math.max(talkingUntil, now + duration);
+        lastBotActivityAt = now;
     }
 
     private void drawEye(Graphics2D g, double cx, double cy, double eyeR, double pupilR, double range) {

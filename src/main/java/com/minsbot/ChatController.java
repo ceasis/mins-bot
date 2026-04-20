@@ -2,6 +2,7 @@ package com.minsbot;
 
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.awt.Desktop;
 import java.io.File;
@@ -38,6 +39,8 @@ public class ChatController {
     private final ProactiveActionService proactiveActionService;
     private final IntelligenceTools intelligenceTools;
     private final ModuleStatsService moduleStatsService;
+    private final ChatEventPublisher chatEventPublisher;
+    private final ChatNameGeneratorService chatNameGeneratorService;
 
     public ChatController(ChatService chatService, TranscriptService transcriptService,
                           ScreenWatchingTools screenWatchingTools,
@@ -47,7 +50,9 @@ public class ChatController {
                           AutoPilotService autoPilotService,
                           ProactiveActionService proactiveActionService,
                           IntelligenceTools intelligenceTools,
-                          ModuleStatsService moduleStatsService) {
+                          ModuleStatsService moduleStatsService,
+                          ChatEventPublisher chatEventPublisher,
+                          ChatNameGeneratorService chatNameGeneratorService) {
         this.chatService = chatService;
         this.transcriptService = transcriptService;
         this.screenWatchingTools = screenWatchingTools;
@@ -58,6 +63,8 @@ public class ChatController {
         this.proactiveActionService = proactiveActionService;
         this.intelligenceTools = intelligenceTools;
         this.moduleStatsService = moduleStatsService;
+        this.chatEventPublisher = chatEventPublisher;
+        this.chatNameGeneratorService = chatNameGeneratorService;
     }
 
     @GetMapping(value = "/version", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -70,6 +77,16 @@ public class ChatController {
     public Map<String, Object> chatHistory() {
         List<Map<String, Object>> messages = transcriptService.getStructuredHistory();
         return Map.of("messages", messages);
+    }
+
+    /**
+     * Live chat stream (Server-Sent Events). One connection per window —
+     * every save/clear in TranscriptService is pushed here in real time,
+     * so the JavaFX WebView and browser tabs stay synchronized sub-second.
+     */
+    @GetMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter chatStream() {
+        return chatEventPublisher.register();
     }
 
     @PostMapping(value = "/chat", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -102,6 +119,36 @@ public class ChatController {
     public Map<String, String> clearChat() {
         chatService.clearChatMemory();
         return Map.of("status", "ok");
+    }
+
+    /**
+     * Archive the current chat (save under a name) and start fresh.
+     * Called by the "New chat" button in the title bar.
+     * If no name is supplied, uses a small AI model to auto-name the chat from its content.
+     */
+    @PostMapping(value = "/chat/archive", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> archiveChat(@RequestBody(required = false) Map<String, String> body) {
+        String name = body != null ? body.get("name") : null;
+        if (name == null || name.isBlank()) {
+            // Auto-name from current transcript using gpt-4o-mini
+            List<String> recent = transcriptService.getRecentMemory();
+            name = chatNameGeneratorService.generateName(recent);
+        }
+        java.nio.file.Path archived = transcriptService.archiveHistory(name);
+        // Always reset AI memory so the new chat starts with a clean slate
+        chatService.clearChatMemory();
+        java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("status", "ok");
+        out.put("name", name);
+        out.put("archived", archived != null);
+        if (archived != null) out.put("file", archived.getFileName().toString());
+        return out;
+    }
+
+    /** List archived chats, newest first. */
+    @GetMapping(value = "/chat/archives", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> listChatArchives() {
+        return Map.of("archives", transcriptService.listArchives());
     }
 
     /** Stop the bot's current processing. */

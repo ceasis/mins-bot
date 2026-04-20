@@ -19,6 +19,12 @@
         <span class="title-bar-app-name">Mins Bot</span>
       </div>
       <div class="title-bar-controls">
+        <button type="button" id="title-bar-new-chat" class="title-bar-btn" data-tip="New chat (archives current)" data-tip-dir="down" aria-label="New chat">
+          <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M13 3.5h-8a1.5 1.5 0 0 0-1.5 1.5v5.5a1.5 1.5 0 0 0 1.5 1.5h2.5l2 2.5 2-2.5H13a1.5 1.5 0 0 0 1.5-1.5V5a1.5 1.5 0 0 0-1.5-1.5Z"/>
+            <path d="M8 6v3.5M6.25 7.75h3.5"/>
+          </svg>
+        </button>
         <button type="button" id="title-bar-refresh" class="title-bar-btn" data-tip="Reload UI" data-tip-dir="down" aria-label="Reload UI">
           <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
             <path d="M14 8A6 6 0 1 1 11.8 3.5"/>
@@ -888,14 +894,10 @@
             <button id="save-engine-priority" class="action-btn engine-priority-save">Save Priority</button>
           </div>
           <hr class="cal-divider">
-          <div id="cal-instruction" class="cal-instruction">Click <strong>Start Calibration</strong>. Buttons appear at random positions. Click each, then engines analyze the screenshot. Results show offset per engine.</div>
-          <!-- Vision engines trimmed to GPT only — focused product, single source of truth.
-               Other engines (Gemini, Textract, Rekognition, Document AI, Win OCR, Claude)
-               remain in the codebase and can be re-enabled here if needed. -->
+          <!-- Vision engines trimmed to GPT only — focused product, single source of truth. -->
           <div class="cal-engine-checkboxes">
             <label><input type="checkbox" class="cal-engine-cb" value="gpt" checked> <span style="color:#00ff7f">GPT Vision</span></label>
           </div>
-          <button id="start-calibration-btn" class="action-btn calibration-start">Start Calibration</button>
           <div id="cal-arena" class="cal-arena" hidden></div>
           <div id="calibration-status" class="calibration-status"></div>
           <table id="cal-results-table" class="cal-results-table" hidden>
@@ -1220,6 +1222,23 @@
       <div class="confirm-modal-actions">
         <button type="button" id="confirm-modal-cancel" class="confirm-modal-btn">Cancel</button>
         <button type="button" id="confirm-modal-ok" class="confirm-modal-btn confirm-modal-btn-primary">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Generic prompt modal (styled replacement for window.prompt) -->
+  <div id="prompt-modal" class="confirm-modal" hidden>
+    <div class="confirm-modal-backdrop" data-prompt-close></div>
+    <div class="confirm-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="prompt-modal-title">
+      <div class="confirm-modal-header">
+        <h3 id="prompt-modal-title">Enter a name</h3>
+        <button type="button" class="confirm-modal-close" data-prompt-close aria-label="Close">&times;</button>
+      </div>
+      <p id="prompt-modal-message" class="confirm-modal-message"></p>
+      <input type="text" id="prompt-modal-input" class="prompt-modal-input" autocomplete="off" spellcheck="false">
+      <div class="confirm-modal-actions">
+        <button type="button" id="prompt-modal-cancel" class="confirm-modal-btn">Cancel</button>
+        <button type="button" id="prompt-modal-ok" class="confirm-modal-btn confirm-modal-btn-primary">OK</button>
       </div>
     </div>
   </div>

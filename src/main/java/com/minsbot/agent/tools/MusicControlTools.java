@@ -128,6 +128,40 @@ public class MusicControlTools {
         }
     }
 
+    @Tool(description = "Set the system master volume to an exact percentage (0–100). "
+            + "Use when the user says 'set volume to 50', 'max volume', 'volume to 100%', "
+            + "'put volume at 30 percent', 'turn volume up to 100', 'volume to the max'. "
+            + "Uses Windows Core Audio API via inline PowerShell — no extra installs required.")
+    public String setSystemVolume(
+            @ToolParam(description = "Target volume percentage from 0 to 100 (e.g. 100 for max)") double percent) {
+        int pct = Math.max(0, Math.min(100, (int) Math.round(percent)));
+        notifier.notify("Setting system volume to " + pct + "%...");
+
+        // Primary path: Windows Core Audio API via inline C# in PowerShell (no installs).
+        if (setVolumeViaPowerShell(pct)) {
+            return "System volume set to " + pct + "%.";
+        }
+
+        // Fallback: spam VK_VOLUME_DOWN to min then VK_VOLUME_UP N times.
+        // Each press = ~2% on Windows, so 50 presses = 100%.
+        try {
+            Robot robot = new Robot();
+            // Drop to zero first (50 down-presses will saturate the minimum)
+            for (int i = 0; i < 52; i++) {
+                robot.keyPress(0xAE); robot.keyRelease(0xAE);
+                Thread.sleep(15);
+            }
+            int upPresses = pct / 2;
+            for (int i = 0; i < upPresses; i++) {
+                robot.keyPress(0xAF); robot.keyRelease(0xAF);
+                Thread.sleep(15);
+            }
+            return "System volume set to approximately " + pct + "% (media-key fallback).";
+        } catch (Exception e) {
+            return "Failed to set volume: " + e.getMessage();
+        }
+    }
+
     @Tool(description = "Mute or unmute the system audio. Use when the user says 'mute', 'unmute', 'toggle mute'.")
     public String toggleMute() {
         notifier.notify("Toggling mute...");
@@ -911,6 +945,60 @@ public class MusicControlTools {
     // ═════════════════════════════════════════════════════════════════════════
     // Helpers
     // ═════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Sets the Windows master volume to an exact percentage using the Core Audio API
+     * (IAudioEndpointVolume) exposed via inline C# in PowerShell. Requires no extra
+     * modules — pure .NET + COM, ships with every Windows install.
+     * Returns true on success, false on any failure.
+     */
+    private boolean setVolumeViaPowerShell(int pct) {
+        float scalar = Math.max(0f, Math.min(1f, pct / 100f));
+        // Note: the single-quoted here-doc avoids JVM string-escape noise. Scalar is inlined safely.
+        String script =
+            "$ErrorActionPreference='Stop';" +
+            "Add-Type -Language CSharp @'\n" +
+            "using System;using System.Runtime.InteropServices;\n" +
+            "[Guid(\"5CDF2C82-841E-4546-9722-0CF74078229A\"),InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]\n" +
+            "public interface IAudioEndpointVolume{\n" +
+            "  int f();int g();int h();int i();\n" +
+            "  int SetMasterVolumeLevelScalar(float l,Guid ctx);\n" +
+            "  int j();\n" +
+            "  int GetMasterVolumeLevelScalar(out float l);\n" +
+            "}\n" +
+            "[Guid(\"A95664D2-9614-4F35-A746-DE8DB63617E6\"),InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]\n" +
+            "public interface IMMDeviceEnumerator{\n" +
+            "  int f();\n" +
+            "  int GetDefaultAudioEndpoint(int d,int r,out IMMDevice e);\n" +
+            "}\n" +
+            "[Guid(\"D666063F-1587-4E43-81F1-B948E807363F\"),InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]\n" +
+            "public interface IMMDevice{\n" +
+            "  int Activate(ref Guid id,int clsCtx,int ap,[MarshalAs(UnmanagedType.IUnknown)]out object o);\n" +
+            "}\n" +
+            "[ComImport,Guid(\"BCDE0395-E52F-467C-8E3D-C4579291692E\")] public class MMDE{}\n" +
+            "public class A{\n" +
+            "  public static void S(float v){\n" +
+            "    var e=(IMMDeviceEnumerator)(new MMDE());\n" +
+            "    IMMDevice d=null; Marshal.ThrowExceptionForHR(e.GetDefaultAudioEndpoint(0,1,out d));\n" +
+            "    Guid g=typeof(IAudioEndpointVolume).GUID; object o;\n" +
+            "    Marshal.ThrowExceptionForHR(d.Activate(ref g,0x17,0,out o));\n" +
+            "    Marshal.ThrowExceptionForHR(((IAudioEndpointVolume)o).SetMasterVolumeLevelScalar(v,Guid.Empty));\n" +
+            "  }\n" +
+            "}\n" +
+            "'@ -ReferencedAssemblies System.Runtime,System.Private.CoreLib;" +
+            "[A]::S(" + scalar + ")";
+        try {
+            ProcessBuilder pb = new ProcessBuilder("powershell", "-NoProfile", "-Command", script);
+            pb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
+            pb.redirectError(ProcessBuilder.Redirect.DISCARD);
+            Process p = pb.start();
+            boolean done = p.waitFor(6, java.util.concurrent.TimeUnit.SECONDS);
+            return done && p.exitValue() == 0;
+        } catch (Exception e) {
+            log.debug("[Music] setVolumeViaPowerShell failed: {}", e.getMessage());
+            return false;
+        }
+    }
 
     private String pressMediaKey(int keyCode, String successMessage) {
         try {

@@ -2,6 +2,8 @@ package com.minsbot;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PostConstruct;
@@ -30,6 +32,16 @@ public class TranscriptService {
 
     /** In-memory ring buffer of the last 100 messages. */
     private final LinkedList<String> recentMemory = new LinkedList<>();
+
+    /** Lazy to avoid circular resolution if the publisher later consumes transcript APIs. */
+    @Autowired(required = false)
+    @Lazy
+    private ChatEventPublisher chatEventPublisher;
+
+    /** Optional — lets us trigger the taskbar icon "talking" animation when the bot speaks. */
+    @Autowired(required = false)
+    @Lazy
+    private IconAnimator iconAnimator;
 
     private static final Pattern LINE_PATTERN =
             Pattern.compile("^\\[(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2})] ([^:]+): (.+)$");
@@ -65,12 +77,94 @@ public class TranscriptService {
         }
     }
 
+    /**
+     * Save the current in-memory transcript to a named archive file under
+     * {@code ~/mins_bot_data/mins_bot_history/archives/<slug>_<timestamp>.txt} and clear
+     * the in-memory buffer. Daily history files are left untouched.
+     *
+     * @param name user-supplied name (sanitized to a safe filename)
+     * @return the archived file path, or null if there was nothing to archive
+     */
+    public Path archiveHistory(String name) {
+        List<String> snapshot;
+        synchronized (recentMemory) {
+            if (recentMemory.isEmpty()) return null;
+            snapshot = new ArrayList<>(recentMemory);
+        }
+
+        String safe = (name == null ? "untitled" : name).trim();
+        safe = safe.replaceAll("[^A-Za-z0-9 _-]", "").trim();
+        if (safe.isEmpty()) safe = "untitled";
+        if (safe.length() > 60) safe = safe.substring(0, 60).trim();
+        safe = safe.replace(' ', '_');
+
+        String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
+        Path archiveDir = historyDir.resolve("archives");
+        Path target = archiveDir.resolve(safe + "_" + ts + ".txt");
+        try {
+            Files.createDirectories(archiveDir);
+            StringBuilder body = new StringBuilder();
+            body.append("# ").append(name == null ? "Untitled" : name.trim()).append("\n");
+            body.append("# archived: ").append(LocalDateTime.now().format(TIME_FMT)).append("\n");
+            body.append("# messages: ").append(snapshot.size()).append("\n\n");
+            for (String line : snapshot) body.append(line).append("\n");
+            Files.writeString(target, body.toString(), StandardCharsets.UTF_8);
+            log.info("[Transcript] Archived {} messages → {}", snapshot.size(), target.getFileName());
+        } catch (IOException e) {
+            log.warn("[Transcript] archiveHistory write failed: {}", e.getMessage());
+            return null;
+        }
+
+        synchronized (recentMemory) {
+            recentMemory.clear();
+        }
+        if (chatEventPublisher != null) {
+            try { chatEventPublisher.publishCleared(); } catch (Exception ignored) {}
+        }
+        return target;
+    }
+
+    /** List archived conversations (name + path + size + timestamp), newest first. */
+    public List<Map<String, Object>> listArchives() {
+        List<Map<String, Object>> out = new ArrayList<>();
+        Path archiveDir = historyDir.resolve("archives");
+        if (!Files.isDirectory(archiveDir)) return out;
+        try (Stream<Path> walk = Files.list(archiveDir)) {
+            walk.filter(p -> p.toString().endsWith(".txt"))
+                .sorted(Comparator.reverseOrder())
+                .forEach(p -> {
+                    Map<String, Object> entry = new LinkedHashMap<>();
+                    String fn = p.getFileName().toString();
+                    entry.put("file", fn);
+                    entry.put("path", p.toString());
+                    try { entry.put("size", Files.size(p)); } catch (IOException ignored) { entry.put("size", 0); }
+                    try { entry.put("modified", Files.getLastModifiedTime(p).toInstant().toString()); } catch (IOException ignored) {}
+                    // Try to extract the human name from the first "# Name" line in the file
+                    try {
+                        List<String> first = Files.readAllLines(p, StandardCharsets.UTF_8).stream().limit(1).toList();
+                        if (!first.isEmpty() && first.get(0).startsWith("# ")) {
+                            entry.put("name", first.get(0).substring(2).trim());
+                        } else {
+                            entry.put("name", fn.replaceAll("_\\d{8}_\\d{6}\\.txt$", "").replace('_', ' '));
+                        }
+                    } catch (IOException ignored) {
+                        entry.put("name", fn);
+                    }
+                    out.add(entry);
+                });
+        } catch (IOException e) {
+            log.warn("[Transcript] listArchives failed: {}", e.getMessage());
+        }
+        return out;
+    }
+
     /** Clear the in-memory chat history ring buffer (does NOT delete history files). */
     public void clearHistory() {
         synchronized (recentMemory) {
             recentMemory.clear();
         }
         log.info("[Transcript] In-memory history cleared.");
+        if (chatEventPublisher != null) chatEventPublisher.publishCleared();
     }
 
     /**
@@ -113,7 +207,9 @@ public class TranscriptService {
             Path monthDir = historyDir.resolve(now.format(YEAR_MONTH_FMT));
             Files.createDirectories(monthDir);
             Path file = monthDir.resolve(now.format(DAY_FMT) + ".txt");
-            String line = "[" + now.format(TIME_FMT) + "] " + speaker + ": " + text.trim();
+            String fullTime = now.format(TIME_FMT);
+            String trimmed = text.trim();
+            String line = "[" + fullTime + "] " + speaker + ": " + trimmed;
             Files.writeString(file, line + System.lineSeparator(), StandardCharsets.UTF_8,
                     StandardOpenOption.CREATE, StandardOpenOption.APPEND);
 
@@ -122,6 +218,22 @@ public class TranscriptService {
                 while (recentMemory.size() > MEMORY_SIZE) {
                     recentMemory.removeFirst();
                 }
+            }
+
+            String trimmedSpeaker = speaker != null ? speaker.trim() : "";
+            boolean isUser = trimmedSpeaker.startsWith("USER");
+            if (chatEventPublisher != null) {
+                String shortTime = fullTime.length() >= 16 ? fullTime.substring(11, 16) : fullTime;
+                chatEventPublisher.publishMessage(Map.of(
+                        "speaker", trimmedSpeaker,
+                        "text", trimmed,
+                        "time", shortTime,
+                        "fullTime", fullTime,
+                        "isUser", isUser));
+            }
+            // Animate the taskbar icon's mouth when the bot speaks (resets boredom too)
+            if (!isUser && iconAnimator != null) {
+                try { iconAnimator.onBotMessage(trimmed); } catch (Exception ignored) {}
             }
         } catch (IOException e) {
             log.error("Failed to save chat history", e);

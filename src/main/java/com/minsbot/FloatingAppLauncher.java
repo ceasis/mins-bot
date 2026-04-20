@@ -221,8 +221,25 @@ public class FloatingAppLauncher extends Application {
         });
 
         Scene scene = new Scene(webView, expandedWidth, expandedHeight);
-        // Opaque fill so window move repaints don't show transparency or garbage (reduces flicker when dragging)
-        scene.setFill(Color.web("#0a0a0c"));
+        // Transparent fill so the HTML root's border-radius can clip the window to rounded corners.
+        // Must be used together with StageStyle.TRANSPARENT below.
+        scene.setFill(Color.TRANSPARENT);
+        webView.setStyle("-fx-background-color: transparent;");
+        webView.getEngine().setUserStyleSheetLocation(
+                "data:text/css;base64," + java.util.Base64.getEncoder().encodeToString(
+                        "html,body{background:transparent !important}".getBytes(java.nio.charset.StandardCharsets.UTF_8)
+                )
+        );
+        // Clip the WebView to a rounded rectangle at the JavaFX layer. This is necessary because
+        // WebKit's internal page compositor paints a default white background that HTML/CSS
+        // cannot override — only a Node-level clip hides it outside the rounded shape.
+        final int WINDOW_CORNER_RADIUS = 12;
+        javafx.scene.shape.Rectangle roundedClip = new javafx.scene.shape.Rectangle();
+        roundedClip.setArcWidth(WINDOW_CORNER_RADIUS * 2);
+        roundedClip.setArcHeight(WINDOW_CORNER_RADIUS * 2);
+        roundedClip.widthProperty().bind(webView.widthProperty());
+        roundedClip.heightProperty().bind(webView.heightProperty());
+        webView.setClip(roundedClip);
         // Forward mouse clicks into the page via JS (keyboard works; on some builds clicks don't reach WebView).
         final double[] pressPos = new double[2];
         final boolean[] isDrag = {false};
@@ -409,7 +426,9 @@ public class FloatingAppLauncher extends Application {
             webView.setCursor(Cursor.DEFAULT);
         });
         primaryStage.setScene(scene);
-        primaryStage.initStyle(StageStyle.UNDECORATED);
+        // TRANSPARENT (not UNDECORATED) so the HTML's border-radius on #root actually rounds
+        // the visible window shape. Combined with scene.setFill(Color.TRANSPARENT) above.
+        primaryStage.initStyle(StageStyle.TRANSPARENT);
 
         // App icon — AI bot (replaces default Java icon in taskbar/alt-tab)
         try {
