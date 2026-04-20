@@ -272,6 +272,13 @@ body.embedded-minsbot #root {
   height: 16px;
 }
 
+/* Action buttons (new chat, refresh) — bump glyph to match the browser icon */
+#title-bar-new-chat svg,
+#title-bar-refresh svg {
+  width: 16px;
+  height: 16px;
+}
+
 /* Clear (trash) in title bar — same slot as other controls but glyph was 10px; bump for visibility */
 #title-bar-clear svg {
   width: 18px;
@@ -5352,6 +5359,50 @@ body.embedded-minsbot .panel-header::-webkit-scrollbar { display: none; }
   border-color: rgba(29,185,84,0.7);
 }
 .inline-action-spotify i { font-size: 15px; }
+
+/* ═══ Mouse-permission prompt (3-button row) ═══ */
+.inline-action-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 6px 0 4px;
+}
+.inline-action-row .inline-action-btn {
+  margin: 0;
+  padding: 6px 12px;
+  font-size: 12px;
+}
+.inline-action-allow {
+  background: rgba(99,102,241,0.14);
+  border-color: rgba(99,102,241,0.45);
+  color: #a5b4fc;
+}
+.inline-action-allow:hover:not(:disabled) {
+  background: rgba(99,102,241,0.24);
+  border-color: rgba(99,102,241,0.7);
+}
+.inline-action-deny {
+  background: rgba(239,68,68,0.1);
+  border-color: rgba(239,68,68,0.35);
+  color: #fca5a5;
+}
+.inline-action-deny:hover:not(:disabled) {
+  background: rgba(239,68,68,0.2);
+  border-color: rgba(239,68,68,0.55);
+}
+.inline-action-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+  transform: none !important;
+  box-shadow: none !important;
+}
+.inline-action-note {
+  width: 100%;
+  font-size: 11px;
+  color: rgba(255,255,255,0.55);
+  margin-top: 4px;
+  font-style: italic;
+}
 
 /* ═══ Proactive Action Mode button (lightning bolt) ═══ */
 .header-proactive-btn {
