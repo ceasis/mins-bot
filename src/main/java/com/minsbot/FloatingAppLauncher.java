@@ -37,6 +37,108 @@ public class FloatingAppLauncher extends Application {
     @SuppressWarnings("unused") // prevent GC of the bridge exposed to JS
     private WindowBridge bridge;
 
+    /**
+     * JS helpers injected into the WebView on every page load. They drive
+     * caret placement and drag-select from the FX side because JavaFX
+     * WebView on Windows doesn't reliably deliver mouse events to the page.
+     *
+     * Exposed on {@code window}:
+     *   - __minsBotGetCaretOffset(x, y) — character offset at a client point.
+     *     For &lt;input&gt;/&lt;textarea&gt; it measures the pixel width of the
+     *     value against the computed font (caretPositionFromPoint /
+     *     caretRangeFromPoint don't penetrate form-control shadow DOM in
+     *     older WebKit, so they'd always return 0 there).
+     *   - __minsBotSetSelection(x1,y1,x2,y2) — set selection spanning the
+     *     two client points (drag-select entry point).
+     */
+    private static final String MINS_JAVAFX_HELPERS_JS = """
+            document.body.classList.add('embedded-minsbot');
+            document.getElementById('root').classList.add('expanded');
+
+            window.__minsBotInputCaretOffset = function(input, clickX) {
+              try {
+                var rect = input.getBoundingClientRect();
+                var style = getComputedStyle(input);
+                var pad = parseFloat(style.paddingLeft) || 0;
+                var bord = parseFloat(style.borderLeftWidth) || 0;
+                var textX = (clickX - rect.left - bord - pad) + (input.scrollLeft || 0);
+                var canvas = window.__minsBotInputCaretOffset._c
+                  || (window.__minsBotInputCaretOffset._c = document.createElement('canvas'));
+                var ctx = canvas.getContext('2d');
+                var font = style.font;
+                if (!font || font === '')
+                  font = (style.fontStyle || 'normal') + ' ' + (style.fontVariant || 'normal') + ' '
+                       + (style.fontWeight || 'normal') + ' ' + style.fontSize + ' ' + style.fontFamily;
+                ctx.font = font;
+                var text = input.value || '';
+                if (text.length === 0 || textX <= 0) return 0;
+                var total = ctx.measureText(text).width;
+                if (textX >= total) return text.length;
+                var lo = 0, hi = text.length;
+                while (lo < hi - 1) {
+                  var mid = (lo + hi) >> 1;
+                  var w = ctx.measureText(text.substring(0, mid)).width;
+                  if (w < textX) lo = mid; else hi = mid;
+                }
+                var wLo = ctx.measureText(text.substring(0, lo)).width;
+                var wHi = ctx.measureText(text.substring(0, lo + 1)).width;
+                return (Math.abs(wHi - textX) < Math.abs(wLo - textX)) ? lo + 1 : lo;
+              } catch (_) { return 0; }
+            };
+
+            window.__minsBotGetCaretOffset = function(x, y) {
+              var el = document.elementFromPoint(x, y);
+              if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) {
+                try {
+                  var o = window.__minsBotInputCaretOffset(el, x);
+                  if (o >= 0) return o;
+                } catch (_) {}
+              }
+              if (document.caretPositionFromPoint) {
+                var p = document.caretPositionFromPoint(x, y);
+                if (p) return p.offset;
+              }
+              if (document.caretRangeFromPoint) {
+                var r = document.caretRangeFromPoint(x, y);
+                if (r) return r.startOffset;
+              }
+              return -1;
+            };
+
+            window.__minsBotSetSelection = function(x1, y1, x2, y2) {
+              try {
+                var t1 = document.elementFromPoint(x1, y1);
+                var t2 = document.elementFromPoint(x2, y2);
+                if (!t1 || !t2) return;
+                if (t1 === t2 && (t1.tagName === 'INPUT' || t1.tagName === 'TEXTAREA')) {
+                  var o1 = window.__minsBotGetCaretOffset(x1, y1);
+                  var o2 = window.__minsBotGetCaretOffset(x2, y2);
+                  if (o1 >= 0 && o2 >= 0) {
+                    t1.focus();
+                    t1.setSelectionRange(Math.min(o1, o2), Math.max(o1, o2));
+                    return;
+                  }
+                }
+                var r1 = document.caretRangeFromPoint ? document.caretRangeFromPoint(x1, y1) : null;
+                var r2 = document.caretRangeFromPoint ? document.caretRangeFromPoint(x2, y2) : null;
+                if (!r1 || !r2) return;
+                var sel = window.getSelection();
+                sel.removeAllRanges();
+                try {
+                  sel.setBaseAndExtent(r1.startContainer, r1.startOffset,
+                                       r2.startContainer, r2.startOffset);
+                } catch (_) {
+                  var rr = document.createRange();
+                  rr.setStart(r1.startContainer, r1.startOffset);
+                  rr.setEnd(r2.startContainer, r2.startOffset);
+                  sel.addRange(rr);
+                }
+              } catch (_) {}
+            };
+
+            setTimeout(function(){ var i = document.getElementById('input'); if (i) i.focus(); }, 80);
+            """;
+
     public static void main(String[] args) {
         Application.launch(FloatingAppLauncher.class, args);
     }
@@ -105,12 +207,12 @@ public class FloatingAppLauncher extends Application {
                         window.setMember("java", bridge);
                     }
                     // Auto-expand on load (regular window is always expanded)
-                    // Also mark as embedded so tab bar is hidden in app mode
-                    engine.executeScript(
-                            "document.body.classList.add('embedded-minsbot');"
-                            + "document.getElementById('root').classList.add('expanded');"
-                            + "setTimeout(function(){var i=document.getElementById('input');if(i)i.focus();},80);"
-                    );
+                    // Also mark as embedded so tab bar is hidden in app mode.
+                    // Install drag-select helper used by the scene event filter
+                    // (JavaFX WebView on Windows doesn't natively deliver mouse
+                    // drag events to the page, so we drive the Selection API
+                    // directly from the FX side).
+                    engine.executeScript(MINS_JAVAFX_HELPERS_JS);
                     bridge.expand();
                 } catch (Exception e) {
                     // Bridge may fail in some environments
@@ -124,7 +226,8 @@ public class FloatingAppLauncher extends Application {
         // Forward mouse clicks into the page via JS (keyboard works; on some builds clicks don't reach WebView).
         final double[] pressPos = new double[2];
         final boolean[] isDrag = {false};
-        final boolean[] textPress = {false};
+        // Throttle timer for drag-select selection updates (JS Selection API dispatch)
+        final long[] lastSelectionDispatch = {0L};
         // Title bar height (must match CSS .title-bar height) for drag detection
         final int titleBarHeight = 32;
         final double[] titleBarPressStage = new double[2];
@@ -147,7 +250,6 @@ public class FloatingAppLauncher extends Application {
         scene.addEventFilter(MouseEvent.MOUSE_PRESSED, e -> {
             if (e.getButton() != javafx.scene.input.MouseButton.PRIMARY) return;
             isDrag[0] = false; // always reset drag flag on any press
-            textPress[0] = false;
 
             // Check resize edges FIRST — they take precedence over everything.
             int edge = computeEdge(e.getX(), e.getY(), scene.getWidth(), scene.getHeight(),
@@ -178,12 +280,11 @@ public class FloatingAppLauncher extends Application {
             }
             pressPos[0] = e.getX();
             pressPos[1] = e.getY();
-            // If press starts in an editable text control, let native WebView handle
-            // both focus AND drag-selection. Do NOT call focus() — even via
-            // Platform.runLater, the deferred .focus() resets the caret position
-            // and kills any in-progress drag selection. The flag is still tracked
-            // so MOUSE_RELEASED knows not to dispatch a synthetic click.
-            textPress[0] = isTextEditableAt(engine, (int) e.getX(), (int) e.getY());
+            // Do NOT call executeScript here — a synchronous JS round-trip
+            // during MOUSE_PRESSED event processing can starve WebView's
+            // native event dispatch on some JavaFX builds (symptoms:
+            // clicks/keystrokes never reach the page). forwardClickToPage
+            // called from MOUSE_RELEASED handles text-target focus safely.
         });
 
         scene.addEventFilter(MouseEvent.MOUSE_DRAGGED, e -> {
@@ -229,6 +330,25 @@ public class FloatingAppLauncher extends Application {
             if (Math.abs(e.getX() - pressPos[0]) > 3 || Math.abs(e.getY() - pressPos[1]) > 3) {
                 isDrag[0] = true;
             }
+            // Drive text selection via the JS Selection API, since native
+            // mouse drag events don't reliably reach WebView on Windows.
+            // Throttled to ~60fps so we don't flood executeScript.
+            if (isDrag[0]) {
+                long now = System.currentTimeMillis();
+                if (now - lastSelectionDispatch[0] >= 16) {
+                    lastSelectionDispatch[0] = now;
+                    int x1 = (int) pressPos[0];
+                    int y1 = (int) pressPos[1];
+                    int x2 = (int) e.getX();
+                    int y2 = (int) e.getY();
+                    Platform.runLater(() -> {
+                        try {
+                            engine.executeScript("window.__minsBotSetSelection && window.__minsBotSetSelection("
+                                    + x1 + "," + y1 + "," + x2 + "," + y2 + ")");
+                        } catch (Exception ignored) {}
+                    });
+                }
+            }
         });
 
         scene.addEventFilter(MouseEvent.MOUSE_RELEASED, e -> {
@@ -240,10 +360,11 @@ public class FloatingAppLauncher extends Application {
                 }
                 boolean wasTitleBarDrag = draggingTitleBar[0] && didTitleBarDrag[0];
                 draggingTitleBar[0] = false;
-                boolean wasTextPress = textPress[0];
-                textPress[0] = false;
-                // Forward synthetic click if this was not a drag
-                if (!isDrag[0] && !wasTitleBarDrag && !wasTextPress) {
+                // Always forward a synthetic click when this wasn't a drag.
+                // forwardClickToPage itself detects text targets and handles
+                // them safely (focus() only, no synthetic mouse events) so
+                // drag-selection and caret placement still work.
+                if (!isDrag[0] && !wasTitleBarDrag) {
                     int x = (int) e.getX();
                     int y = (int) e.getY();
                     Platform.runLater(() -> {
@@ -406,6 +527,17 @@ public class FloatingAppLauncher extends Application {
                     + "  if(typeof target.focus==='function'){"
                     + "    try{ target.focus({preventScroll:true}); }catch(_){ target.focus(); }"
                     + "  }"
+                    // Place the caret at the click point (not at end-of-text),
+                    // using caretPositionFromPoint / caretRangeFromPoint.
+                    + "  try{"
+                    + "    if(target.tagName==='INPUT'||target.tagName==='TEXTAREA'){"
+                    + "      var off=window.__minsBotGetCaretOffset?window.__minsBotGetCaretOffset(" + x + "," + y + "):-1;"
+                    + "      if(off>=0) target.setSelectionRange(off,off);"
+                    + "    } else if(document.caretRangeFromPoint){"
+                    + "      var rr=document.caretRangeFromPoint(" + x + "," + y + ");"
+                    + "      if(rr){var s=window.getSelection();s.removeAllRanges();s.addRange(rr);}"
+                    + "    }"
+                    + "  }catch(_){}"
                     + "  return true;"
                     + "}"
                     + "if(typeof target.focus === 'function') target.focus();"
@@ -442,24 +574,6 @@ public class FloatingAppLauncher extends Application {
                     + "  window.__minsHover=target;"
                     + "}"
                     + "return !!target;"
-                    + "})();";
-            Object result = engine.executeScript(script);
-            return result instanceof Boolean b && b;
-        } catch (Exception ignored) {
-            return false;
-        }
-    }
-
-    /** True when point is over editable text element (input/textarea/contenteditable). */
-    private static boolean isTextEditableAt(WebEngine engine, int x, int y) {
-        try {
-            String script = "(function(){"
-                    + "var el=document.elementFromPoint(" + x + "," + y + ");"
-                    + "if(!el) return false;"
-                    + "var t=el.closest('input,textarea,[contenteditable],select');"
-                    + "if(!t) return false;"
-                    + "if(t.matches('input[type=button],input[type=submit],input[type=checkbox],input[type=radio],input[type=range],input[type=color],input[type=file]')) return false;"
-                    + "return true;"
                     + "})();";
             Object result = engine.executeScript(script);
             return result instanceof Boolean b && b;

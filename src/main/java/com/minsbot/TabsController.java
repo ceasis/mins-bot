@@ -27,13 +27,17 @@ public class TabsController {
 
     private final CronConfigTools cronConfigTools;
     private final DirectivesTools directivesTools;
+    private final DirectiveSampleService directiveSampleService;
 
     private static final Path TODO_FILE = Paths.get(
             System.getProperty("user.home"), "mins_bot_data", "todolist.txt");
 
-    public TabsController(CronConfigTools cronConfigTools, DirectivesTools directivesTools) {
+    public TabsController(CronConfigTools cronConfigTools,
+                          DirectivesTools directivesTools,
+                          DirectiveSampleService directiveSampleService) {
         this.cronConfigTools = cronConfigTools;
         this.directivesTools = directivesTools;
+        this.directiveSampleService = directiveSampleService;
     }
 
     // ─── Schedules ───────────────────────────────────────────────────────
@@ -335,5 +339,26 @@ public class TabsController {
     public Map<String, String> removeDirective(@PathVariable int position) {
         String result = directivesTools.removeDirective(position);
         return Map.of("result", result);
+    }
+
+    @GetMapping("/directives/samples")
+    public Map<String, Object> generateDirectiveSamples(
+            @RequestParam(value = "n", defaultValue = "6") int n) {
+        if (n < 1) n = 1;
+        if (n > 12) n = 12;
+        if (!directiveSampleService.isAvailable()) {
+            return Map.of(
+                    "samples", List.of(),
+                    "error", "OpenAI API key not configured — set spring.ai.openai.api-key"
+            );
+        }
+        List<String> samples = directiveSampleService.generate(n);
+        if (samples.isEmpty()) {
+            return Map.of(
+                    "samples", List.of(),
+                    "error", "Failed to generate — model call failed or returned no usable lines"
+            );
+        }
+        return Map.of("samples", samples);
     }
 }

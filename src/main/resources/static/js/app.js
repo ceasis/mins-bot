@@ -171,6 +171,9 @@
   // Clear chat — also clears AI memory so the bot starts fresh
   function doClearChat() {
     messagesEl.innerHTML = '';
+    // Reset sync state so we don't misread the server-clear that follows as a
+    // "clear happened elsewhere" event.
+    _syncedKeys = new Set();
     appendMessage('Chat cleared. How can I help?', false);
     var wfInner = document.getElementById('watch-feed-inner');
     var wfEl = document.getElementById('watch-feed');
@@ -184,6 +187,18 @@
 
   // Let native click behavior place the caret where the user clicks.
   // Forcing focus on mousedown can move caret to end in WebView.
+  //
+  // Defensive: on some JavaFX WebView builds, the native click doesn't
+  // transfer focus to the input. Fall back to an explicit focus() AFTER
+  // the native click has already placed the caret — if focus is already
+  // there this is a no-op, so it won't disrupt drag-select or caret pos.
+  if (inputEl) {
+    inputEl.addEventListener('click', function () {
+      if (document.activeElement !== inputEl) {
+        try { inputEl.focus({ preventScroll: true }); } catch (_) { inputEl.focus(); }
+      }
+    });
+  }
 
   // ═══ Global keyboard shortcuts (Ctrl+K, Ctrl+/, Ctrl+L) ═══
   document.addEventListener('keydown', function (e) {
@@ -381,16 +396,24 @@
     });
   }
 
-  function appendMessage(text, isUser, typewriter) {
+  function appendMessage(text, isUser, typewriter, opts) {
+    opts = opts || {};
     var wrapper = document.createElement('div');
     wrapper.className = 'message-wrapper ' + (isUser ? 'user' : 'bot');
+    // Sync bookkeeping:
+    //   histKey  → message loaded/synced from server, tagged with its fingerprint
+    //   persist  → locally-originated persisted message; waiting for server to
+    //              echo it back so sync can attach a fingerprint (instead of
+    //              re-rendering a duplicate).
+    if (opts.histKey) wrapper.setAttribute('data-hist-key', opts.histKey);
+    else if (opts.persist) wrapper.setAttribute('data-pending-match', isUser ? 'user' : 'bot');
 
     var msg = document.createElement('div');
     msg.className = 'message ' + (isUser ? 'user' : 'bot');
 
     var time = document.createElement('div');
     time.className = 'message-time';
-    time.textContent = getTimeStr();
+    time.textContent = opts.displayTime || getTimeStr();
 
     wrapper.appendChild(msg);
     wrapper.appendChild(time);
@@ -425,6 +448,81 @@
 
     if (wasAtBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
   }
+
+  // ═══ Chat history sync (between JavaFX window and browser tab) ═══
+  //
+  // The server (TranscriptService) is the single source of truth. Each client
+  // polls /api/chat/history and reconciles:
+  //   • Messages with a fingerprint already in _syncedKeys: skip.
+  //   • Messages matching a locally-appended pending wrapper: adopt the
+  //     fingerprint onto the existing DOM (no duplicate render).
+  //   • New server messages with no local echo: render fresh.
+  //   • Server shorter than local (clear happened elsewhere): wipe & rebuild.
+
+  var _syncedKeys = new Set();
+  var _syncInFlight = false;
+
+  function historyKey(m) { return m.speaker + '|' + m.fullTime + '|' + m.text; }
+
+  function findPendingWrapper(wantIsUser) {
+    var wanted = wantIsUser ? 'user' : 'bot';
+    var pending = messagesEl.querySelectorAll('[data-pending-match]');
+    for (var i = 0; i < pending.length; i++) {
+      if (pending[i].getAttribute('data-pending-match') === wanted) return pending[i];
+    }
+    return null;
+  }
+
+  async function syncHistory() {
+    if (_syncInFlight) return;
+    _syncInFlight = true;
+    try {
+      var res = await fetch('/api/chat/history');
+      if (!res.ok) return;
+      var data = await res.json();
+      var serverMsgs = (data && data.messages) || [];
+      var serverKeys = new Set();
+      for (var i = 0; i < serverMsgs.length; i++) serverKeys.add(historyKey(serverMsgs[i]));
+
+      // If the server is missing any key we previously synced, a clear happened.
+      // Wipe all history wrappers + pending matches and rebuild from server.
+      var clearDetected = false;
+      _syncedKeys.forEach(function (k) { if (!serverKeys.has(k)) clearDetected = true; });
+      if (clearDetected) {
+        messagesEl.querySelectorAll('[data-hist-key],[data-pending-match]').forEach(function (el) {
+          el.remove();
+        });
+        _syncedKeys = new Set();
+      }
+
+      var wasAtBottom = isAtBottom(messagesEl);
+      for (var j = 0; j < serverMsgs.length; j++) {
+        var m = serverMsgs[j];
+        var key = historyKey(m);
+        if (_syncedKeys.has(key)) continue;
+
+        var pending = findPendingWrapper(!!m.isUser);
+        if (pending) {
+          pending.setAttribute('data-hist-key', key);
+          pending.removeAttribute('data-pending-match');
+          _syncedKeys.add(key);
+          continue;
+        }
+        appendMessage(m.text, !!m.isUser, false, { histKey: key, displayTime: m.time });
+        _syncedKeys.add(key);
+      }
+      if (wasAtBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
+    } catch (_) {
+      // Network blip — try again on next tick.
+    } finally {
+      _syncInFlight = false;
+    }
+  }
+
+  // Initial load + periodic reconciliation. 2s is fast enough that cross-window
+  // sync feels near-live without hammering the server.
+  syncHistory();
+  setInterval(syncHistory, 2000);
 
   /** True if the element is scrolled to (or very close to) the bottom. */
   function isAtBottom(el, slop) {
@@ -557,7 +655,7 @@
     historyIndex = -1;
     savedInput = '';
     inputEl.value = '';
-    appendMessage(msg, true);
+    appendMessage(msg, true, false, { persist: true });
     if (window._minsSound) window._minsSound.sent();
     showThinking();
     startStatusPolling();
@@ -571,7 +669,7 @@
       const data = await res.json();
       stopStatusPolling();
       hideThinking();
-      if (data.reply) appendMessage(data.reply, false);
+      if (data.reply) appendMessage(data.reply, false, false, { persist: true });
       if (data.reply && window._minsSound) window._minsSound.received();
       // After the first bot reply, check if TTS had a Fish Audio fallback (once)
       if (!window._ttsStartupChecked) {
@@ -716,13 +814,13 @@
         if (text.indexOf(prefix) === 0) {
           try {
             var payload = JSON.parse(text.substring(prefix.length));
-            if (payload.transcript) appendMessage(payload.transcript, true);
-            if (payload.reply) appendMessage(payload.reply, false);
+            if (payload.transcript) appendMessage(payload.transcript, true, false, { persist: true });
+            if (payload.reply) appendMessage(payload.reply, false, false, { persist: true });
           } catch (parseErr) {
-            appendMessage(text, false);
+            appendMessage(text, false, false, { persist: true });
           }
         } else {
-          appendMessage(text, false);
+          appendMessage(text, false, false, { persist: true });
         }
         clearInterval(nativeVoicePollTimer);
         nativeVoicePollTimer = null;
@@ -853,7 +951,7 @@
       var res = await fetch('/api/chat/async');
       var data = await res.json();
       if (data.hasResult && data.reply) {
-        appendMessage(data.reply, false, true);
+        appendMessage(data.reply, false, true, { persist: true });
         // Add watch-comment styling for Jarvis watch mode messages (eye emoji prefix)
         if (data.reply.startsWith('\ud83d\udc41')) {
           var allMsgs = messagesEl.querySelectorAll('.message.bot');
@@ -2709,29 +2807,37 @@
   // ── Generate sample directives ──
   var directiveGenerateBtn = document.getElementById('directive-generate-btn');
   var directiveSamplesEl = document.getElementById('directive-samples');
-  var DIRECTIVE_SAMPLES = [
-    'Always verify the screen state before clicking or typing.',
-    'Keep responses concise — under 100 words unless asked for more detail.',
-    'Ask before running destructive commands (delete, overwrite, reset).',
-    'Save significant decisions and facts to episodic memory.',
-    'Prefer local tools and files over external APIs when possible.',
-    'Use skill files for recurring multi-step workflows.'
-  ];
+  var _visibleSamples = [];
 
-  function renderDirectiveSamples() {
+  function renderSamplesShell(innerHtml) {
     if (!directiveSamplesEl) return;
-    var html = '<div class="directive-samples-title">Sample directives — click to add</div>';
-    DIRECTIVE_SAMPLES.forEach(function (text, i) {
+    directiveSamplesEl.innerHTML =
+      '<div class="directive-samples-header">'
+      + '<div class="directive-samples-title">Sample directives — click to add</div>'
+      + '<button type="button" class="directive-samples-close" aria-label="Close" title="Close">&times;</button>'
+      + '</div>'
+      + innerHtml;
+    var closeBtn = directiveSamplesEl.querySelector('.directive-samples-close');
+    if (closeBtn) closeBtn.addEventListener('click', function () {
+      directiveSamplesEl.hidden = true;
+    });
+  }
+
+  function renderDirectiveSamples(samples) {
+    if (!directiveSamplesEl) return;
+    _visibleSamples = samples || [];
+    var html = '';
+    _visibleSamples.forEach(function (text, i) {
       html += '<button type="button" class="directive-sample" data-idx="' + i + '">'
         + '<span class="directive-sample-plus">+</span>'
         + '<span class="directive-sample-text">' + escapeHtml(text) + '</span>'
         + '</button>';
     });
-    directiveSamplesEl.innerHTML = html;
+    renderSamplesShell(html);
     directiveSamplesEl.querySelectorAll('.directive-sample').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var idx = parseInt(btn.getAttribute('data-idx'), 10);
-        var text = DIRECTIVE_SAMPLES[idx];
+        var text = _visibleSamples[idx];
         if (!text) return;
         btn.disabled = true;
         btn.classList.add('added');
@@ -2744,15 +2850,33 @@
     });
   }
 
+  function fetchAndShowDirectiveSamples() {
+    if (!directiveSamplesEl) return;
+    directiveSamplesEl.hidden = false;
+    renderSamplesShell('<div class="directive-samples-loading">Generating fresh directives...</div>');
+    if (directiveGenerateBtn) directiveGenerateBtn.disabled = true;
+
+    fetch('/api/tabs/directives/samples?n=6&_=' + Date.now())
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        if (res && res.samples && res.samples.length) {
+          renderDirectiveSamples(res.samples);
+        } else {
+          renderSamplesShell('<div class="directive-samples-error">'
+            + escapeHtml(res && res.error ? res.error : 'Failed to generate directives.')
+            + '</div>');
+        }
+      })
+      .catch(function () {
+        renderSamplesShell('<div class="directive-samples-error">Network error — try again.</div>');
+      })
+      .finally(function () {
+        if (directiveGenerateBtn) directiveGenerateBtn.disabled = false;
+      });
+  }
+
   if (directiveGenerateBtn && directiveSamplesEl) {
-    directiveGenerateBtn.addEventListener('click', function () {
-      if (directiveSamplesEl.hidden) {
-        renderDirectiveSamples();
-        directiveSamplesEl.hidden = false;
-      } else {
-        directiveSamplesEl.hidden = true;
-      }
-    });
+    directiveGenerateBtn.addEventListener('click', fetchAndShowDirectiveSamples);
   }
 
   // ── Live mouse coordinates in status bar ──

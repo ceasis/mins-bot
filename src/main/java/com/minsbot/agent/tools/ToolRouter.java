@@ -97,6 +97,7 @@ public class ToolRouter {
     private final KnowledgeBaseTools knowledgeBaseTools;
     private final CalendarTools calendarTools;
     private final GmailApiTools gmailApiTools;
+    private final DriveTools driveTools;
     private final WebMonitorTools webMonitorTools;
     private final CodeAuditTools codeAuditTools;
     private final BackupConfigTools backupConfigTools;
@@ -220,6 +221,7 @@ public class ToolRouter {
             KnowledgeBaseTools knowledgeBaseTools,
             CalendarTools calendarTools,
             GmailApiTools gmailApiTools,
+            DriveTools driveTools,
             WebMonitorTools webMonitorTools,
             CodeAuditTools codeAuditTools,
             BackupConfigTools backupConfigTools,
@@ -325,6 +327,7 @@ public class ToolRouter {
         this.knowledgeBaseTools = knowledgeBaseTools;
         this.calendarTools = calendarTools;
         this.gmailApiTools = gmailApiTools;
+        this.driveTools = driveTools;
         this.webMonitorTools = webMonitorTools;
         this.codeAuditTools = codeAuditTools;
         this.backupConfigTools = backupConfigTools;
@@ -525,7 +528,8 @@ public class ToolRouter {
                 codeRunnerTools, fileWatcherTools, appUsageTrackerTools,
                 customSkillTools, bargeInTools, restartTools,
                 orchestratorTools, youTubeTools, mapsTools, upcomingTools, recurringTaskTools,
-                remindersTools
+                remindersTools,
+                driveTools
         };
         for (Object bean : allBeans) {
             if (bean != null && !toolCounts.containsKey(bean)) {
@@ -608,6 +612,7 @@ public class ToolRouter {
         map.put("briefing",      List.of(gmailApiTools, calendarTools, emailTools, weatherTools, ttsTools, summarizationTools));
         map.put("calendar",      List.of(calendarTools));
         map.put("gmail",         List.of(gmailApiTools, emailTools));
+        map.put("drive",         List.of(driveTools));
         map.put("web_monitor",   List.of(webMonitorTools));
         map.put("code_audit",    List.of(codeAuditTools, fileSystemTools));
         map.put("backup",        List.of(backupConfigTools, fileSystemTools));
@@ -697,6 +702,7 @@ public class ToolRouter {
         map.put("briefing",     List.of(gmailApiTools, calendarTools, emailTools, weatherTools, ttsTools, summarizationTools));
         map.put("calendar",     List.of(calendarTools));
         map.put("gmail",        List.of(gmailApiTools, emailTools));
+        map.put("drive",        List.of(driveTools));
         map.put("web_monitor", List.of(webMonitorTools));
         map.put("health_monitor", List.of(healthMonitorTools));
         map.put("health_tracker", List.of(healthTrackerTools));

@@ -113,6 +113,16 @@ public class ChatService {
             - For simple questions, greetings, or tasks that need no tools, respond with just: SKIP
             - Max 10 steps. Combine related actions into one step if needed.
 
+            CONNECTED SERVICES — NEVER plan manual browser logins for these; API tools are wired up:
+            - Gmail is connected via OAuth → use getUnreadEmails / searchEmails / getEmailDetails / sendEmail.
+              DO NOT plan "open browser → go to mail.google.com → enter password" — that's wrong.
+            - Google Calendar is connected → use getTodayEvents / getUpcomingEvents / getEventsForDate.
+            - Google Drive is connected → use the drive tools, not a browser.
+            - YouTube Data API is connected → use getMyYouTubeChannel / searchYouTubeVideos / etc.
+            - Spotify Web API (if connected) → use spotifyPlay for music.
+            - For ANY "check my email", "what's on my calendar", "find file in drive", "my YouTube stats" style
+              request: respond with SKIP — the agent will call the right API tool directly in one shot.
+
             Examples:
             User: "open google and search for bose speakers"
             ⬜ 1. Open google.com in Chrome
@@ -138,6 +148,24 @@ public class ChatService {
             SKIP
 
             User: "list files in my documents"
+            SKIP
+
+            User: "check my email"
+            SKIP
+
+            User: "check my choloville email"
+            SKIP
+
+            User: "any new emails?"
+            SKIP
+
+            User: "what's on my calendar today"
+            SKIP
+
+            User: "show my YouTube subscribers"
+            SKIP
+
+            User: "find the quarterly report in my drive"
             SKIP
 
             User: "prepare my morning briefing"
@@ -956,6 +984,7 @@ public class ChatService {
         if (isSimpleMusicCommand(message)) return false;
         if (isSimpleMapsCommand(message)) return false;
         if (isSimpleFileOpenCommand(message)) return false;
+        if (isSimpleConnectedServiceCommand(message)) return false;
         if (SystemContextProvider.isMessageAboutMinsbotSelfConfig(message)) return false;
         return true;
     }
@@ -972,6 +1001,7 @@ public class ChatService {
         if (isSimpleMusicCommand(message)) return false;
         if (isSimpleMapsCommand(message)) return false;
         if (isSimpleFileOpenCommand(message)) return false;
+        if (isSimpleConnectedServiceCommand(message)) return false;
         if (SystemContextProvider.isMessageAboutMinsbotSelfConfig(message)) return false;
         int wordCount = message.trim().split("\\s+").length;
         if (wordCount <= 2) return false;
@@ -1036,6 +1066,38 @@ public class ChatService {
         boolean locationHint = m.contains("desktop") || m.contains("downloads")
                 || m.contains("documents") || m.contains("folder") || m.contains("in my ");
         return openFileIntent || (m.startsWith("open ") && locationHint);
+    }
+
+    /**
+     * "Check my email", "show my calendar today", "any new emails", "what's in my drive" —
+     * these are one-shot API calls through the OAuth-connected Google services.
+     * Skip planning so the agent just invokes the right API tool directly instead of
+     * writing a "1. Open browser 2. Navigate to login page..." manual plan.
+     */
+    private static boolean isSimpleConnectedServiceCommand(String message) {
+        String m = message.trim().toLowerCase();
+        if (m.isEmpty()) return false;
+        // Gmail intents
+        boolean gmail = (m.contains("email") || m.contains("gmail") || m.contains("inbox") || m.contains("mail"))
+                && (m.startsWith("check ") || m.startsWith("show ") || m.startsWith("read ")
+                    || m.startsWith("list ") || m.startsWith("any ") || m.startsWith("how many ")
+                    || m.startsWith("summarize ") || m.startsWith("what's in ") || m.startsWith("do i have ")
+                    || m.contains("unread") || m.contains("new email") || m.contains("recent email"));
+        // Calendar intents
+        boolean calendar = (m.contains("calendar") || m.contains("meeting") || m.contains("event")
+                || m.contains("appointment") || m.contains("schedule today"))
+                && (m.startsWith("what") || m.startsWith("show ") || m.startsWith("check ")
+                    || m.startsWith("any ") || m.startsWith("list ") || m.startsWith("do i have "));
+        // Drive intents
+        boolean drive = (m.contains("drive") || m.contains("google drive") || m.contains("my docs")
+                || m.contains("google doc"))
+                && (m.startsWith("find ") || m.startsWith("search ") || m.startsWith("list ")
+                    || m.startsWith("show ") || m.startsWith("what's in "));
+        // YouTube intents (the connected API)
+        boolean youtube = m.contains("youtube")
+                && (m.startsWith("my ") || m.startsWith("show ") || m.startsWith("list ")
+                    || m.contains("subscribers") || m.contains("subscriptions") || m.contains("trending"));
+        return gmail || calendar || drive || youtube;
     }
 
     private static boolean isSimpleToggleCommand(String message) {

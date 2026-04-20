@@ -45,7 +45,7 @@ public class ToolClassifierService {
             "ai_model", "communication", "scheduling", "utility", "export",
             "plugins", "hotkeys", "tray", "screen_memory", "audio_memory",
             "playlist", "software", "network", "printing", "excel", "screen_watching",
-            "travel", "research", "knowledge", "briefing", "calendar", "gmail",
+            "travel", "research", "knowledge", "briefing", "calendar", "gmail", "drive",
             "web_monitor",
             "code_audit",
             "backup",
@@ -125,7 +125,8 @@ public class ToolClassifierService {
             - knowledge: knowledge base, uploaded documents, reference documents
             - briefing: morning briefing, daily briefing, prepare my briefing, summarize my day, daily summary, what do I have today, brief me, start of day summary, morning routine
             - calendar: calendar, events today, what's on my calendar, meetings today, schedule, upcoming events, this week's events, Google Calendar, my appointments
-            - gmail: check gmail, unread emails, new emails, check my email, inbox, gmail messages, any new mail, email summary
+            - gmail: check gmail, unread emails, new emails, check my email, inbox, gmail messages, any new mail, email summary, check my work email, check all my gmails, unread across accounts
+            - drive: google drive, my drive, search drive, find file in drive, read drive file, list drive files, docs, sheets, slides, what's in my drive
             - web_monitor: monitor website, watch for changes, alert me if website changes, check URL every N minutes, track website updates, website monitoring, watch this page, notify me when site changes
             - code_audit: clone repo, git clone, code audit, scan code, security scan, vulnerability scan, SQL injection, hardcoded secrets, unused imports, code review, audit repository, scan for vulnerabilities, check for secrets
             - backup: backup config files, backup configs, backup .env, backup properties, backup important configs, backup settings, backup yml files, backup configuration files, config backup, settings backup

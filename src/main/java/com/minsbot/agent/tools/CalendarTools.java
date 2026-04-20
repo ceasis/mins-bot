@@ -17,8 +17,6 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.*;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * Google Calendar tools — fetch events via the Google Calendar API.
@@ -197,6 +195,147 @@ public class CalendarTools {
             log.error("[Calendar] Error fetching upcoming events: {}", e.getMessage(), e);
             return "Failed to fetch upcoming events: " + e.getMessage();
         }
+    }
+
+    // ═══ Write tools (create / update / delete events) ════════════════════
+
+    @Tool(description = "Create a new event in Google Calendar. Use when the user says "
+            + "'add a meeting tomorrow at 3pm', 'schedule lunch with Alice Thursday noon', "
+            + "'book an appointment for X'. Pass times in ISO 8601 with timezone "
+            + "(e.g. '2026-04-22T15:00:00+08:00') OR pass a YYYY-MM-DD date for an all-day event "
+            + "(set endDateTime to the same date for single-day, or one day later for a range).")
+    public String createCalendarEvent(
+            @ToolParam(description = "Event title / summary") String title,
+            @ToolParam(description = "Start — ISO datetime 'YYYY-MM-DDTHH:mm:ss±HH:mm' for timed events, or 'YYYY-MM-DD' for all-day") String startDateTime,
+            @ToolParam(description = "End — same format as start. For all-day events pass the next day's date.") String endDateTime,
+            @ToolParam(description = "Optional location, e.g. 'Office' or '123 Main St'. Use '-' if none.") String location,
+            @ToolParam(description = "Optional description. Use '-' if none.") String description,
+            @ToolParam(description = "Optional comma-separated attendee emails. Use '-' if none.") String attendeesCsv) {
+
+        if (title == null || title.isBlank()) return "Event title is required.";
+        if (startDateTime == null || startDateTime.isBlank()) return "startDateTime is required.";
+        if (endDateTime == null || endDateTime.isBlank()) return "endDateTime is required.";
+        notifier.notify("Creating calendar event: " + title);
+
+        String token = oauthService.getValidAccessToken("calendar");
+        if (token == null) return "Google Calendar not connected.";
+
+        boolean allDay = startDateTime.length() == 10 && !startDateTime.contains("T");
+
+        StringBuilder json = new StringBuilder("{");
+        json.append("\"summary\":\"").append(escape(title)).append("\"");
+        if (location != null && !location.isBlank() && !location.equals("-")) {
+            json.append(",\"location\":\"").append(escape(location)).append("\"");
+        }
+        if (description != null && !description.isBlank() && !description.equals("-")) {
+            json.append(",\"description\":\"").append(escape(description)).append("\"");
+        }
+        if (allDay) {
+            json.append(",\"start\":{\"date\":\"").append(startDateTime).append("\"}");
+            json.append(",\"end\":{\"date\":\"").append(endDateTime).append("\"}");
+        } else {
+            json.append(",\"start\":{\"dateTime\":\"").append(startDateTime).append("\"}");
+            json.append(",\"end\":{\"dateTime\":\"").append(endDateTime).append("\"}");
+        }
+        if (attendeesCsv != null && !attendeesCsv.isBlank() && !attendeesCsv.equals("-")) {
+            json.append(",\"attendees\":[");
+            String[] emails = attendeesCsv.split(",");
+            for (int i = 0; i < emails.length; i++) {
+                if (i > 0) json.append(",");
+                json.append("{\"email\":\"").append(escape(emails[i].trim())).append("\"}");
+            }
+            json.append("]");
+        }
+        json.append("}");
+
+        try {
+            HttpResponse<String> resp = httpClient.send(HttpRequest.newBuilder()
+                    .uri(URI.create(CALENDAR_API + "/calendars/primary/events"))
+                    .header("Authorization", "Bearer " + token)
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(json.toString()))
+                    .build(), HttpResponse.BodyHandlers.ofString());
+            if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
+                return "Calendar API error (HTTP " + resp.statusCode() + "): " + resp.body();
+            }
+            JsonNode root = mapper.readTree(resp.body());
+            String id = root.path("id").asText("?");
+            String link = root.path("htmlLink").asText("");
+            return "Created event '" + title + "' (id: " + id + ")"
+                    + (link.isBlank() ? "" : "\nLink: " + link);
+        } catch (Exception e) {
+            log.error("[Calendar] create failed: {}", e.getMessage(), e);
+            return "Failed to create event: " + e.getMessage();
+        }
+    }
+
+    @Tool(description = "Delete a Google Calendar event by its ID. "
+            + "Use when the user says 'cancel that meeting', 'delete the 3pm event', etc. "
+            + "Get the event ID from getTodayEvents/getEventsForDate/getUpcomingEvents.")
+    public String deleteCalendarEvent(
+            @ToolParam(description = "Event ID to delete") String eventId) {
+        if (eventId == null || eventId.isBlank()) return "eventId is required.";
+        notifier.notify("Deleting calendar event " + eventId + "...");
+
+        String token = oauthService.getValidAccessToken("calendar");
+        if (token == null) return "Google Calendar not connected.";
+
+        try {
+            HttpResponse<String> resp = httpClient.send(HttpRequest.newBuilder()
+                    .uri(URI.create(CALENDAR_API + "/calendars/primary/events/" + eventId))
+                    .header("Authorization", "Bearer " + token)
+                    .DELETE().build(), HttpResponse.BodyHandlers.ofString());
+            if (resp.statusCode() == 204 || resp.statusCode() == 200) {
+                return "Deleted event " + eventId;
+            }
+            return "Calendar API error (HTTP " + resp.statusCode() + "): " + resp.body();
+        } catch (Exception e) {
+            log.error("[Calendar] delete failed: {}", e.getMessage(), e);
+            return "Failed to delete event: " + e.getMessage();
+        }
+    }
+
+    @Tool(description = "Quick-add a Calendar event using natural language. Google parses the text "
+            + "('Dinner with Alice at Nobu 7pm tomorrow', 'Team standup every weekday 9:30am for 30 min'). "
+            + "Simpler than createCalendarEvent when the user's phrasing is already clear.")
+    public String quickAddCalendarEvent(
+            @ToolParam(description = "Natural-language event description") String text) {
+        if (text == null || text.isBlank()) return "Text is required.";
+        notifier.notify("Quick-adding event: " + text);
+
+        String token = oauthService.getValidAccessToken("calendar");
+        if (token == null) return "Google Calendar not connected.";
+
+        try {
+            String url = CALENDAR_API + "/calendars/primary/events/quickAdd"
+                    + "?text=" + java.net.URLEncoder.encode(text, StandardCharsets.UTF_8);
+            HttpResponse<String> resp = httpClient.send(HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("Authorization", "Bearer " + token)
+                    .POST(HttpRequest.BodyPublishers.noBody())
+                    .build(), HttpResponse.BodyHandlers.ofString());
+            if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
+                return "Calendar API error (HTTP " + resp.statusCode() + "): " + resp.body();
+            }
+            JsonNode root = mapper.readTree(resp.body());
+            String id = root.path("id").asText("?");
+            String summary = root.path("summary").asText(text);
+            String link = root.path("htmlLink").asText("");
+            String startStr = formatEventTime(root.path("start"));
+            return "Added event '" + summary + "' (id: " + id + ")"
+                    + (startStr.equals("?") ? "" : " — starts " + startStr)
+                    + (link.isBlank() ? "" : "\nLink: " + link);
+        } catch (Exception e) {
+            log.error("[Calendar] quickAdd failed: {}", e.getMessage(), e);
+            return "Failed to quick-add event: " + e.getMessage();
+        }
+    }
+
+    private static String escape(String s) {
+        return s.replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "");
     }
 
     private String formatEventTime(JsonNode timeNode) {

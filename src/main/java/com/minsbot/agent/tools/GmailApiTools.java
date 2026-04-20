@@ -413,6 +413,212 @@ public class GmailApiTools {
                 .trim();
     }
 
+    // ═══ Send (write) ═════════════════════════════════════════════════════
+
+    @Tool(description = "Send an email via the Gmail API using the OAuth token (no SMTP configuration needed). "
+            + "Use when the user says 'send an email to X', 'email Y about Z', 'reply to this'. "
+            + "If multiple Gmail accounts are connected, pass fromAccount to pick which one; "
+            + "otherwise the first connected account is used.")
+    public String sendGmailViaApi(
+            @ToolParam(description = "Recipient email(s), comma-separated") String to,
+            @ToolParam(description = "Subject line") String subject,
+            @ToolParam(description = "Email body (plain text)") String body,
+            @ToolParam(description = "Sender email account (optional). Use '-' to auto-pick the first connected account.") String fromAccount) {
+
+        if (to == null || to.isBlank()) return "Recipient (to) is required.";
+        if (subject == null) subject = "";
+        if (body == null) body = "";
+        notifier.notify("Sending Gmail to " + to + "...");
+
+        String accessToken;
+        String senderLabel;
+        if (fromAccount != null && !fromAccount.isBlank() && !fromAccount.equals("-")) {
+            accessToken = oauthService.getValidAccessToken("gmail", fromAccount.trim());
+            senderLabel = fromAccount.trim();
+            if (accessToken == null) {
+                return "Gmail account '" + fromAccount + "' is not connected. Use listGmailAccounts to see available accounts.";
+            }
+        } else {
+            java.util.Map<String, String> tokens = oauthService.getAllValidAccessTokens("gmail");
+            if (tokens.isEmpty()) {
+                return "No Gmail accounts connected. Connect one in the Integrations tab.";
+            }
+            var first = tokens.entrySet().iterator().next();
+            senderLabel = first.getKey();
+            accessToken = first.getValue();
+        }
+
+        try {
+            // Build RFC 2822 message
+            StringBuilder raw = new StringBuilder();
+            raw.append("From: ").append(senderLabel).append("\r\n");
+            raw.append("To: ").append(to).append("\r\n");
+            raw.append("Subject: ").append(subject).append("\r\n");
+            raw.append("Content-Type: text/plain; charset=UTF-8\r\n");
+            raw.append("MIME-Version: 1.0\r\n");
+            raw.append("\r\n");
+            raw.append(body);
+
+            String base64url = Base64.getUrlEncoder()
+                    .encodeToString(raw.toString().getBytes(StandardCharsets.UTF_8));
+
+            String payload = "{\"raw\":\"" + base64url + "\"}";
+            HttpResponse<String> resp = httpClient.send(HttpRequest.newBuilder()
+                    .uri(URI.create(GMAIL_API + "/messages/send"))
+                    .header("Authorization", "Bearer " + accessToken)
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(payload))
+                    .build(), HttpResponse.BodyHandlers.ofString());
+
+            if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
+                return "Gmail send failed (HTTP " + resp.statusCode() + "): " + resp.body();
+            }
+            JsonNode root = mapper.readTree(resp.body());
+            String msgId = root.path("id").asText("?");
+            return "Email sent from " + senderLabel + " to " + to + " (message id: " + msgId + ")";
+        } catch (Exception e) {
+            log.error("[GmailApi] send failed: {}", e.getMessage(), e);
+            return "Failed to send email: " + e.getMessage();
+        }
+    }
+
+    // ═══ Per-account tools (multi-Gmail support) ══════════════════════════
+
+    @Tool(description = "List every Gmail account currently connected to the bot. "
+            + "Returns each account's email address so the user or the AI can target a specific account "
+            + "via getUnreadEmailsFromAccount, getRecentEmailsFromAccount, etc.")
+    public String listGmailAccounts() {
+        notifier.notify("Listing connected Gmail accounts...");
+        java.util.Map<String, String> tokens = oauthService.getAllValidAccessTokens("gmail");
+        if (tokens.isEmpty()) {
+            return "No Gmail accounts connected. Connect one in the Integrations tab.";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(tokens.size()).append(" Gmail account(s) connected:\n\n");
+        int i = 1;
+        for (String email : tokens.keySet()) {
+            sb.append(i++).append(". ").append(email).append("\n");
+        }
+        return sb.toString().trim();
+    }
+
+    @Tool(description = "Get unread emails from a SPECIFIC Gmail account. Use when the user says "
+            + "'check my work email', 'check alice@corp.com', or 'what's unread in my personal Gmail'. "
+            + "Pass the exact email address as it appears in listGmailAccounts.")
+    public String getUnreadEmailsFromAccount(
+            @ToolParam(description = "Exact account email, e.g. 'me@gmail.com'") String accountEmail,
+            @ToolParam(description = "Maximum unread emails to fetch (1-20)") double maxResults) {
+        if (accountEmail == null || accountEmail.isBlank()) return "accountEmail is required.";
+        int max = Math.max(1, Math.min(20, (int) Math.round(maxResults)));
+        notifier.notify("Checking unread emails for " + accountEmail + "...");
+
+        String token = oauthService.getValidAccessToken("gmail", accountEmail.trim());
+        if (token == null) {
+            return "Gmail not connected for " + accountEmail + ". Use listGmailAccounts to see available accounts.";
+        }
+        return fetchUnreadWithToken(token, max, accountEmail);
+    }
+
+    @Tool(description = "Aggregate unread emails from ALL connected Gmail accounts. Use for a unified morning "
+            + "inbox sweep when the user has multiple Gmail accounts. Each email is labeled with the source account.")
+    public String getUnreadEmailsFromAll(
+            @ToolParam(description = "Max unread emails per account (1-10)") double perAccount) {
+        int max = Math.max(1, Math.min(10, (int) Math.round(perAccount)));
+        notifier.notify("Checking unread across all Gmail accounts...");
+        java.util.Map<String, String> tokens = oauthService.getAllValidAccessTokens("gmail");
+        if (tokens.isEmpty()) {
+            return "No Gmail accounts connected.";
+        }
+
+        StringBuilder out = new StringBuilder();
+        int totalShown = 0;
+        for (java.util.Map.Entry<String, String> e : tokens.entrySet()) {
+            String email = e.getKey();
+            String token = e.getValue();
+            String section = fetchUnreadWithToken(token, max, email);
+            if (section != null && !section.isBlank() && !section.startsWith("No unread")) {
+                out.append("═══ ").append(email).append(" ═══\n\n");
+                out.append(section).append("\n\n");
+                totalShown++;
+            }
+        }
+        if (totalShown == 0) {
+            return "No unread emails across " + tokens.size() + " Gmail account(s). Inbox zero!";
+        }
+        out.append("--- Scanned ").append(tokens.size()).append(" account(s), ")
+           .append(totalShown).append(" have unread mail ---");
+        return out.toString().trim();
+    }
+
+    @Tool(description = "Get the unread email count across ALL connected Gmail accounts, broken down per account.")
+    public String getUnreadCountAllAccounts() {
+        notifier.notify("Counting unread across all Gmail accounts...");
+        java.util.Map<String, String> tokens = oauthService.getAllValidAccessTokens("gmail");
+        if (tokens.isEmpty()) return "No Gmail accounts connected.";
+
+        StringBuilder sb = new StringBuilder();
+        int grandTotal = 0;
+        for (java.util.Map.Entry<String, String> e : tokens.entrySet()) {
+            try {
+                HttpRequest req = HttpRequest.newBuilder()
+                        .uri(URI.create(GMAIL_API + "/labels/UNREAD"))
+                        .header("Authorization", "Bearer " + e.getValue())
+                        .GET().build();
+                HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+                int count = 0;
+                if (resp.statusCode() == 200) {
+                    JsonNode root = mapper.readTree(resp.body());
+                    count = root.has("messagesTotal") ? root.get("messagesTotal").asInt() : 0;
+                }
+                grandTotal += count;
+                sb.append("  ").append(e.getKey()).append(": ").append(count).append(" unread\n");
+            } catch (Exception ex) {
+                sb.append("  ").append(e.getKey()).append(": error (").append(ex.getMessage()).append(")\n");
+            }
+        }
+        sb.insert(0, "Unread emails across " + tokens.size() + " account(s) — total: " + grandTotal + "\n\n");
+        return sb.toString().trim();
+    }
+
+    /** Shared implementation used by per-account and aggregate tools. */
+    private String fetchUnreadWithToken(String accessToken, int max, String accountLabel) {
+        try {
+            String listUrl = GMAIL_API + "/messages"
+                    + "?q=" + URLEncoder.encode("is:unread", StandardCharsets.UTF_8)
+                    + "&maxResults=" + max;
+            HttpResponse<String> listResp = httpClient.send(HttpRequest.newBuilder()
+                    .uri(URI.create(listUrl))
+                    .header("Authorization", "Bearer " + accessToken)
+                    .GET().build(), HttpResponse.BodyHandlers.ofString());
+            if (listResp.statusCode() != 200) {
+                return "Error fetching unread for " + accountLabel + ": HTTP " + listResp.statusCode();
+            }
+            JsonNode listRoot = mapper.readTree(listResp.body());
+            JsonNode messages = listRoot.get("messages");
+            int resultSize = listRoot.has("resultSizeEstimate") ? listRoot.get("resultSizeEstimate").asInt() : 0;
+            if (messages == null || !messages.isArray() || messages.isEmpty()) {
+                return "No unread emails for " + accountLabel + ".";
+            }
+            StringBuilder sb = new StringBuilder();
+            sb.append(Math.min(messages.size(), max)).append(" of ~").append(resultSize).append(" unread:\n\n");
+            int count = 0;
+            for (JsonNode msg : messages) {
+                if (count >= max) break;
+                String msgId = msg.get("id").asText();
+                String detail = fetchMessageDetail(accessToken, msgId);
+                if (detail != null) {
+                    count++;
+                    sb.append(count).append(". ").append(detail).append("\n\n");
+                }
+            }
+            return sb.toString().trim();
+        } catch (Exception e) {
+            return "Error fetching unread for " + accountLabel + ": " + e.getMessage();
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+
     private String fetchMessageDetail(String accessToken, String messageId) {
         try {
             String url = GMAIL_API + "/messages/" + messageId + "?format=metadata"

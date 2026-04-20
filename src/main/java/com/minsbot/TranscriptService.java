@@ -87,9 +87,15 @@ public class TranscriptService {
                     String speaker = m.group(2).trim();
                     String text = m.group(3);
                     boolean isUser = speaker.startsWith("USER");
-                    // Extract just HH:mm for display
+                    // Extract just HH:mm for display; fullTime is the unique-per-message
+                    // timestamp clients use for dedup when syncing across windows.
                     String shortTime = time.length() >= 16 ? time.substring(11, 16) : time;
-                    result.add(Map.of("speaker", speaker, "text", text, "time", shortTime, "isUser", isUser));
+                    result.add(Map.of(
+                            "speaker", speaker,
+                            "text", text,
+                            "time", shortTime,
+                            "fullTime", time,
+                            "isUser", isUser));
                 }
             }
         }
