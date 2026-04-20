@@ -2,9 +2,14 @@
 
 ## Overview
 
-Mins Bot is a floating desktop chatbot built with **Java 17**, **Spring Boot 3.5.3**, **JavaFX 21**, and **Spring AI 1.0.1**. 
+Mins Bot is a desktop AI co-pilot built with **Java 17**, **Spring Boot 3.5.3**, **JavaFX 21**, and **Spring AI 1.0.1**.
 
-A swirling animated ball sits on the desktop; double-click expands a chat panel. It connects to OpenAI for intelligent tool-calling conversations, falls back to regex-based commands offline, and integrates with 9 messaging platforms. It can control the PC, collect files, browse the web, capture screenshots, and maintain persistent conversation history.
+The app runs in **two modes** sharing one Spring Boot backend:
+
+- **JavaFX shell (chat only).** A floating, resizable, transparent window with a custom title bar, draggable from the top edge, drag-to-resize from the bottom and side edges. Loaded with `?minimal=1` so the WebView enters embedded mode synchronously and renders only the chat pane.
+- **Browser view (main control panel).** Opened from the title-bar "open in browser" button — `http://localhost:8765/?full=1`. Lands on a card-grid home view with one card per section (Chat, Browser, Agents, Setup, Skills, Schedules, Todo, Directives, Personality, Knowledge, Voice, Calibration, Marketplace, Dashboard, Integrations). Click a card → opens that section with a top-left "Back" button.
+
+It connects to OpenAI / Claude / Gemini for tool-calling conversations, falls back to regex-based commands offline, and ships with **3 supported messaging platforms** (Slack, WhatsApp, Telegram — 6 others remain in code but are commented out by default for v1 commercial focus). It can control the PC, collect files, browse the web, capture screenshots, run JARVIS-style watch-and-react / barge-in interrupts, schedule daily reports with guaranteed delivery, and maintain persistent memory across restarts.
 
 **Main class:** `com.minsbot.FloatingAppLauncher`
 **Default port:** `8765` (configurable via `MINS_BOT_PORT` env var)
@@ -495,13 +500,21 @@ Long-running commands execute on a background `ExecutorService` with async callb
 
 ### Platform Webhooks
 
+Supported (v1):
+
+| Platform | Endpoint |
+|----------|----------|
+| Slack | `POST /api/slack/events` |
+| WhatsApp | `POST /api/whatsapp/webhook` |
+| Telegram | `POST /api/telegram/webhook` |
+
+Deprecated for v1 (controller classes still present; revive by enabling
+the platform's config — see Platform Integrations below):
+
 | Platform | Endpoint |
 |----------|----------|
 | Viber | `POST /api/viber/webhook` |
-| Telegram | `POST /api/telegram/webhook` |
 | Discord | `POST /api/discord/interactions` |
-| Slack | `POST /api/slack/events` |
-| WhatsApp | `POST /api/whatsapp/webhook` |
 | Messenger | `POST /api/messenger/webhook` |
 | LINE | `POST /api/line/webhook` |
 | Teams | `POST /api/teams/messages` |
@@ -521,7 +534,7 @@ Long-running commands execute on a background `ExecutorService` with async callb
 
 ## Platform Integrations
 
-All 9 platforms follow the same pattern:
+All platforms follow the same pattern:
 
 ```
 *Config.java           → @ConfigurationProperties, enabled=false by default
@@ -530,18 +543,34 @@ All 9 platforms follow the same pattern:
 *WebhookRegistrar.java  → (optional) Auto-registers webhook URL on startup
 ```
 
+### Supported (v1)
+
+| Platform | Auth mechanism | API |
+|----------|---------------|-----|
+| **Slack** | Bot token + signing secret | slack.com/api |
+| **WhatsApp** | Bearer access token (Meta Cloud API) | graph.facebook.com |
+| **Telegram** | Bot token in URL path | api.telegram.org |
+
+These three remain in `application.properties` with `enabled=false` defaults.
+Set the auth values, flip `enabled=true`, restart.
+
+### Deprecated for v1 (code retained, config commented out)
+
 | Platform | Auth mechanism | API |
 |----------|---------------|-----|
 | Viber | X-Viber-Auth-Token header | chatapi.viber.com/pa |
-| Telegram | Bot token in URL path | api.telegram.org |
 | Discord | Bot token + public key signature verification | discord.com/api |
-| Slack | Bot token + signing secret | slack.com/api |
-| WhatsApp | Bearer access token (Meta Cloud API) | graph.facebook.com |
 | Messenger | Page access token + app secret | graph.facebook.com |
 | LINE | Channel access token + channel secret | api.line.me |
 | Teams | App ID + password (Bot Framework) | botframework.com |
 | WeChat | App ID + secret + AES key | api.weixin.qq.com |
 | Signal | Local signal-cli-rest-api instance | localhost (configurable) |
+
+To revive any of these: uncomment its block at the bottom of
+`application.properties` and set `enabled=true`. The Java classes under
+`src/main/java/com/minsbot/` (e.g. `ViberConfig`, `DiscordWebhookController`)
+remain untouched — Spring won't allocate resources for them while
+`enabled=false`.
 
 All platforms use `ChatService.getReply()` for response generation. No platform-specific business logic exists in webhook controllers.
 
@@ -549,22 +578,121 @@ All platforms use `ChatService.getReply()` for response generation. No platform-
 
 ## Frontend
 
-### UI Structure
+The same `index.html` / `app.js` / `style.css` is served to both surfaces.
+Mode is decided at script load by inspecting the URL and the `window.java`
+bridge:
 
-- **Ball:** 34x34px gradient circle with 3-second swirl animation, top-left corner
-- **Chat panel:** Dark theme, slides in on expand with opacity transition
-  - Header: "Mins Bot" title + close (collapse) and clear buttons
-  - Messages log: Scrollable, user messages right-aligned (blue), bot messages left-aligned (dark)
-  - Input row: Text input + voice button + send button
-  - Voice status indicator (red pulse when listening)
+- `?minimal=1` (set by `FloatingAppLauncher`) → adds `body.embedded-minsbot`
+  → tab bar + card grid hidden, only chat pane shows.
+- `?full=1` (used by the "open in browser" button) → no embedded class →
+  card grid is the landing view.
+- Anything else falls through to embedded if `window.java` exists.
 
-### Interactions
+Cache-busting: `IndexController` injects a per-process version token via
+`{{v}}` template substitution into every CSS / JS link. In dev mode it
+re-reads `src/main/resources/static/index.html` from disk on each request
+so HTML edits show up on a plain browser refresh (no Spring restart).
 
-- **Ball click:** Expand panel
-- **Ball double-click:** Toggle expand/collapse
-- **Ball drag:** Move window (via Java event filter)
-- **Enter key:** Send message
-- **Voice button:** Toggle native voice capture (8-sec recording → transcription → reply)
+### JavaFX shell (chat only)
+
+```
+┌─────────────────────────────────────────────────────┐
+│ Title bar (32px)            🔄 ↗ ─ ✕                │  ← drag handle, window controls
+├─────────────────────────────────────────────────────┤
+│ 👁 ⌨ 🎧 − 4s + [Gemini Flash 2.5 ▾] 🔊 🧠 ⚡  🔉 🗑  │  ← chat panel-header
+├─────────────────────────────────────────────────────┤
+│                                                     │
+│   [chat messages, user right / bot left]            │
+│                                                     │
+├─────────────────────────────────────────────────────┤
+│ [ask me anything...]                    🎙 ▶ ⬛     │  ← input row
+└─────────────────────────────────────────────────────┘
+```
+
+**Title bar (`.title-bar`)** — 32px tall, hidden in browser view via
+`body:not(.embedded-minsbot) .title-bar { display: none }`.
+Left side: bot icon + "Mins Bot" label, full-width drag region. Right side
+window controls (`.title-bar-btn`):
+- 🔄 `#title-bar-refresh` — reloads the WebView with a `_r=<ts>` cache-buster
+- ↗ `#title-bar-browser` — opens the control panel in the system browser
+  via Chromium app-mode (`chrome --app=…` → Edge → Brave → Vivaldi → default)
+- ─ `#title-bar-minimize` — `stage.setIconified(true)`
+- ✕ `#title-bar-close` (red hover) — `Platform.exit() + Runtime.halt(0)`
+
+**Chat panel-header** — sensory icons + chat actions, all kept here
+(window-control buttons live in the title bar above to avoid wrapping at
+narrow widths):
+- 👁 `#header-watch` — Jarvis watch mode (continuous screen observation)
+- ⌨ `#header-control` — toggle keyboard/mouse control
+- 🎧 `#header-listen` — listen to system audio (transcription)
+- − / `4s` / + — capture-duration controls for listen mode
+- `[Gemini Flash 2.5 ▾]` — translation engine selector
+- 🔊 `#header-mouth` — TTS auto-speak toggle (voice replies)
+- 🧠 `#header-autopilot` — autopilot mode (acts on screen events)
+- ⚡ `#header-proactive` — proactive action mode (suggests next steps)
+- 🔉 `#sound-toggle` — sound effects toggle
+- 🗑 `#clear-btn` — clear chat (also clears AI memory)
+
+**Chat area (`.messages`)** — user messages right-aligned (blue gradient),
+bot messages left-aligned (zinc background), single click on any message
+copies its text. Path-like text auto-linkifies and opens in Explorer.
+
+**Input row (`.input-row`)** — text input + 🎙 voice button + ▶ send
+button + ⬛ stop button (only visible while a request is in flight).
+
+**Edge resize** — JavaFX `MouseEvent.MOUSE_PRESSED` filter detects 6px
+edges. LEFT, RIGHT, BOTTOM, BOTTOM-LEFT, BOTTOM-RIGHT supported (TOP is
+reserved for the drag region). Min size 280×320.
+
+### Browser view (main control panel)
+
+Opened by clicking the title-bar "open in browser" button or by visiting
+`http://localhost:8765/?full=1` directly.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Mins Bot                                                       │
+│  Pick where to go.                                              │
+│                                                                 │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐        │
+│  │ Chat     │  │ Browser  │  │ Agents   │  │ Setup    │        │
+│  │ Talk to..│  │ Browse...│  │ Launch...│  │ API keys │        │
+│  └──────────┘  └──────────┘  └──────────┘  └──────────┘        │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐        │
+│  │ Skills   │  │ Schedules│  │ Todo     │  │ ...      │        │
+│  └──────────┘  └──────────┘  └──────────┘  └──────────┘        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Card grid (`#tab-menu`)** — built by JS at page-load by iterating the
+hidden `<button class="tab tab-extra">` elements. Each card pulls its
+title from the button's text and its description from `data-desc`.
+Buttons with the `hidden` attribute are skipped — currently 4 sections
+hidden: Workflows, Templates, Multi-Agent, Automations.
+
+**Click a card** → triggers the underlying tab button's click handler
+(reusing every existing `loadTodos` / `loadKnowledgeBase` / `startAgentsPolling` /
+… loader unchanged) → tab content slides in → Back button (`#tab-back-btn`)
+appears top-left.
+
+**Back button** → returns to the card grid. Hidden in JavaFX shell via
+`body.embedded-minsbot .tab-back-btn { display: none }`.
+
+**Tab content panes** (`.tab-content[id^="tab-"]`) — one `<div>` per
+section. Same DOM as before; only the navigation around them changed.
+
+### Common interactions
+
+- **Enter** → send message
+- **Ctrl+L** → clear chat
+- **Arrow Up / Down** in input → cycle input history
+- **Single click on a chat message** → copy to clipboard
+- **Click a path inside a message** → open in Explorer
+- **🎙 voice button** → toggle native voice capture (push-to-talk)
+- **Drag the title bar** → move the JavaFX window
+- **Drag any non-top edge** → resize the JavaFX window
+- **Tooltips** — every header button has a `data-tip="…"` label that
+  shows on hover via the universal tooltip system (`[data-tip]::after`).
 
 ### Polling
 
@@ -572,11 +700,16 @@ All platforms use `ChatService.getReply()` for response generation. No platform-
 |----------|----------|---------|
 | `/api/chat/status` | 500ms (during active request) | Tool execution status updates |
 | `/api/chat/async` | 2000ms (always when expanded) | Background task results |
+| `/api/agents` | 1500ms (when Agents tab open) | Background agent progress + crew tree |
+| `/api/integrations/google/status` | on tab open | Google integration health |
 | Native voice state | 180ms (while listening) | Transcript/error/listening state |
 
 ### Theme
 
-Dark mode with zinc/slate colors. Custom thin scrollbar. Message animations (fade + slide). Thinking dots animation while waiting for reply.
+Dark mode (zinc/slate). Custom thin scrollbar. Subtle fade+slide on
+message arrival. Bouncing-dots "thinking" indicator. Hover feedback on
+every button uses `rgba(255,255,255,0.08)` brightening (Windows-11
+style). Tooltips: 13px font, 7×12px padding, 6px border-radius, dark bg.
 
 ---
 

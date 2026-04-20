@@ -4,10 +4,15 @@ import com.minsbot.agent.tools.CronConfigTools;
 import com.minsbot.agent.tools.DirectivesTools;
 import org.springframework.web.bind.annotation.*;
 
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -156,6 +161,150 @@ public class TabsController {
         Collections.reverse(tasks);
         return tasks;
     }
+
+    /** Parses todolist.txt into an ordered list of raw task blocks (title, timestamp, body lines). */
+    private List<TaskBlock> readTaskBlocks() {
+        List<TaskBlock> blocks = new ArrayList<>();
+        if (!Files.exists(TODO_FILE)) return blocks;
+        try {
+            List<String> lines = Files.readAllLines(TODO_FILE, StandardCharsets.UTF_8);
+            TaskBlock current = null;
+            for (String line : lines) {
+                Matcher m = TASK_HEADER.matcher(line);
+                if (m.find()) {
+                    if (current != null) blocks.add(current);
+                    current = new TaskBlock(m.group(1), m.group(2), new ArrayList<>());
+                    current.bodyLines.add(line);
+                } else if (current != null) {
+                    current.bodyLines.add(line);
+                }
+            }
+            if (current != null) blocks.add(current);
+        } catch (Exception ignored) {}
+        return blocks;
+    }
+
+    /** Resolves a UI index (latest-first) to its slot in the forward-ordered task list. */
+    private int forwardIndex(int uiIndex, int total) {
+        return total - 1 - uiIndex;
+    }
+
+    @DeleteMapping("/todos/{index}")
+    public Map<String, String> deleteTodo(@PathVariable int index) {
+        List<TaskBlock> blocks = readTaskBlocks();
+        int fwd = forwardIndex(index, blocks.size());
+        if (fwd < 0 || fwd >= blocks.size()) return Map.of("error", "Index out of range");
+        blocks.remove(fwd);
+        return writeBlocks(blocks);
+    }
+
+    @DeleteMapping("/todos")
+    public Map<String, String> clearAllTodos() {
+        try {
+            if (Files.exists(TODO_FILE)) Files.writeString(TODO_FILE, "", StandardCharsets.UTF_8);
+            return Map.of("result", "Cleared all tasks");
+        } catch (Exception e) {
+            return Map.of("error", "Failed to clear: " + e.getMessage());
+        }
+    }
+
+    @GetMapping("/todos/{index}/download")
+    public ResponseEntity<byte[]> downloadTodo(@PathVariable int index) {
+        List<TaskBlock> blocks = readTaskBlocks();
+        int fwd = forwardIndex(index, blocks.size());
+        if (fwd < 0 || fwd >= blocks.size()) return ResponseEntity.notFound().build();
+        TaskBlock block = blocks.get(fwd);
+        String content = String.join("\n", block.bodyLines);
+        String filename = safeFileName(block.title) + ".txt";
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                .contentType(MediaType.TEXT_PLAIN)
+                .body(content.getBytes(StandardCharsets.UTF_8));
+    }
+
+    @GetMapping("/todos/download")
+    public ResponseEntity<byte[]> downloadAllTodos() {
+        byte[] bytes;
+        try {
+            bytes = Files.exists(TODO_FILE) ? Files.readAllBytes(TODO_FILE) : new byte[0];
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().build();
+        }
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"todolist.txt\"")
+                .contentType(MediaType.TEXT_PLAIN)
+                .body(bytes);
+    }
+
+    @PostMapping("/todos/{index}/as-skill")
+    public Map<String, String> saveTodoAsSkill(@PathVariable int index,
+                                               @RequestBody(required = false) Map<String, String> body) {
+        List<TaskBlock> blocks = readTaskBlocks();
+        int fwd = forwardIndex(index, blocks.size());
+        if (fwd < 0 || fwd >= blocks.size()) return Map.of("error", "Index out of range");
+        TaskBlock block = blocks.get(fwd);
+
+        String name = body != null ? body.getOrDefault("name", "") : "";
+        if (name.isBlank()) name = block.title;
+        String fileName = safeFileName(name);
+        if (fileName.isBlank()) return Map.of("error", "Invalid skill name");
+
+        Path skillsDir = Paths.get(System.getProperty("user.home"), "mins_bot_data", "skills");
+        Path skillFile = skillsDir.resolve(fileName + ".md");
+
+        StringBuilder md = new StringBuilder();
+        md.append("# ").append(block.title).append("\n\n");
+        String description = body != null ? body.getOrDefault("description", "") : "";
+        if (description.isBlank()) {
+            description = "Skill generated from todo task on " + block.timestamp + ".";
+        }
+        md.append(description).append("\n\n");
+        md.append("## Steps\n");
+        int n = 1;
+        for (String line : block.bodyLines) {
+            Matcher sm = STEP_LINE.matcher(line);
+            if (sm.find()) {
+                md.append(n++).append(". ").append(sm.group(3).trim()).append("\n");
+            }
+        }
+
+        try {
+            Files.createDirectories(skillsDir);
+            Files.writeString(skillFile, md.toString(), StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            return Map.of("result", "Saved skill: " + skillFile.getFileName(),
+                          "path", skillFile.toString());
+        } catch (Exception e) {
+            return Map.of("error", "Failed to save: " + e.getMessage());
+        }
+    }
+
+    private Map<String, String> writeBlocks(List<TaskBlock> blocks) {
+        try {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < blocks.size(); i++) {
+                if (i > 0) sb.append("\n");
+                for (String line : blocks.get(i).bodyLines) {
+                    sb.append(line).append("\n");
+                }
+            }
+            Files.writeString(TODO_FILE, sb.toString(), StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            return Map.of("result", "OK");
+        } catch (Exception e) {
+            return Map.of("error", "Failed to write: " + e.getMessage());
+        }
+    }
+
+    private String safeFileName(String s) {
+        if (s == null) return "";
+        String lower = s.toLowerCase().trim();
+        String clean = lower.replaceAll("[^a-z0-9]+", "-").replaceAll("^-+|-+$", "");
+        if (clean.length() > 60) clean = clean.substring(0, 60);
+        return clean;
+    }
+
+    private record TaskBlock(String title, String timestamp, List<String> bodyLines) {}
 
     // ─── Directives ──────────────────────────────────────────────────────
 

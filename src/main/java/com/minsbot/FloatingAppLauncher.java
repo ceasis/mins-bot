@@ -80,7 +80,10 @@ public class FloatingAppLauncher extends Application {
         // Cache as bitmap so dragging the window repaints from cache instead of re-rendering the page (reduces flicker)
         webView.setCache(true);
         WebEngine engine = webView.getEngine();
-        String url = "http://localhost:" + port + "/";
+        // ?minimal=1 tells app.js to enter embedded mode synchronously (before
+        // window.java bridge injection) — prevents the browser-only card grid
+        // from flashing in the JavaFX shell.
+        String url = "http://localhost:" + port + "/?minimal=1";
         engine.load(url);
 
         ChatService chatService = springContext.getBean(ChatService.class);
@@ -131,8 +134,6 @@ public class FloatingAppLauncher extends Application {
         // Title bar drag: press/drag in top titleBarHeight px moves the window
         // Uses SCREEN coordinates (not scene) to avoid flicker — scene coords shift as the window moves
         final double[] titleBarPressScreen = new double[2];
-        // Width of the window-control buttons area (minimize + close, 46px each + buffer)
-        final int controlsWidth = 100;
 
         // ─── Edge-resize support (UNDECORATED windows don't get native resize handles) ──
         final int RESIZE_BORDER = 6;
@@ -164,10 +165,8 @@ public class FloatingAppLauncher extends Application {
             }
 
             if (e.getY() < titleBarHeight) {
-                // Let clicks on the close/minimize buttons pass through to WebView natively
-                if (e.getX() > scene.getWidth() - controlsWidth) {
-                    return; // don't consume — let native WebView handle button clicks
-                }
+                // The title bar no longer hosts any buttons (they all moved to the
+                // chat panel header below). The full top strip is now a drag region.
                 draggingTitleBar[0] = true;
                 didTitleBarDrag[0] = false;
                 titleBarPressScreen[0] = e.getScreenX();
@@ -179,13 +178,12 @@ public class FloatingAppLauncher extends Application {
             }
             pressPos[0] = e.getX();
             pressPos[1] = e.getY();
-            // If press starts in an editable text control, let native WebView handle selection/caret.
+            // If press starts in an editable text control, let native WebView handle
+            // both focus AND drag-selection. Do NOT call focus() — even via
+            // Platform.runLater, the deferred .focus() resets the caret position
+            // and kills any in-progress drag selection. The flag is still tracked
+            // so MOUSE_RELEASED knows not to dispatch a synthetic click.
             textPress[0] = isTextEditableAt(engine, (int) e.getX(), (int) e.getY());
-            if (textPress[0]) {
-                int x = (int) e.getX();
-                int y = (int) e.getY();
-                Platform.runLater(() -> focusEditableAt(engine, x, y));
-            }
         });
 
         scene.addEventFilter(MouseEvent.MOUSE_DRAGGED, e -> {
@@ -278,13 +276,7 @@ public class FloatingAppLauncher extends Application {
                 webView.setCursor(rc);
                 return;
             }
-            // Always show hand cursor on native title-bar window controls (minimize/close area).
-            if (y < titleBarHeight && x > scene.getWidth() - controlsWidth) {
-                scene.setCursor(Cursor.HAND);
-                webView.setCursor(Cursor.HAND);
-                syncHoverToPage(engine, x, y);
-                return;
-            }
+            // Title bar is now a pure drag strip (no buttons); no special cursor needed.
             boolean interactive = syncHoverToPage(engine, x, y);
             Cursor c = interactive ? Cursor.HAND : Cursor.DEFAULT;
             scene.setCursor(c);
@@ -473,25 +465,6 @@ public class FloatingAppLauncher extends Application {
             return result instanceof Boolean b && b;
         } catch (Exception ignored) {
             return false;
-        }
-    }
-
-    /** Focus editable element at viewport point without dispatching synthetic click events. */
-    private static void focusEditableAt(WebEngine engine, int x, int y) {
-        try {
-            String script = "(function(){"
-                    + "var el=document.elementFromPoint(" + x + "," + y + ");"
-                    + "if(!el) return;"
-                    + "var t=el.closest('input,textarea,[contenteditable],select');"
-                    + "if(!t) return;"
-                    + "if(t.matches('input[type=button],input[type=submit],input[type=checkbox],input[type=radio],input[type=range],input[type=color],input[type=file]')) return;"
-                    + "if(typeof t.focus==='function'){"
-                    + "  try{ t.focus({preventScroll:true}); }catch(_){ t.focus(); }"
-                    + "}"
-                    + "})();";
-            engine.executeScript(script);
-        } catch (Exception ignored) {
-            // ignore
         }
     }
 

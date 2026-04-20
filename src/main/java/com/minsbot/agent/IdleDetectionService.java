@@ -1,7 +1,10 @@
 package com.minsbot.agent;
 
+import com.minsbot.agent.tools.ScreenWatchingTools;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -16,8 +19,14 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Detects system-wide user idle time via Windows GetLastInputInfo.
- * When idle exceeds the configured threshold, pushes a playful
- * "taking over" message to the chat. Resets when the user is active again.
+ * When idle exceeds the configured threshold:
+ *   1) Auto-disables the bot's keyboard/mouse control flag (safety —
+ *      the bot stops being able to click/type if the user has stepped away).
+ *   2) Posts a short notification to the chat so the user sees the
+ *      change next time they're back at the keyboard.
+ * Resets the trigger when the user becomes active again. Does NOT auto-
+ * re-enable control — the user explicitly toggles the keyboard icon to
+ * resume.
  *
  * Config from ~/mins_bot_data/minsbot_config.txt section "## Idle detection":
  *   - enabled: true/false
@@ -31,10 +40,12 @@ public class IdleDetectionService {
     private static final Path CONFIG_PATH =
             Paths.get(System.getProperty("user.home"), "mins_bot_data", "minsbot_config.txt");
 
-    private static final String IDLE_MESSAGE =
-            "No activity detected... I'm taking over the PC in 10 seconds! \uD83D\uDE08";
-
     private final AsyncMessageService asyncMessages;
+
+    /** Lazy to avoid construction-time cycles via the tool router. */
+    @Autowired(required = false)
+    @Lazy
+    private ScreenWatchingTools screenWatching;
 
     private volatile boolean enabled = true;
     private volatile int idleThresholdSeconds = 300;
@@ -74,12 +85,24 @@ public class IdleDetectionService {
         if (idleSeconds < 0) return; // failed to read
 
         if (idleSeconds >= idleThresholdSeconds && !messageSent) {
-            asyncMessages.push(IDLE_MESSAGE);
+            // Auto-disable computer (mouse/keyboard) control on idle so the bot
+            // never clicks/types while the user has stepped away. Only fires
+            // ONCE per idle period — guarded by messageSent — and never
+            // auto-re-enables. The user must toggle the keyboard icon to resume.
+            boolean wasControlling = screenWatching != null && screenWatching.isControlEnabled();
+            if (wasControlling) {
+                screenWatching.setControlEnabled(false);
+                int idleMin = Math.max(1, idleThresholdSeconds / 60);
+                asyncMessages.push("Disabled mouse/keyboard control — no activity for "
+                        + idleMin + " min. Toggle the keyboard icon in the chat header to resume.");
+                log.info("[IdleDetection] User idle for {}s — auto-disabled keyboard/mouse control", idleSeconds);
+            } else {
+                log.debug("[IdleDetection] User idle for {}s (control was already off)", idleSeconds);
+            }
             messageSent = true;
-            log.info("[IdleDetection] User idle for {}s — sent takeover message", idleSeconds);
         } else if (idleSeconds < idleThresholdSeconds && messageSent) {
             messageSent = false;
-            log.debug("[IdleDetection] User active again — reset");
+            log.debug("[IdleDetection] User active again — reset (control stays off until user toggles it)");
         }
     }
 

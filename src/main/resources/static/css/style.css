@@ -117,8 +117,12 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #202020;
-  border-bottom: 1px solid #333;
+  /* Purple gradient — indigo-800 → violet-600 → purple-700 with a subtle
+     diagonal sheen. Reads well at 32px height, high contrast vs the dark
+     chat body, still feels premium. */
+  background: linear-gradient(135deg, #3730a3 0%, #6d28d9 55%, #7c3aed 100%);
+  border-bottom: 1px solid rgba(124, 58, 237, 0.35);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06) inset;
   -webkit-app-region: no-drag;
   user-select: none;
   -webkit-user-select: none;
@@ -192,6 +196,13 @@ html, body {
 .listen-model-select,
 #clear-btn {
   cursor: pointer !important;
+  padding: 7px !important;
+}
+
+#clear-btn .icon {
+  width: 20px !important;
+  height: 20px !important;
+  stroke-width: 1.8 !important;
 }
 
 .title-bar-btn:hover,
@@ -247,6 +258,12 @@ html, body {
 #title-bar-browser svg {
   width: 16px;
   height: 16px;
+}
+
+/* Clear (trash) in title bar — same slot as other controls but glyph was 10px; bump for visibility */
+#title-bar-clear svg {
+  width: 18px;
+  height: 18px;
 }
 
 .title-bar-btn:hover {
@@ -588,6 +605,10 @@ html, body {
   border-bottom: 1px solid rgba(255,255,255,0.08);
 }
 
+/* NOTE: .tab-extra visibility is controlled below in the card-grid block —
+   shown by default in browser view, hidden by `hidden` attr per-button,
+   hidden as a whole in the JavaFX shell (.tab-bar is hidden there). */
+
 .tab {
   flex: 1;
   padding: 8px 0;
@@ -624,6 +645,167 @@ body.embedded-minsbot .tab-bar {
 body:not(.embedded-minsbot) .title-bar {
   display: none;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Today's browser-view layout work — card grid as landing, back button,
+   panel-header hidden on non-chat, sub-page margins, JavaFX shell trims.
+   Grouped here so it's easy to find / edit.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Tab-bar hidden in browser view too — the card grid replaces it.
+   Clicking a card programmatically triggers the underlying tab button. */
+body:not(.embedded-minsbot) .tab-bar { display: none !important; }
+
+/* Extra tabs visible by default (browser view shows them via the card grid);
+   `hidden` attribute on individual buttons still takes effect through the
+   override below. JavaFX shell hides the whole tab-bar anyway. */
+.tab-extra { display: inline-flex; }
+.tab[hidden], .tab-extra[hidden] { display: none !important; }
+
+/* Chat panel-header is chat-specific (sense icons + sound + clear). Hide it
+   when we're on any other surface in browser view so the Back button has a
+   clean top edge. JavaFX shell always shows it (chat is the only surface). */
+body:not(.embedded-minsbot):not(.on-tab-chat) .panel-header { display: none !important; }
+
+/* Browser-view sub-page margins: max(10%, 20px) left and right, 15px top.
+   Chat sub-page pads the panel-header instead (see below). */
+body:not(.embedded-minsbot):not(.on-tab-menu) .tab-content.active {
+  padding-top: 15px !important;
+  padding-left: max(20px, 10%) !important;
+  padding-right: max(20px, 10%) !important;
+}
+body:not(.embedded-minsbot).on-tab-chat .panel-header {
+  padding-top: 15px;
+  padding-left: max(100px, 10%);
+  padding-right: max(20px, 10%);
+}
+
+/* ─── Card-grid home view (#tab-menu) ─── */
+.tab-menu {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 32px 32px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.tab-menu[hidden] { display: none !important; }
+
+.tab-menu-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tab-menu-title {
+  font-size: 22px;
+  font-weight: 600;
+  color: #f4f4f5;
+  letter-spacing: 0.01em;
+}
+.tab-menu-subtitle {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.45);
+}
+.tab-menu-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
+}
+.tab-menu-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 18px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font-family: inherit;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+.tab-menu-card:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(99, 102, 241, 0.4);
+  transform: translateY(-1px);
+}
+.tab-menu-card:active {
+  transform: translateY(0);
+  background: rgba(99, 102, 241, 0.14);
+}
+.tab-menu-card-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #e4e4e7;
+  letter-spacing: 0.01em;
+}
+.tab-menu-card-desc {
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* ─── Back button (#tab-back-btn) ─── Rounded square, icon-only, top-left. */
+.tab-back-btn {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 100;
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+  background: rgba(39, 39, 42, 0.92);
+  color: #e4e4e7;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  font-family: inherit;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  transition: background 0.12s ease, border-color 0.12s ease, transform 0.12s ease;
+}
+/* Hide the "Back" text span — the arrow icon is enough; data-tip handles the label on hover. */
+.tab-back-btn span { display: none; }
+.tab-back-btn:hover {
+  background: rgba(63, 63, 70, 0.95);
+  border-color: rgba(99, 102, 241, 0.5);
+}
+.tab-back-btn:active { transform: scale(0.94); }
+.tab-back-btn[hidden] { display: none !important; }
+/* Never in the JavaFX shell — no menu to go back to. */
+body.embedded-minsbot .tab-back-btn { display: none !important; }
+
+/* ─── JavaFX shell trims: hide niche controls + keep chat header on one row ─── */
+body.embedded-minsbot #listen-dur-down,
+body.embedded-minsbot #listen-dur-up,
+body.embedded-minsbot #listen-dur-label,
+body.embedded-minsbot #listen-model {
+  display: none !important;
+}
+body.embedded-minsbot .panel-header,
+body.embedded-minsbot .panel-header > div:first-child {
+  flex-wrap: nowrap !important;
+}
+body.embedded-minsbot .panel-header {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+body.embedded-minsbot .panel-header::-webkit-scrollbar { display: none; }
+
+/* Browser + refresh title-bar icons get the larger glyph (16px vs window-control 10px). */
+#title-bar-browser svg,
+#title-bar-refresh svg {
+  width: 16px;
+  height: 16px;
+}
+/* ═══════════════════════════════════════════════════════════════════════════
+   End of today's browser-view layout block.
+   ═══════════════════════════════════════════════════════════════════════════ */
 
 /* ─── Setup tab (API keys) ─── */
 .setup-tab-inner {
@@ -2528,6 +2710,202 @@ body:not(.embedded-minsbot) .title-bar {
 
 .todo-step .step-icon { margin-right: 6px; font-size: 12px; }
 
+/* Tab page title (shown at top of Directives, Todo, Marketplace, etc.) */
+.tab-page-title {
+  flex-shrink: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #e4e4e7;
+  letter-spacing: 0.2px;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* Todos toolbar (search + clear-all + download-all) */
+.todos-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  flex-shrink: 0;
+}
+
+.todos-toolbar .todos-search {
+  flex: 1;
+  height: 34px;
+  font-size: 13px;
+}
+
+.todos-toolbar .btn-secondary {
+  height: 34px;
+  padding: 0 12px;
+  font-size: 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.04);
+  color: rgba(255,255,255,0.85);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.todos-toolbar .btn-secondary:hover {
+  background: rgba(124, 58, 237, 0.18);
+  border-color: rgba(124, 58, 237, 0.5);
+}
+
+.todos-toolbar .btn-danger:hover {
+  background: rgba(248, 113, 113, 0.18);
+  border-color: rgba(248, 113, 113, 0.55);
+  color: #fca5a5;
+}
+
+/* Todo card header with actions */
+.todo-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.todo-card-header-text { flex: 1; min-width: 0; }
+
+.todo-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.todo-action-btn {
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.03);
+  color: rgba(255,255,255,0.78);
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.todo-action-btn:hover {
+  background: rgba(124, 58, 237, 0.2);
+  border-color: rgba(124, 58, 237, 0.5);
+  color: #fff;
+}
+
+.todo-action-delete:hover {
+  background: rgba(248, 113, 113, 0.18);
+  border-color: rgba(248, 113, 113, 0.55);
+  color: #fca5a5;
+}
+
+/* Generic confirm modal */
+.confirm-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.confirm-modal[hidden] { display: none; }
+
+.confirm-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
+}
+
+.confirm-modal-dialog {
+  position: relative;
+  width: min(420px, 92vw);
+  background: #1e1e22;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 20px 22px;
+  color: #e4e4e7;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+
+.confirm-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.confirm-modal-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  flex: 1;
+}
+
+.confirm-modal-close {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 6px;
+}
+.confirm-modal-close:hover { color: #fff; }
+
+.confirm-modal-message {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 4px 0 18px;
+  white-space: pre-wrap;
+}
+
+.confirm-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.confirm-modal-btn {
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.confirm-modal-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.confirm-modal-btn-primary {
+  background: rgba(124, 58, 237, 0.9);
+  border-color: rgba(124, 58, 237, 1);
+  color: #fff;
+}
+.confirm-modal-btn-primary:hover {
+  background: rgba(139, 92, 246, 1);
+  border-color: rgba(139, 92, 246, 1);
+}
+
+.confirm-modal-btn-danger {
+  background: rgba(220, 38, 38, 0.9);
+  border-color: rgba(220, 38, 38, 1);
+  color: #fff;
+}
+.confirm-modal-btn-danger:hover {
+  background: rgba(239, 68, 68, 1);
+  border-color: rgba(239, 68, 68, 1);
+}
+
 /* ─── Directives tab ─── */
 .directive-item {
   display: flex;
@@ -2571,6 +2949,95 @@ body:not(.embedded-minsbot) .title-bar {
 .directive-input-row {
   flex-shrink: 0;
   border-top: 1px solid rgba(255,255,255,0.06);
+}
+
+.directive-samples {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.02);
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.directive-samples-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(255,255,255,0.55);
+  margin-bottom: 2px;
+}
+
+.directive-sample {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.03);
+  color: rgba(255,255,255,0.88);
+  font-size: 13px;
+  line-height: 1.35;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+}
+
+.directive-sample:hover {
+  background: rgba(124, 58, 237, 0.18);
+  border-color: rgba(124, 58, 237, 0.5);
+}
+
+.directive-sample:active { transform: translateY(1px); }
+
+.directive-sample.added {
+  opacity: 0.5;
+  cursor: default;
+  border-color: rgba(74, 222, 128, 0.4);
+  background: rgba(74, 222, 128, 0.08);
+}
+
+.directive-sample-plus {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(124, 58, 237, 0.35);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.directive-sample.added .directive-sample-plus {
+  background: rgba(74, 222, 128, 0.55);
+}
+
+.directive-sample-text { flex: 1; }
+
+#directive-generate-btn {
+  flex-shrink: 0;
+  padding: 0 12px;
+  height: 36px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.04);
+  color: rgba(255,255,255,0.85);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+#directive-generate-btn:hover {
+  background: rgba(124, 58, 237, 0.18);
+  border-color: rgba(124, 58, 237, 0.5);
 }
 
 /* Chat area — wraps messages + sticky watch feed */
@@ -4032,6 +4499,16 @@ body:not(.embedded-minsbot) .title-bar {
   border-color: rgba(99,102,241,0.4);
 }
 
+.mp-filter-select option {
+  background: #1e1e22;
+  color: #e4e4e7;
+}
+.mp-filter-select option:checked,
+.mp-filter-select option:hover {
+  background: #7c3aed;
+  color: #fff;
+}
+
 .mp-grid {
   display: flex;
   flex-direction: column;
@@ -4172,89 +4649,201 @@ body:not(.embedded-minsbot) .title-bar {
   margin-bottom: 10px;
 }
 
+/* Dashboard header — title + refresh button row */
+.dashboard-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.dashboard-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: #f4f4f5;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+}
+.dashboard-subtitle {
+  font-size: 12px;
+  color: rgba(255,255,255,0.45);
+  margin-top: 4px;
+}
+
+/* Hero stats: 4 cards side by side, auto-fit on narrow windows. */
 .dashboard-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  margin-bottom: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
 }
 
 .dash-card {
-  background: rgba(255,255,255,0.04);
+  background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
   border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 8px;
-  padding: 10px;
-  text-align: center;
+  border-radius: 12px;
+  padding: 16px 18px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  transition: border-color 0.15s, transform 0.15s;
+}
+.dash-card:hover {
+  border-color: rgba(255,255,255,0.18);
+  transform: translateY(-1px);
 }
 
 .dash-card-label {
-  font-size: 9px;
-  color: rgba(255,255,255,0.4);
+  font-size: 10px;
+  color: rgba(255,255,255,0.5);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  margin-bottom: 4px;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  margin-bottom: 6px;
 }
 
 .dash-card-value {
-  font-size: 16px;
-  font-weight: 600;
-  color: #3b82f6;
+  font-size: 28px;
+  font-weight: 700;
+  color: #f4f4f5;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
 }
 
-.dashboard-section { margin-bottom: 14px; }
+.dash-card-sub {
+  font-size: 11px;
+  color: rgba(255,255,255,0.42);
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
 
+/* Section card — chart / tools / whatever. */
+.dashboard-section {
+  margin-bottom: 16px;
+  padding: 18px 20px;
+  background: rgba(255,255,255,0.025);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 12px;
+}
+.dashboard-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.dashboard-section .section-title {
+  margin: 0;
+  font-size: 12px;
+  color: rgba(255,255,255,0.7);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.dash-section-meta {
+  display: flex;
+  gap: 14px;
+  font-size: 11px;
+  color: rgba(255,255,255,0.4);
+  flex-wrap: wrap;
+}
+.dash-stat strong {
+  color: #f4f4f5;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  margin-left: 3px;
+}
+
+/* Top-tools: two-column name + bar + count */
 .dash-tools-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  margin-top: 6px;
-}
-
-.dash-tool-row {
-  display: flex;
-  align-items: center;
   gap: 8px;
-  font-size: 11px;
 }
-
+.dash-tool-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 180px) 1fr 50px;
+  gap: 12px;
+  align-items: center;
+  font-size: 12px;
+}
 .dash-tool-name {
-  min-width: 100px;
-  color: rgba(255,255,255,0.6);
-  text-align: right;
+  color: rgba(255,255,255,0.8);
+  font-family: 'SF Mono', Consolas, 'Courier New', monospace;
+  font-size: 11px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-align: left;
 }
-
 .dash-tool-bar-bg {
-  flex: 1;
   height: 6px;
-  background: rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.05);
   border-radius: 3px;
   overflow: hidden;
 }
-
 .dash-tool-bar {
   height: 100%;
-  background: linear-gradient(90deg, #3b82f6, #60a5fa);
+  background: linear-gradient(90deg, #6366f1, #8b5cf6);
   border-radius: 3px;
-  transition: width 0.3s;
+  transition: width 0.3s ease;
 }
-
 .dash-tool-count {
-  min-width: 30px;
   text-align: right;
-  color: rgba(255,255,255,0.5);
+  color: rgba(255,255,255,0.55);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
+/* Chart */
 .dash-chart-container {
-  margin-top: 6px;
-  background: rgba(255,255,255,0.03);
+  width: 100%;
+  overflow: hidden;
+  background: rgba(0,0,0,0.15);
   border-radius: 6px;
-  padding: 8px;
+  padding: 8px 4px 4px;
+}
+.dash-chart {
+  display: block;
+  width: 100% !important;
+  height: 140px !important;
 }
 
-.dash-chart { width: 100%; height: 100px; }
+/* Status footer — green pulse dot + last-updated timestamp */
+.dash-status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.05);
+  font-size: 11px;
+  color: rgba(255,255,255,0.45);
+  margin-top: 8px;
+}
+.dash-status-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.dash-status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #34d399;
+  box-shadow: 0 0 8px rgba(52,211,153,0.6);
+  animation: dash-pulse 2s ease-in-out infinite;
+}
+@keyframes dash-pulse {
+  0%, 100% { opacity: 0.85; }
+  50% { opacity: 1; }
+}
 
 /* ═══ Multi-Agent Chat ═══ */
 
@@ -4783,7 +5372,7 @@ body:not(.embedded-minsbot) .title-bar {
   }
 
   .tab-extra {
-    display: inline-flex !important;
+    display: none !important;
   }
 
   .chat-area {

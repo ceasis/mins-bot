@@ -101,6 +101,7 @@
   // ═══ Custom title bar: drag, minimize, close ═══
   (function () {
     var titleBarDrag = document.querySelector('.title-bar-drag');
+    var titleBarRefresh = document.getElementById('title-bar-refresh');
     var titleBarBrowser = document.getElementById('title-bar-browser');
     var titleBarMinimize = document.getElementById('title-bar-minimize');
     var titleBarClose = document.getElementById('title-bar-close');
@@ -134,6 +135,17 @@
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
 
+    if (titleBarRefresh) {
+      titleBarRefresh.addEventListener('click', function () {
+        // Hard reload: bypass any in-memory page state by appending a cache-buster
+        // to the URL. Works in both the JavaFX WebView and a real browser.
+        var sep = window.location.href.indexOf('?') >= 0 ? '&' : '?';
+        var buster = sep + '_r=' + Date.now();
+        // Strip any existing _r param so we don't keep appending.
+        var clean = window.location.href.replace(/([?&])_r=\d+/g, '$1').replace(/[?&]$/, '');
+        window.location.href = clean + buster;
+      });
+    }
     if (titleBarBrowser) {
       titleBarBrowser.addEventListener('click', function () {
         if (typeof window.java !== 'undefined' && window.java.openInBrowser) {
@@ -1081,10 +1093,77 @@
   let browserPollTimer = null;
   let lastBlobUrl = null;
 
+  // ═══ Card-grid home view (browser only) ═══
+  // Builds a card per tab button that isn't marked `hidden`. Clicking a card
+  // triggers the same handler as clicking the underlying tab button (below),
+  // so all the per-tab loaders fire uniformly.
+  var tabMenuEl = document.getElementById('tab-menu');
+  var tabMenuGridEl = document.getElementById('tab-menu-grid');
+  var tabBackBtnEl = document.getElementById('tab-back-btn');
+  var isBrowserView = !document.body.classList.contains('embedded-minsbot');
+
+  function renderTabMenu() {
+    if (!tabMenuGridEl) return;
+    var html = '';
+    Array.prototype.forEach.call(tabs, function (btn) {
+      if (btn.hasAttribute('hidden')) return;
+      var id = btn.dataset.tab;
+      var title = btn.textContent.trim();
+      var desc = btn.getAttribute('data-desc') || '';
+      html += '<button type="button" class="tab-menu-card" data-tab-target="' + id + '">'
+           + '<div class="tab-menu-card-title">' + title + '</div>'
+           + '<div class="tab-menu-card-desc">' + desc + '</div>'
+           + '</button>';
+    });
+    tabMenuGridEl.innerHTML = html;
+    tabMenuGridEl.querySelectorAll('.tab-menu-card').forEach(function (card) {
+      card.addEventListener('click', function () {
+        var target = card.getAttribute('data-tab-target');
+        var btn = document.querySelector('.tab[data-tab="' + target + '"]');
+        if (btn) btn.click();
+      });
+    });
+  }
+
+  // Tag body with `on-tab-<name>` so CSS can hide chat-specific UI (panel-header
+  // sense buttons, sound, clear) when the user is on a non-chat sub-page.
+  function setActiveSurface(name) {
+    document.body.className = document.body.className.replace(/\bon-tab-\S+/g, '').trim();
+    document.body.classList.add('on-tab-' + name);
+  }
+
+  function showTabMenu() {
+    if (!isBrowserView || !tabMenuEl) return;
+    tabs.forEach(function (t) { t.classList.remove('active'); });
+    tabContents.forEach(function (c) { c.classList.remove('active'); c.classList.remove('tab-visible'); });
+    tabMenuEl.hidden = false;
+    if (tabBackBtnEl) tabBackBtnEl.hidden = true;
+    setActiveSurface('menu');
+  }
+
+  function hideTabMenu() {
+    if (tabMenuEl) tabMenuEl.hidden = true;
+    if (isBrowserView && tabBackBtnEl) tabBackBtnEl.hidden = false;
+  }
+
+  if (isBrowserView) {
+    renderTabMenu();
+    // Landing state: show the card grid instead of the default Chat tab.
+    showTabMenu();
+  } else {
+    // JavaFX shell: chat is the only surface.
+    setActiveSurface('chat');
+  }
+  if (tabBackBtnEl) {
+    tabBackBtnEl.addEventListener('click', showTabMenu);
+  }
+
   tabs.forEach(function (tab) {
     tab.addEventListener('click', function () {
       tabs.forEach(function (t) { t.classList.remove('active'); });
       tabContents.forEach(function (c) { c.classList.remove('active'); c.classList.remove('tab-visible'); });
+      hideTabMenu();
+      setActiveSurface(tab.dataset.tab);
       tab.classList.add('active');
       var newContent = document.getElementById('tab-' + tab.dataset.tab);
       newContent.classList.add('active');
@@ -2365,39 +2444,214 @@
     if (schedEditor) schedEditor.style.display = '';
   };
 
+  // ═══ Generic confirm modal ═══
+
+  var _confirmModal = document.getElementById('confirm-modal');
+  var _confirmTitle = document.getElementById('confirm-modal-title');
+  var _confirmMessage = document.getElementById('confirm-modal-message');
+  var _confirmOk = document.getElementById('confirm-modal-ok');
+  var _confirmCancel = document.getElementById('confirm-modal-cancel');
+  var _confirmResolver = null;
+  var _confirmKeyHandler = null;
+
+  function _closeConfirm(result) {
+    if (!_confirmModal) return;
+    _confirmModal.hidden = true;
+    if (_confirmKeyHandler) {
+      document.removeEventListener('keydown', _confirmKeyHandler);
+      _confirmKeyHandler = null;
+    }
+    var r = _confirmResolver;
+    _confirmResolver = null;
+    if (r) r(result);
+  }
+
+  function showConfirm(opts) {
+    opts = opts || {};
+    return new Promise(function (resolve) {
+      if (!_confirmModal) { resolve(window.confirm(opts.message || 'Continue?')); return; }
+      if (_confirmResolver) _closeConfirm(false);
+
+      _confirmTitle.textContent = opts.title || 'Confirm';
+      _confirmMessage.textContent = opts.message || '';
+      _confirmOk.textContent = opts.okText || 'OK';
+      _confirmCancel.textContent = opts.cancelText || 'Cancel';
+
+      _confirmOk.classList.remove('confirm-modal-btn-primary', 'confirm-modal-btn-danger');
+      _confirmOk.classList.add(opts.danger ? 'confirm-modal-btn-danger' : 'confirm-modal-btn-primary');
+
+      _confirmResolver = resolve;
+      _confirmModal.hidden = false;
+      setTimeout(function () { try { _confirmOk.focus(); } catch (_) {} }, 0);
+
+      _confirmKeyHandler = function (e) {
+        if (e.key === 'Escape') { e.preventDefault(); _closeConfirm(false); }
+        else if (e.key === 'Enter') { e.preventDefault(); _closeConfirm(true); }
+      };
+      document.addEventListener('keydown', _confirmKeyHandler);
+    });
+  }
+
+  if (_confirmModal) {
+    _confirmOk.addEventListener('click', function () { _closeConfirm(true); });
+    _confirmCancel.addEventListener('click', function () { _closeConfirm(false); });
+    _confirmModal.querySelectorAll('[data-confirm-close]').forEach(function (el) {
+      el.addEventListener('click', function () { _closeConfirm(false); });
+    });
+  }
+
   // ═══ Todo tab ═══
 
   var todosContainer = document.getElementById('todos-container');
+  var todosSearchInput = document.getElementById('todos-search');
+  var todosClearAllBtn = document.getElementById('todos-clear-all-btn');
+  var todosDownloadAllBtn = document.getElementById('todos-download-all-btn');
+
+  var _allTodos = [];
+  var _todosFilter = '';
+
+  function renderTodos() {
+    if (!todosContainer) return;
+    var q = (_todosFilter || '').toLowerCase().trim();
+    var tasks = _allTodos;
+    if (q) {
+      tasks = tasks.filter(function (t) {
+        if ((t.title || '').toLowerCase().indexOf(q) >= 0) return true;
+        if (t.steps && t.steps.some(function (s) {
+          return (s.text || '').toLowerCase().indexOf(q) >= 0;
+        })) return true;
+        return false;
+      });
+    }
+    if (!tasks || tasks.length === 0) {
+      todosContainer.innerHTML = '<div class="tab-empty">'
+        + (q ? 'No tasks match "' + escapeHtml(q) + '".' : 'No tasks. Ask the bot to create a plan.')
+        + '</div>';
+      return;
+    }
+    var html = '';
+    tasks.forEach(function (t) {
+      var idx = t._uiIndex;
+      html += '<div class="todo-card" data-idx="' + idx + '">'
+        + '<div class="todo-card-header">'
+        + '<div class="todo-card-header-text">'
+        + '<div class="todo-title">' + escapeHtml(t.title) + '</div>'
+        + '<div class="todo-time">' + escapeHtml(t.timestamp) + '</div>'
+        + '</div>'
+        + '<div class="todo-card-actions">'
+        + '<button class="todo-action-btn" data-action="skill" data-idx="' + idx + '" title="Save as skill">Skill</button>'
+        + '<button class="todo-action-btn" data-action="download" data-idx="' + idx + '" title="Download task">&#8681;</button>'
+        + '<button class="todo-action-btn todo-action-delete" data-action="delete" data-idx="' + idx + '" title="Delete task">\u2715</button>'
+        + '</div>'
+        + '</div>'
+        + '<div class="todo-steps">';
+      if (t.steps) {
+        t.steps.forEach(function (s) {
+          var isDone = s.status === 'DONE';
+          html += '<div class="todo-step ' + (isDone ? 'done' : 'pending') + '">'
+            + '<span class="step-icon">' + (isDone ? '\u2713' : '\u25CB') + '</span>'
+            + escapeHtml(s.num + '. ' + s.text)
+            + '</div>';
+        });
+      }
+      html += '</div></div>';
+    });
+    todosContainer.innerHTML = html;
+
+    todosContainer.querySelectorAll('.todo-action-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var action = btn.getAttribute('data-action');
+        var idx = parseInt(btn.getAttribute('data-idx'), 10);
+        if (action === 'delete') deleteTodo(idx);
+        else if (action === 'download') downloadTodo(idx);
+        else if (action === 'skill') saveTodoAsSkill(idx);
+      });
+    });
+  }
 
   function loadTodos() {
     if (!todosContainer) return;
     fetch('/api/tabs/todos').then(function (r) { return r.json(); }).then(function (tasks) {
-      if (!tasks || tasks.length === 0) {
-        todosContainer.innerHTML = '<div class="tab-empty">No tasks. Ask the bot to create a plan.</div>';
-        return;
-      }
-      var html = '';
-      tasks.forEach(function (t) {
-        html += '<div class="todo-card">'
-          + '<div class="todo-title">' + escapeHtml(t.title) + '</div>'
-          + '<div class="todo-time">' + escapeHtml(t.timestamp) + '</div>'
-          + '<div class="todo-steps">';
-        if (t.steps) {
-          t.steps.forEach(function (s) {
-            var isDone = s.status === 'DONE';
-            html += '<div class="todo-step ' + (isDone ? 'done' : 'pending') + '">'
-              + '<span class="step-icon">' + (isDone ? '\u2713' : '\u25CB') + '</span>'
-              + escapeHtml(s.num + '. ' + s.text)
-              + '</div>';
-          });
-        }
-        html += '</div></div>';
+      _allTodos = (tasks || []).map(function (t, i) {
+        t._uiIndex = i;
+        return t;
       });
-      todosContainer.innerHTML = html;
+      renderTodos();
     }).catch(function () {
       todosContainer.innerHTML = '<div class="tab-empty">Failed to load tasks.</div>';
     });
   }
+
+  function deleteTodo(idx) {
+    var t = _allTodos.find(function (x) { return x._uiIndex === idx; });
+    var label = t ? t.title : 'this task';
+    showConfirm({
+      title: 'Delete task',
+      message: 'Delete task "' + label + '"? This cannot be undone.',
+      okText: 'Delete',
+      danger: true
+    }).then(function (ok) {
+      if (!ok) return;
+      fetch('/api/tabs/todos/' + idx, { method: 'DELETE' })
+        .then(function (r) { return r.json(); })
+        .then(function (res) {
+          if (res && res.error) alert(res.error);
+          loadTodos();
+        });
+    });
+  }
+
+  function clearAllTodos() {
+    if (!_allTodos.length) return;
+    showConfirm({
+      title: 'Clear all tasks',
+      message: 'Clear ALL ' + _allTodos.length + ' tasks? This cannot be undone.',
+      okText: 'Clear all',
+      danger: true
+    }).then(function (ok) {
+      if (!ok) return;
+      fetch('/api/tabs/todos', { method: 'DELETE' })
+        .then(function () { loadTodos(); });
+    });
+  }
+
+  function downloadTodo(idx) {
+    window.location.href = '/api/tabs/todos/' + idx + '/download';
+  }
+
+  function downloadAllTodos() {
+    window.location.href = '/api/tabs/todos/download';
+  }
+
+  function saveTodoAsSkill(idx) {
+    var t = _allTodos.find(function (x) { return x._uiIndex === idx; });
+    if (!t) return;
+    var defaultName = (t.title || 'skill').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+    var name = prompt('Skill file name (without .md):', defaultName);
+    if (name === null) return;
+    name = (name || '').trim();
+    if (!name) { alert('Skill name is required.'); return; }
+    var description = prompt('One-line skill description (optional):', '') || '';
+    fetch('/api/tabs/todos/' + idx + '/as-skill', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name, description: description })
+    }).then(function (r) { return r.json(); })
+      .then(function (res) {
+        if (res && res.error) alert(res.error);
+        else alert(res.result || 'Skill saved.');
+      })
+      .catch(function () { alert('Failed to save skill.'); });
+  }
+
+  if (todosSearchInput) {
+    todosSearchInput.addEventListener('input', function () {
+      _todosFilter = todosSearchInput.value || '';
+      renderTodos();
+    });
+  }
+  if (todosClearAllBtn) todosClearAllBtn.addEventListener('click', clearAllTodos);
+  if (todosDownloadAllBtn) todosDownloadAllBtn.addEventListener('click', downloadAllTodos);
 
   // ═══ Directives tab ═══
 
@@ -2449,6 +2703,55 @@
   if (directiveInput) {
     directiveInput.addEventListener('keydown', function (e) {
       if (e.key === 'Enter') { e.preventDefault(); addDirective(); }
+    });
+  }
+
+  // ── Generate sample directives ──
+  var directiveGenerateBtn = document.getElementById('directive-generate-btn');
+  var directiveSamplesEl = document.getElementById('directive-samples');
+  var DIRECTIVE_SAMPLES = [
+    'Always verify the screen state before clicking or typing.',
+    'Keep responses concise — under 100 words unless asked for more detail.',
+    'Ask before running destructive commands (delete, overwrite, reset).',
+    'Save significant decisions and facts to episodic memory.',
+    'Prefer local tools and files over external APIs when possible.',
+    'Use skill files for recurring multi-step workflows.'
+  ];
+
+  function renderDirectiveSamples() {
+    if (!directiveSamplesEl) return;
+    var html = '<div class="directive-samples-title">Sample directives — click to add</div>';
+    DIRECTIVE_SAMPLES.forEach(function (text, i) {
+      html += '<button type="button" class="directive-sample" data-idx="' + i + '">'
+        + '<span class="directive-sample-plus">+</span>'
+        + '<span class="directive-sample-text">' + escapeHtml(text) + '</span>'
+        + '</button>';
+    });
+    directiveSamplesEl.innerHTML = html;
+    directiveSamplesEl.querySelectorAll('.directive-sample').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var idx = parseInt(btn.getAttribute('data-idx'), 10);
+        var text = DIRECTIVE_SAMPLES[idx];
+        if (!text) return;
+        btn.disabled = true;
+        btn.classList.add('added');
+        fetch('/api/tabs/directives', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ directive: text })
+        }).then(function () { loadDirectives(); });
+      });
+    });
+  }
+
+  if (directiveGenerateBtn && directiveSamplesEl) {
+    directiveGenerateBtn.addEventListener('click', function () {
+      if (directiveSamplesEl.hidden) {
+        renderDirectiveSamples();
+        directiveSamplesEl.hidden = false;
+      } else {
+        directiveSamplesEl.hidden = true;
+      }
     });
   }
 
@@ -3868,56 +4171,116 @@
   function loadDashboard() {
     fetch('/api/analytics').then(function (r) { return r.json(); }).then(function (d) {
       var el = function(id) { return document.getElementById(id); };
+      var fmtMs = function (ms) {
+        if (!ms || ms <= 0) return '—';
+        if (ms < 1000) return Math.round(ms) + ' ms';
+        return (ms / 1000).toFixed(1) + ' s';
+      };
+
+      // Hero stats
       if (el('dash-requests')) el('dash-requests').textContent = (d.totalRequests || 0).toLocaleString();
       if (el('dash-uptime')) el('dash-uptime').textContent = d.uptime || '—';
-      if (el('dash-avg-time')) el('dash-avg-time').textContent = (d.avgResponseTimeMs || 0).toFixed(0) + ' ms';
+      if (el('dash-avg-time')) el('dash-avg-time').textContent = fmtMs(d.avgResponseTimeMs);
       if (el('dash-tokens')) el('dash-tokens').textContent = ((d.totalInputTokens || 0) + (d.totalOutputTokens || 0)).toLocaleString();
       if (el('dash-cost')) el('dash-cost').textContent = '$' + (d.estimatedCost || 0).toFixed(4);
-      if (el('dash-token-split')) el('dash-token-split').textContent = (d.totalInputTokens || 0).toLocaleString() + ' in / ' + (d.totalOutputTokens || 0).toLocaleString() + ' out';
+      if (el('dash-token-split')) el('dash-token-split').textContent = (d.totalInputTokens || 0).toLocaleString() + ' in · ' + (d.totalOutputTokens || 0).toLocaleString() + ' out';
 
+      // Response-time stat pills in the chart header
+      if (el('dash-avg-label')) el('dash-avg-label').textContent = fmtMs(d.avgResponseTimeMs);
+      if (el('dash-min-label')) el('dash-min-label').textContent = fmtMs(d.minResponseTimeMs);
+      if (el('dash-max-label')) el('dash-max-label').textContent = fmtMs(d.maxResponseTimeMs);
+
+      // Top tools — horizontal bar chart
       var toolsEl = el('dash-tools');
       if (toolsEl && d.toolUsage) {
         var entries = Object.entries(d.toolUsage).sort(function (a, b) { return b[1] - a[1]; });
         if (entries.length === 0) {
-          toolsEl.innerHTML = '<div class="tab-empty">No tool calls yet.</div>';
+          toolsEl.innerHTML = '<div class="tab-empty">No tool calls yet this session.</div>';
         } else {
           var html = '';
           var max = entries[0][1];
           entries.slice(0, 15).forEach(function (e) {
             var pct = Math.max(4, (e[1] / max) * 100);
             html += '<div class="dash-tool-row">'
-              + '<span class="dash-tool-name">' + escapeHtml(e[0]) + '</span>'
+              + '<span class="dash-tool-name" title="' + escapeHtml(e[0]) + '">' + escapeHtml(e[0]) + '</span>'
               + '<div class="dash-tool-bar-bg"><div class="dash-tool-bar" style="width:' + pct + '%"></div></div>'
-              + '<span class="dash-tool-count">' + e[1] + '</span>'
+              + '<span class="dash-tool-count">' + e[1].toLocaleString() + '</span>'
               + '</div>';
           });
           toolsEl.innerHTML = html;
         }
       }
 
+      // Response-time chart — HiDPI-aware, resized to actual canvas width,
+      // gradient fill below a smooth line, light baseline grid.
       var canvas = el('dash-chart');
       if (canvas && d.recentResponseTimesMs) {
+        var dpr = window.devicePixelRatio || 1;
+        var cssW = canvas.clientWidth || 800;
+        var cssH = canvas.clientHeight || 140;
+        canvas.width = Math.floor(cssW * dpr);
+        canvas.height = Math.floor(cssH * dpr);
         var ctx = canvas.getContext('2d');
-        var w = canvas.width, h = canvas.height;
-        ctx.clearRect(0, 0, w, h);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, cssW, cssH);
+
         var pts = d.recentResponseTimesMs.slice(-20);
+
+        // Baseline grid (3 horizontal lines at 25/50/75%)
+        ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+        ctx.lineWidth = 1;
+        [0.25, 0.5, 0.75].forEach(function (fr) {
+          var y = cssH * fr;
+          ctx.beginPath();
+          ctx.moveTo(0, y); ctx.lineTo(cssW, y); ctx.stroke();
+        });
+
         if (pts.length > 1) {
           var maxVal = Math.max.apply(null, pts) || 1;
-          ctx.strokeStyle = '#3b82f6';
-          ctx.lineWidth = 2;
+          var padY = 10;
+          var sx = function (i) { return (i / (pts.length - 1)) * cssW; };
+          var sy = function (v) { return cssH - (v / maxVal) * (cssH - padY * 2) - padY; };
+
+          // Filled area below the line (gradient)
+          var grad = ctx.createLinearGradient(0, 0, 0, cssH);
+          grad.addColorStop(0, 'rgba(99,102,241,0.35)');
+          grad.addColorStop(1, 'rgba(99,102,241,0)');
           ctx.beginPath();
-          pts.forEach(function (v, i) {
-            var x = (i / (pts.length - 1)) * w;
-            var y = h - (v / maxVal) * (h - 10) - 5;
-            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-          });
-          ctx.stroke();
-          ctx.lineTo(w, h);
-          ctx.lineTo(0, h);
-          ctx.closePath();
-          ctx.fillStyle = 'rgba(59,130,246,0.1)';
+          ctx.moveTo(sx(0), sy(pts[0]));
+          for (var i = 1; i < pts.length; i++) ctx.lineTo(sx(i), sy(pts[i]));
+          ctx.lineTo(cssW, cssH); ctx.lineTo(0, cssH); ctx.closePath();
+          ctx.fillStyle = grad;
           ctx.fill();
+
+          // Line on top
+          ctx.strokeStyle = '#818cf8';
+          ctx.lineWidth = 2;
+          ctx.lineJoin = 'round';
+          ctx.beginPath();
+          ctx.moveTo(sx(0), sy(pts[0]));
+          for (var j = 1; j < pts.length; j++) ctx.lineTo(sx(j), sy(pts[j]));
+          ctx.stroke();
+
+          // Last-point marker
+          var lastX = sx(pts.length - 1), lastY = sy(pts[pts.length - 1]);
+          ctx.fillStyle = '#a78bfa';
+          ctx.beginPath();
+          ctx.arc(lastX, lastY, 3.5, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.fillStyle = 'rgba(255,255,255,0.25)';
+          ctx.font = '11px system-ui';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('No response-time data yet.', cssW / 2, cssH / 2);
         }
+      }
+
+      // Last-updated timestamp
+      var updEl = el('dash-last-updated');
+      if (updEl) {
+        var now = new Date();
+        updEl.textContent = 'Updated ' + now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       }
     }).catch(function () {});
   }

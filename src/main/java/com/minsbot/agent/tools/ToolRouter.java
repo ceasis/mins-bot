@@ -131,6 +131,7 @@ public class ToolRouter {
     private final RestartTools restartTools;
     private final OrchestratorTools orchestratorTools;
     private final YouTubeTools youTubeTools;
+    private final RemindersTools remindersTools;
 
     private final SkillDevTools skillDevTools;
     private final SkillProductivityTools skillProductivityTools;
@@ -253,6 +254,7 @@ public class ToolRouter {
             RestartTools restartTools,
             OrchestratorTools orchestratorTools,
             YouTubeTools youTubeTools,
+            RemindersTools remindersTools,
             SkillDevTools skillDevTools,
             SkillProductivityTools skillProductivityTools,
             SkillSeoMarketingTools skillSeoMarketingTools,
@@ -357,6 +359,7 @@ public class ToolRouter {
         this.restartTools = restartTools;
         this.orchestratorTools = orchestratorTools;
         this.youTubeTools = youTubeTools;
+        this.remindersTools = remindersTools;
         this.skillDevTools = skillDevTools;
         this.skillProductivityTools = skillProductivityTools;
         this.skillSeoMarketingTools = skillSeoMarketingTools;
@@ -521,7 +524,8 @@ public class ToolRouter {
                 gitHubTools, botWindowTools,
                 codeRunnerTools, fileWatcherTools, appUsageTrackerTools,
                 customSkillTools, bargeInTools, restartTools,
-                orchestratorTools, youTubeTools, mapsTools, upcomingTools, recurringTaskTools
+                orchestratorTools, youTubeTools, mapsTools, upcomingTools, recurringTaskTools,
+                remindersTools
         };
         for (Object bean : allBeans) {
             if (bean != null && !toolCounts.containsKey(bean)) {
@@ -637,6 +641,7 @@ public class ToolRouter {
         map.put("barge_in",      List.of(bargeInTools));
         map.put("restart",       List.of(restartTools));
         map.put("orchestrator",  List.of(orchestratorTools));
+        map.put("reminders",     List.of(remindersTools));
 
         // ─── Skill packs (wrappers around self-contained skills under com.minsbot.skills.*) ───
         map.put("dev_skills",         List.of(skillDevTools));

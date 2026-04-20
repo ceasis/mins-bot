@@ -10,22 +10,22 @@
 </head>
 <body>
   <div id="root" class="expanded">
+    <!-- Title bar = drag strip + window controls (refresh, open-in-browser,
+         minimize, close). Visible in JavaFX shell only — hidden in the browser
+         view since the browser provides its own chrome. -->
     <header id="title-bar" class="title-bar">
       <div class="title-bar-drag">
         <img class="title-bar-icon" src="bot-icon-16.png" srcset="bot-icon-16.png 1x, bot-icon-32.png 2x" alt="" aria-hidden="true" draggable="false">
         <span class="title-bar-app-name">Mins Bot</span>
       </div>
       <div class="title-bar-controls">
-        <button type="button" id="title-bar-clear" class="title-bar-btn" data-tip="Clear chat history (Ctrl+L)" data-tip-dir="down" aria-label="Clear chat history">
-          <svg viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M2.5 3.5h7"/>
-            <path d="M3.5 3.5V10a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1V3.5"/>
-            <path d="M4.8 3.5V2.3a.8.8 0 0 1 .8-.8h1a.8.8 0 0 1 .8.8v1.2"/>
-            <path d="M5 5.5v3.5"/>
-            <path d="M7 5.5v3.5"/>
+        <button type="button" id="title-bar-refresh" class="title-bar-btn" data-tip="Reload UI" data-tip-dir="down" aria-label="Reload UI">
+          <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 8A6 6 0 1 1 11.8 3.5"/>
+            <path d="M14 2v4h-4"/>
           </svg>
         </button>
-        <button type="button" id="title-bar-browser" class="title-bar-btn" data-tip="Open in browser" data-tip-dir="down" aria-label="Open in system browser">
+        <button type="button" id="title-bar-browser" class="title-bar-btn" data-tip="Open control panel in browser" data-tip-dir="down" aria-label="Open in system browser">
           <svg viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 1.5h4v4"/><path d="M10.5 1.5L5 7"/><path d="M9.5 7v3a1 1 0 0 1-1 1h-6a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1H5"/></svg>
         </button>
         <button type="button" id="title-bar-minimize" class="title-bar-btn" data-tip="Minimize" data-tip-dir="down" aria-label="Minimize">
@@ -95,27 +95,48 @@
           </button>
         </div>
       </div>
+      <!-- Legacy tab-bar — hidden in browser view (card grid replaces it) and in
+           the JavaFX shell (locks to Chat). Kept in the DOM so existing JS that
+           queries `.tab` buttons for click handling still works — the JS switches
+           tabs via the same buttons, regardless of whether they're visible. -->
       <div class="tab-bar">
-        <button class="tab active" data-tab="chat">Chat</button>
-        <button class="tab" data-tab="browser">Browser</button>
-        <button class="tab tab-extra" data-tab="agents">Agents</button>
-        <button class="tab tab-extra" data-tab="integrations">Integrations</button>
-        <button class="tab tab-extra" data-tab="setup">Setup</button>
-        <button class="tab tab-extra" data-tab="skills">Skills</button>
-        <button class="tab tab-extra" data-tab="schedules">Schedules</button>
-        <button class="tab tab-extra" data-tab="todos">Todo</button>
-        <button class="tab tab-extra" data-tab="directives">Directives</button>
-        <button class="tab tab-extra" data-tab="personality">Personality</button>
-        <button class="tab tab-extra" data-tab="knowledge">Knowledge</button>
-        <button class="tab tab-extra" data-tab="voice">Voice</button>
-        <button class="tab tab-extra" data-tab="calibration">Calibration</button>
-        <button class="tab tab-extra" data-tab="workflows">Workflows</button>
-        <button class="tab tab-extra" data-tab="templates">Templates</button>
-        <button class="tab tab-extra" data-tab="marketplace">Marketplace</button>
-        <button class="tab tab-extra" data-tab="dashboard">Dashboard</button>
-        <button class="tab tab-extra" data-tab="multiagent">Multi-Agent</button>
-        <button class="tab tab-extra" data-tab="automations">Automations</button>
+        <button class="tab active" data-tab="chat" data-desc="Talk to the bot. Ask anything.">Chat</button>
+        <button class="tab" data-tab="browser" data-desc="Browse the web inside the bot.">Browser</button>
+        <button class="tab tab-extra" data-tab="agents" data-desc="Launch background agents on independent missions.">Agents</button>
+        <button class="tab tab-extra" data-tab="integrations" data-desc="Connect Google, Spotify, GitHub, and other services.">Integrations</button>
+        <button class="tab tab-extra" data-tab="setup" data-desc="API keys, models, and first-time configuration.">Setup</button>
+        <button class="tab tab-extra" data-tab="skills" data-desc="Teach the bot new named recipes it can follow.">Skills</button>
+        <button class="tab tab-extra" data-tab="schedules" data-desc="Daily / weekly reminders and recurring checks.">Schedules</button>
+        <button class="tab tab-extra" data-tab="todos" data-desc="Pending tasks with step-by-step plans.">Todo</button>
+        <button class="tab tab-extra" data-tab="directives" data-desc="Standing instructions the bot follows always.">Directives</button>
+        <button class="tab tab-extra" data-tab="personality" data-desc="Shape the bot's identity, tone, and voice.">Personality</button>
+        <button class="tab tab-extra" data-tab="knowledge" data-desc="Upload documents the bot can reference.">Knowledge</button>
+        <button class="tab tab-extra" data-tab="voice" data-desc="Text-to-speech providers and voice selection.">Voice</button>
+        <button class="tab tab-extra" data-tab="calibration" data-desc="Tune vision-engine priority for screenClick accuracy.">Calibration</button>
+        <button class="tab tab-extra" data-tab="workflows" data-desc="Chain tools together into reusable pipelines." hidden>Workflows</button>
+        <button class="tab tab-extra" data-tab="templates" data-desc="Save reusable prompts with fill-in variables." hidden>Templates</button>
+        <button class="tab tab-extra" data-tab="marketplace" data-desc="Browse and install community plugins.">Marketplace</button>
+        <button class="tab tab-extra" data-tab="dashboard" data-desc="Usage analytics: calls, tokens, cost, response time.">Dashboard</button>
+        <button class="tab tab-extra" data-tab="multiagent" data-desc="Multi-persona conversations with Analyst / Creative / Mediator." hidden>Multi-Agent</button>
+        <button class="tab tab-extra" data-tab="automations" data-desc="If-this-then-that rules that fire on message patterns." hidden>Automations</button>
       </div>
+
+      <!-- Card-grid home view (browser mode only). Rendered by JS from the tab buttons above. -->
+      <div id="tab-menu" class="tab-menu" hidden>
+        <div class="tab-menu-header">
+          <div class="tab-menu-title">Mins Bot</div>
+          <div class="tab-menu-subtitle">Pick where to go.</div>
+        </div>
+        <div id="tab-menu-grid" class="tab-menu-grid"></div>
+      </div>
+
+      <!-- Back button — shown only when a tab is open AND we're in browser mode.
+           Compact square in the top-left corner, icon only. -->
+      <button type="button" id="tab-back-btn" class="tab-back-btn" hidden aria-label="Back to menu" data-tip="Back to menu" data-tip-dir="down">
+        <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 4l-6 6 6 6"/>
+        </svg>
+      </button>
       <div id="tab-chat" class="tab-content active tab-visible">
         <div id="chat-search" class="chat-search" hidden>
           <div class="chat-search-inner">
@@ -164,6 +185,7 @@
         <div id="voice-status" class="voice-status" aria-live="polite" hidden></div>
       </div>
       <div id="tab-browser" class="tab-content">
+        <div class="tab-page-title">Browser</div>
         <div class="browser-toolbar">
           <button id="browser-back" class="browser-nav-btn" data-tip="Back" data-tip-dir="down" aria-label="Back">&#9664;</button>
           <button id="browser-forward" class="browser-nav-btn" data-tip="Forward" data-tip-dir="down" aria-label="Forward">&#9654;</button>
@@ -177,6 +199,7 @@
         </div>
       </div>
       <div id="tab-agents" class="tab-content">
+        <div class="tab-page-title">Agents</div>
         <div class="tab-scroll-container agents-tab-inner">
           <p class="agents-hint">Parallel agents with <strong>limited tools only</strong>: web search, files (incl. Office/PDF), HTTP page fetch, and <strong>headless Playwright</strong> (isolated browser per operation — not your visible Chrome). No screen control, CDP, or shell.</p>
           <div class="agents-capacity" id="agents-capacity"></div>
@@ -207,6 +230,7 @@
         </div>
       </div>
       <div id="tab-integrations" class="tab-content">
+        <div class="tab-page-title">Integrations</div>
         <div class="integrations-layout">
         <!-- Left sidebar: company/category filter -->
         <aside class="integrations-sidebar" id="integrations-sidebar">
@@ -556,6 +580,7 @@
         </div>
       </div>
       <div id="tab-setup" class="tab-content">
+        <div class="tab-page-title">Setup</div>
         <div class="tab-scroll-container setup-tab-inner">
           <p class="setup-hint">Values are stored in <code class="setup-code">application-secrets.properties</code> next to the app. Empty fields are left unchanged. Use <strong>Forget</strong> to remove a saved value. Restart the app if chat, voice, or search still use old keys.</p>
           <p id="setup-file-path" class="setup-file-path"></p>
@@ -567,6 +592,7 @@
         </div>
       </div>
       <div id="tab-skills" class="tab-content">
+        <div class="tab-page-title">Skills</div>
         <div class="skills-layout">
           <!-- Left column: skills list (40%) -->
           <div class="skills-left">
@@ -609,6 +635,7 @@
         </div>
       </div>
       <div id="tab-schedules" class="tab-content">
+        <div class="tab-page-title">Schedules</div>
         <div class="sched-layout">
           <!-- Left: schedule list (40%) -->
           <div class="sched-left">
@@ -652,22 +679,32 @@
         </div>
       </div>
       <div id="tab-todos" class="tab-content">
+        <div class="tab-page-title">Todo</div>
+        <div class="todos-toolbar">
+          <input type="text" id="todos-search" class="input todos-search" placeholder="Search tasks..." autocomplete="off">
+          <button type="button" id="todos-download-all-btn" class="btn btn-secondary" title="Download all tasks">Download all</button>
+          <button type="button" id="todos-clear-all-btn" class="btn btn-secondary btn-danger" title="Clear all tasks">Clear all</button>
+        </div>
         <div class="tab-scroll-container" id="todos-container">
           <div class="tab-empty">Loading tasks...</div>
         </div>
       </div>
       <div id="tab-directives" class="tab-content">
+        <div class="tab-page-title">Directives</div>
         <div class="tab-scroll-container" id="directives-list">
           <div class="tab-empty">Loading directives...</div>
         </div>
+        <div id="directive-samples" class="directive-samples" hidden></div>
         <div class="input-row directive-input-row">
           <input type="text" id="directive-input" class="input" placeholder="Add a directive..." autocomplete="off">
+          <button type="button" id="directive-generate-btn" class="btn btn-secondary" title="Show sample directives">Generate</button>
           <button type="button" id="directive-add-btn" class="btn btn-send" title="Add">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           </button>
         </div>
       </div>
       <div id="tab-personality" class="tab-content">
+        <div class="tab-page-title">Personality</div>
         <div class="personality-layout">
         <div class="tab-scroll-container personality-inner">
           <!-- Top buttons -->
@@ -774,6 +811,7 @@
         </div>
       </div>
       <div id="tab-knowledge" class="tab-content">
+        <div class="tab-page-title">Knowledge</div>
         <div class="tab-scroll-container kb-inner">
           <div class="kb-header">
             <div class="kb-title">Knowledge Base</div>
@@ -795,6 +833,7 @@
         </div>
       </div>
       <div id="tab-voice" class="tab-content">
+        <div class="tab-page-title">Voice</div>
         <div class="tab-scroll-container tts-settings-inner">
           <!-- Auto-speak toggle -->
           <div class="tts-section">
@@ -821,6 +860,7 @@
         </div>
       </div>
       <div id="tab-calibration" class="tab-content">
+        <div class="tab-page-title">Calibration</div>
         <div class="tab-scroll-container calibration-container">
           <div class="engine-priority-section">
             <div class="engine-priority-header">Vision Engine Priority <span class="engine-priority-hint">(drag or use arrows — screenClick tries top to bottom)</span></div>
@@ -829,15 +869,11 @@
           </div>
           <hr class="cal-divider">
           <div id="cal-instruction" class="cal-instruction">Click <strong>Start Calibration</strong>. Buttons appear at random positions. Click each, then engines analyze the screenshot. Results show offset per engine.</div>
+          <!-- Vision engines trimmed to GPT only — focused product, single source of truth.
+               Other engines (Gemini, Textract, Rekognition, Document AI, Win OCR, Claude)
+               remain in the codebase and can be re-enabled here if needed. -->
           <div class="cal-engine-checkboxes">
-            <label><input type="checkbox" class="cal-engine-cb" value="gemini" checked> <span style="color:#ef4444">Gemini 2.5</span></label>
-            <label><input type="checkbox" class="cal-engine-cb" value="docai"> <span style="color:#ffa500">Document AI</span></label>
-            <label><input type="checkbox" class="cal-engine-cb" value="textract" checked> <span style="color:#8a2be2">Textract</span></label>
-            <label><input type="checkbox" class="cal-engine-cb" value="rek"> <span style="color:#ffd700">Rekognition</span></label>
-            <label><input type="checkbox" class="cal-engine-cb" value="ocr" checked> <span style="color:#00bfff">Win OCR</span></label>
-            <label><input type="checkbox" class="cal-engine-cb" value="gpt" checked> <span style="color:#00ff7f">GPT-5.4</span></label>
-            <label><input type="checkbox" class="cal-engine-cb" value="gemini3"> <span style="color:#ff69b4">Gemini 3.1</span></label>
-            <label><input type="checkbox" class="cal-engine-cb" value="claude" checked> <span style="color:#d97706">Claude Opus 4.6</span></label>
+            <label><input type="checkbox" class="cal-engine-cb" value="gpt" checked> <span style="color:#00ff7f">GPT Vision</span></label>
           </div>
           <button id="start-calibration-btn" class="action-btn calibration-start">Start Calibration</button>
           <div id="cal-arena" class="cal-arena" hidden></div>
@@ -846,19 +882,12 @@
             <thead>
               <tr>
                 <th>#</th><th>Label</th><th>User (x,y)</th>
-                <th style="color:#ef4444">Gemini 2.5</th><th>Dist</th><th>Time</th>
-                <th style="color:#ffa500">Document AI</th><th>Dist</th><th>Time</th>
-                <th style="color:#8a2be2">Textract</th><th>Dist</th><th>Time</th>
-                <th style="color:#ffd700">Rekognition</th><th>Dist</th><th>Time</th>
-                <th style="color:#00bfff">Win OCR</th><th>Dist</th><th>Time</th>
-                <th style="color:#00ff7f">GPT-5.4</th><th>Dist</th><th>Time</th>
-                <th style="color:#ff69b4">Gemini 3.1</th><th>Dist</th><th>Time</th>
-                <th style="color:#d97706">Claude Opus 4.6</th><th>Dist</th><th>Time</th>
+                <th style="color:#00ff7f">GPT Vision</th><th>Dist</th><th>Time</th>
               </tr>
             </thead>
             <tbody id="cal-results-body"></tbody>
             <tfoot>
-              <tr id="cal-results-avg"><td colspan="27"></td></tr>
+              <tr id="cal-results-avg"><td colspan="6"></td></tr>
             </tfoot>
           </table>
           <div id="cal-comparison" class="cal-comparison" hidden>
@@ -866,9 +895,9 @@
           </div>
         </div>
       </div>
-    </div>
       <!-- ═══ Workflow Builder tab ═══ -->
       <div id="tab-workflows" class="tab-content">
+        <div class="tab-page-title">Workflows</div>
         <div class="tab-scroll-container wf-inner">
           <div class="wf-header">
             <div class="section-title">Workflow Builder</div>
@@ -892,6 +921,7 @@
 
       <!-- ═══ Prompt Templates tab ═══ -->
       <div id="tab-templates" class="tab-content">
+        <div class="tab-page-title">Templates</div>
         <div class="tab-scroll-container pt-inner">
           <div class="pt-header">
             <div class="section-title">Prompt Templates</div>
@@ -915,9 +945,9 @@
 
       <!-- ═══ Plugin Marketplace tab ═══ -->
       <div id="tab-marketplace" class="tab-content">
+        <div class="tab-page-title">Marketplace</div>
         <div class="tab-scroll-container mp-inner">
           <div class="mp-header">
-            <div class="section-title">Plugin Marketplace</div>
             <div class="mp-filter-row">
               <select id="mp-category-filter" class="mp-filter-select">
                 <option value="all">All Categories</option>
@@ -953,54 +983,82 @@
         </div>
       </div>
 
-      <!-- Dashboard / Analytics tab -->
+      <!-- Dashboard / Analytics tab — reworked into hero stats + focused sections -->
       <div id="tab-dashboard" class="tab-content">
+        <div class="tab-page-title">Dashboard</div>
         <div class="tab-scroll-container dashboard-inner">
           <div class="dashboard-header">
-            <div class="section-title">Analytics Dashboard</div>
-            <button id="dashboard-refresh" class="action-btn">Refresh</button>
+            <div>
+              <div class="dashboard-title">Analytics</div>
+              <div class="dashboard-subtitle">Session since bot started. Live data.</div>
+            </div>
+            <button id="dashboard-refresh" class="action-btn">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 8A6 6 0 1 1 11.8 3.5"/><path d="M14 2v4h-4"/></svg>
+              Refresh
+            </button>
           </div>
+
+          <!-- Hero stats row -->
           <div class="dashboard-grid" id="dashboard-grid">
             <div class="dash-card">
-              <div class="dash-card-label">Total Requests</div>
+              <div class="dash-card-label">Requests</div>
               <div class="dash-card-value" id="dash-requests">—</div>
+              <div class="dash-card-sub"><span id="dash-avg-time">—</span> avg response</div>
             </div>
             <div class="dash-card">
-              <div class="dash-card-label">Uptime</div>
-              <div class="dash-card-value" id="dash-uptime">—</div>
-            </div>
-            <div class="dash-card">
-              <div class="dash-card-label">Avg Response Time</div>
-              <div class="dash-card-value" id="dash-avg-time">—</div>
-            </div>
-            <div class="dash-card">
-              <div class="dash-card-label">Total Tokens</div>
+              <div class="dash-card-label">Tokens</div>
               <div class="dash-card-value" id="dash-tokens">—</div>
+              <div class="dash-card-sub" id="dash-token-split">—</div>
             </div>
             <div class="dash-card">
               <div class="dash-card-label">Est. Cost</div>
               <div class="dash-card-value" id="dash-cost">—</div>
+              <div class="dash-card-sub">session total</div>
             </div>
             <div class="dash-card">
-              <div class="dash-card-label">Input / Output Tokens</div>
-              <div class="dash-card-value" id="dash-token-split">—</div>
+              <div class="dash-card-label">Uptime</div>
+              <div class="dash-card-value" id="dash-uptime">—</div>
+              <div class="dash-card-sub">since startup</div>
             </div>
           </div>
+
+          <!-- Response time chart + stats -->
+          <div class="dashboard-section">
+            <div class="dashboard-section-header">
+              <div class="section-title">Response Time · Last 20 Calls</div>
+              <div class="dash-section-meta">
+                <span class="dash-stat">avg <strong id="dash-avg-label">—</strong></span>
+                <span class="dash-stat">min <strong id="dash-min-label">—</strong></span>
+                <span class="dash-stat">max <strong id="dash-max-label">—</strong></span>
+              </div>
+            </div>
+            <div class="dash-chart-container">
+              <canvas id="dash-chart" class="dash-chart" width="800" height="140"></canvas>
+            </div>
+          </div>
+
+          <!-- Top tools usage -->
           <div class="dashboard-section">
             <div class="section-title">Top Tools</div>
-            <div id="dash-tools" class="dash-tools-list">—</div>
-          </div>
-          <div class="dashboard-section">
-            <div class="section-title">Response Time (last 20)</div>
-            <div class="dash-chart-container">
-              <canvas id="dash-chart" class="dash-chart" width="340" height="100"></canvas>
+            <div id="dash-tools" class="dash-tools-list">
+              <div class="tab-empty">Loading…</div>
             </div>
+          </div>
+
+          <!-- Status footer -->
+          <div class="dash-status-row">
+            <span class="dash-status-item">
+              <span class="dash-status-dot"></span>
+              <span>Running</span>
+            </span>
+            <span class="dash-status-item" id="dash-last-updated">—</span>
           </div>
         </div>
       </div>
 
       <!-- Multi-Agent Chat tab -->
       <div id="tab-multiagent" class="tab-content">
+        <div class="tab-page-title">Multi-Agent</div>
         <div class="tab-scroll-container ma-inner">
           <div class="ma-header">
             <div class="section-title">Multi-Agent Chat</div>
@@ -1029,6 +1087,7 @@
 
       <!-- Automations tab -->
       <div id="tab-automations" class="tab-content">
+        <div class="tab-page-title">Automations</div>
         <div class="tab-scroll-container auto-inner">
           <div class="auto-header">
             <div class="section-title">Automations</div>
@@ -1060,6 +1119,7 @@
           </div>
         </div>
       </div>
+    </div><!-- /#panel — all tab-content divs now live inside the panel -->
 
     <div id="status-bar" class="status-bar">
       <div class="status-row">
@@ -1124,6 +1184,22 @@
         <div style="flex:1"></div>
         <button type="button" id="integration-modal-delete" class="integration-modal-btn integration-modal-btn-danger" hidden>Disconnect</button>
         <button type="button" id="integration-modal-save" class="integration-modal-btn integration-modal-btn-primary">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Generic confirm modal -->
+  <div id="confirm-modal" class="confirm-modal" hidden>
+    <div class="confirm-modal-backdrop" data-confirm-close></div>
+    <div class="confirm-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
+      <div class="confirm-modal-header">
+        <h3 id="confirm-modal-title">Confirm</h3>
+        <button type="button" class="confirm-modal-close" data-confirm-close aria-label="Close">&times;</button>
+      </div>
+      <p id="confirm-modal-message" class="confirm-modal-message"></p>
+      <div class="confirm-modal-actions">
+        <button type="button" id="confirm-modal-cancel" class="confirm-modal-btn">Cancel</button>
+        <button type="button" id="confirm-modal-ok" class="confirm-modal-btn confirm-modal-btn-primary">OK</button>
       </div>
     </div>
   </div>

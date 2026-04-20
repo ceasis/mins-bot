@@ -78,6 +78,7 @@ public class ToolClassifierService {
             "barge_in",
             "restart",
             "orchestrator",
+            "reminders",
             "youtube",
             "dev_skills",
             "productivity_skills",
@@ -157,6 +158,7 @@ public class ToolClassifierService {
             - barge_in: let me interrupt, stop barge-in, turn on barge-in, can I cut you off, let me interrupt you, barge in, don't interrupt yourself, interrupt TTS, stop talking when I talk, JARVIS-style interrupt
             - restart: restart yourself, reboot, restart the bot, restart mins bot, quit and start again, relaunch, reboot yourself, restart app, reload the bot, apply new prompt and restart
             - orchestrator: complex multi-step task, plan and execute, marketing campaign, research and produce, video production, decompose and parallelize, spawn agents, use agents, delegate subtasks, parallel work, make me a X with multiple parts, coordinate multiple agents, divide and conquer, big project, multi-phase task
+            - reminders: remind me to X, remind me every day at, remind me weekly, set a reminder, schedule a reminder, daily reminder, weekly reminder, help me with X (lifestyle goal — weight, sleep, learn, hydration, exercise, habit), help me reduce weight, help me sleep better, help me learn, help me build habit, list my reminders, what reminders do I have, pause reminder, delete reminder, turn off reminder
             - youtube: my youtube channel, my subscribers, my youtube uploads, youtube video stats, video views, video likes, recent uploads, search youtube, find video on youtube, trending on youtube, what's trending, my subscriptions, channels I follow, youtube analytics, video details, watch history, youtube channel info, my youtube, youtuber, channel stats
             - maps: open google maps, open maps to X, show me X on a map, where is X, find X on the map, navigate to X, directions to X, directions from X to Y, how do I get to X, route to X, take me to X, show me on the map, coffee shops near me, restaurants near X, gas stations nearby, find nearby X, address of X, location of X, map coordinates, latitude longitude, pin this address. PREFER THIS CATEGORY for any mention of a specific place/address/landmark/business the user wants to see on a map.
             - upcoming: what's coming up, what's important, anything important, next 3 days, next few days, this week, upcoming things, upcoming events, what do I have this week, what's on my plate, what's ahead, brief me on the week, what should I know about, any birthdays coming up, bills this week, what's next, what's scheduled, things to remember, what's happening this week, anything I should prepare for. PREFER THIS CATEGORY when the user asks an umbrella question about upcoming days — it aggregates calendar, bills, birthdays, reminders, weather in one call.

@@ -143,8 +143,8 @@ public class SystemContextProvider {
             - clip_format: wav
             - mixer_name:
 
-            ## Webcam memory (capture photos from webcam; photos in ~/mins_bot_data/webcam_memory/photos/)
-            - enabled: true
+            ## Webcam memory (DISABLED — privacy-first default. Capture photos from webcam; photos in ~/mins_bot_data/webcam_memory/photos/)
+            - enabled: false
             - interval_seconds: 5
             - video_clip_seconds: 60
             - keep_photos: true
