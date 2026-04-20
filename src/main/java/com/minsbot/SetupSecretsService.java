@@ -36,12 +36,27 @@ public class SetupSecretsService {
             for (SetupSecretsRegistry.SetupField f : g.fields()) {
                 String v = environment.getProperty(f.propertyKey());
                 boolean configured = v != null && !v.isBlank();
-                fields.add(Map.of(
-                        "key", f.propertyKey(),
-                        "label", f.label(),
-                        "mask", f.mask(),
-                        "configured", configured
-                ));
+                // For masked (secret) fields: show first 10 chars + asterisks so the user can
+                // identify which value is saved without revealing the full secret.
+                // For non-mask fields: show the full value (they're not secrets — IDs, endpoints, etc.).
+                String preview = "";
+                if (configured && v != null) {
+                    String s = v.trim();
+                    if (f.mask()) {
+                        int shown = Math.min(10, s.length());
+                        int hidden = Math.max(0, s.length() - shown);
+                        preview = s.substring(0, shown) + "*".repeat(Math.min(hidden, 20));
+                    } else {
+                        preview = s;
+                    }
+                }
+                Map<String, Object> field = new java.util.LinkedHashMap<>();
+                field.put("key", f.propertyKey());
+                field.put("label", f.label());
+                field.put("mask", f.mask());
+                field.put("configured", configured);
+                field.put("preview", preview);
+                fields.add(field);
             }
             groupsOut.add(Map.of(
                     "id", g.id(),

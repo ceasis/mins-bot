@@ -691,16 +691,36 @@
       </div>
       <div id="tab-directives" class="tab-content">
         <div class="tab-page-title">Directives</div>
-        <div class="tab-scroll-container" id="directives-list">
-          <div class="tab-empty">Loading directives...</div>
-        </div>
-        <div id="directive-samples" class="directive-samples" hidden></div>
-        <div class="input-row directive-input-row">
-          <input type="text" id="directive-input" class="input" placeholder="Add a directive..." autocomplete="off">
-          <button type="button" id="directive-generate-btn" class="btn btn-secondary" title="Show sample directives">Generate</button>
-          <button type="button" id="directive-add-btn" class="btn btn-send" title="Add">
-            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-          </button>
+        <div class="directives-layout">
+          <aside class="directives-sidebar">
+            <div class="directives-search-box">
+              <input type="text" id="directives-search" class="directives-search-input" placeholder="Search..." autocomplete="off">
+            </div>
+            <div class="directives-sidebar-section-label">Filters</div>
+            <button type="button" class="dir-filter-item active" data-filter="all"><i class="fa-solid fa-list" aria-hidden="true"></i><span>All</span><span class="dir-filter-count" data-count-for="all"></span></button>
+            <button type="button" class="dir-filter-item" data-filter="safety"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i><span>Safety</span><span class="dir-filter-count" data-count-for="safety"></span></button>
+            <button type="button" class="dir-filter-item" data-filter="style"><i class="fa-solid fa-pen-nib" aria-hidden="true"></i><span>Style</span><span class="dir-filter-count" data-count-for="style"></span></button>
+            <button type="button" class="dir-filter-item" data-filter="memory"><i class="fa-solid fa-brain" aria-hidden="true"></i><span>Memory</span><span class="dir-filter-count" data-count-for="memory"></span></button>
+            <button type="button" class="dir-filter-item" data-filter="tools"><i class="fa-solid fa-toolbox" aria-hidden="true"></i><span>Tools</span><span class="dir-filter-count" data-count-for="tools"></span></button>
+            <button type="button" class="dir-filter-item" data-filter="voice"><i class="fa-solid fa-microphone" aria-hidden="true"></i><span>Voice</span><span class="dir-filter-count" data-count-for="voice"></span></button>
+            <button type="button" class="dir-filter-item" data-filter="privacy"><i class="fa-solid fa-lock" aria-hidden="true"></i><span>Privacy</span><span class="dir-filter-count" data-count-for="privacy"></span></button>
+            <button type="button" class="dir-filter-item" data-filter="other"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i><span>Other</span><span class="dir-filter-count" data-count-for="other"></span></button>
+            <div class="directives-sidebar-divider"></div>
+            <button type="button" id="directives-delete-all" class="dir-delete-all-btn"><i class="fa-solid fa-trash" aria-hidden="true"></i><span>Delete all</span></button>
+          </aside>
+          <div class="directives-main">
+            <div class="tab-scroll-container" id="directives-list">
+              <div class="tab-empty">Loading directives...</div>
+            </div>
+            <div id="directive-samples" class="directive-samples" hidden></div>
+            <div class="input-row directive-input-row">
+              <input type="text" id="directive-input" class="input" placeholder="Add a directive..." autocomplete="off">
+              <button type="button" id="directive-generate-btn" class="btn btn-secondary" title="Show sample directives">Generate</button>
+              <button type="button" id="directive-add-btn" class="btn btn-send" title="Add">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
       <div id="tab-personality" class="tab-content">

@@ -1396,13 +1396,20 @@
     var integration = t.getAttribute('data-integration');
     var email = t.getAttribute('data-email');
     if (!integration || !email) return;
-    if (!window.confirm('Disconnect ' + email + ' from ' + integration + '?')) return;
-    fetch('/api/integrations/google/disconnect', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ integration: integration, email: email })
-    }).then(function () { refreshGoogleIntegrationsPanel(); })
-      .catch(function () { refreshGoogleIntegrationsPanel(); });
+    showConfirm({
+      title: 'Disconnect account',
+      message: 'Disconnect ' + email + ' from ' + integration + '?',
+      okText: 'Disconnect',
+      danger: true
+    }).then(function (ok) {
+      if (!ok) return;
+      fetch('/api/integrations/google/disconnect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ integration: integration, email: email })
+      }).then(function () { refreshGoogleIntegrationsPanel(); })
+        .catch(function () { refreshGoogleIntegrationsPanel(); });
+    });
   });
 
   (function wireGoogleIntegrationsTab() {
@@ -2010,6 +2017,7 @@
         (g.fields || []).forEach(function (f) {
           var safeKey = String(f.key).replace(/[^a-zA-Z0-9]/g, '_');
           var id = 'setup-f-' + safeKey;
+          var previewText = f.preview || '';
           var hint = f.configured
             ? '<span class="setup-flag setup-flag-on">saved — enter a new value to replace</span>'
             : '<span class="setup-flag setup-flag-off">not set</span>';
@@ -2019,8 +2027,12 @@
           html += '<div class="setup-field">';
           html += '<div class="setup-field-head"><label class="setup-label-text" for="' + id + '">' + escapeHtml(f.label) + '</label>' + forget + '</div>';
           html += '<div class="setup-field-meta">' + hint + '</div>';
+          // Use the preview (first 5 chars + asterisks for secrets, full value for non-secrets)
+          // as placeholder so the user sees what's currently saved without revealing full secrets.
+          // Input type stays 'text' so the placeholder is readable — secret entry still masked on typing is handled via password type below.
           var inputType = f.mask ? 'password' : 'text';
-          html += '<input class="tab-input setup-input" id="' + id + '" data-prop-key="' + escapeHtml(f.key) + '" type="' + inputType + '" autocomplete="off" spellcheck="false" placeholder="">';
+          var placeholder = previewText ? 'Current: ' + previewText : '';
+          html += '<input class="tab-input setup-input" id="' + id + '" data-prop-key="' + escapeHtml(f.key) + '" type="' + inputType + '" autocomplete="off" spellcheck="false" placeholder="' + escapeHtml(placeholder) + '">';
           html += '</div>';
         });
         html += '</div>';
@@ -2029,19 +2041,27 @@
       formEl.querySelectorAll('.setup-forget').forEach(function (btn) {
         btn.addEventListener('click', function () {
           var key = btn.getAttribute('data-key');
-          if (!key || !window.confirm('Remove this value from the secrets file?')) return;
-          fetch('/api/setup/secrets', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ set: {}, unset: [key] })
-          }).then(function (r) {
-            if (!r.ok) return r.text().then(function (t) { throw new Error(t || String(r.status)); });
-            return r.json();
-          }).then(function () {
-            if (statusEl) statusEl.textContent = 'Removed. Restart the app if services still use the old value.';
-            loadSetupTab();
-          }).catch(function (e) {
-            if (statusEl) statusEl.textContent = String(e.message || e);
+          if (!key) return;
+          showConfirm({
+            title: 'Forget secret',
+            message: 'Remove this value from the secrets file?',
+            okText: 'Remove',
+            danger: true
+          }).then(function (ok) {
+            if (!ok) return;
+            fetch('/api/setup/secrets', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ set: {}, unset: [key] })
+            }).then(function (r) {
+              if (!r.ok) return r.text().then(function (t) { throw new Error(t || String(r.status)); });
+              return r.json();
+            }).then(function () {
+              if (statusEl) statusEl.textContent = 'Removed. Restart the app if services still use the old value.';
+              loadSetupTab();
+            }).catch(function (e) {
+              if (statusEl) statusEl.textContent = String(e.message || e);
+            });
           });
         });
       });
@@ -2567,7 +2587,13 @@
   function showConfirm(opts) {
     opts = opts || {};
     return new Promise(function (resolve) {
-      if (!_confirmModal) { resolve(window.confirm(opts.message || 'Continue?')); return; }
+      if (!_confirmModal) {
+        // Modal markup missing — default to "not confirmed" rather than falling back to the
+        // browser's native JS dialog (which the user has asked us never to use).
+        console.warn('[showConfirm] No modal element — treating as cancel:', opts.message);
+        resolve(false);
+        return;
+      }
       if (_confirmResolver) _closeConfirm(false);
 
       _confirmTitle.textContent = opts.title || 'Confirm';
@@ -2757,26 +2783,108 @@
   var directiveInput = document.getElementById('directive-input');
   var directiveAddBtn = document.getElementById('directive-add-btn');
 
+  // Holds the current full list of directives so filter/search can re-render client-side.
+  var _directivesCache = [];
+  var _directivesFilter = 'all';
+  var _directivesSearch = '';
+
+  /** Simple keyword-based category tagger — no AI call, runs client-side. */
+  function categorizeDirective(text) {
+    var t = String(text || '').toLowerCase();
+    if (/\b(ask|confirm|destruct|delete|overwrite|reset|danger|risk|safety|caution|warning|never|avoid)\b/.test(t)) return 'safety';
+    if (/\b(concise|short|brief|verbose|tone|formal|casual|style|friendly|respond|format|markdown|word)\b/.test(t)) return 'style';
+    if (/\b(remember|memory|save|episodic|recall|forget|history|note|log)\b/.test(t)) return 'memory';
+    if (/\b(tool|tools|plan|planner|skill|skills|function|browser|terminal|command|execute|run)\b/.test(t)) return 'tools';
+    if (/\b(voice|speak|tts|say|audio|sound|vocal|speaker|listen)\b/.test(t)) return 'voice';
+    if (/\b(private|privacy|confidential|sensitive|secret|password|credential|pii|mask|redact)\b/.test(t)) return 'privacy';
+    return 'other';
+  }
+
+  function renderDirectivesList() {
+    if (!directivesListEl) return;
+    if (!_directivesCache.length) {
+      directivesListEl.innerHTML = '<div class="tab-empty">No directives. Add permanent objectives for the bot.</div>';
+      return;
+    }
+    var search = _directivesSearch.trim().toLowerCase();
+    var filtered = _directivesCache
+      .map(function (text, i) { return { text: text, pos: i + 1, cat: categorizeDirective(text) }; })
+      .filter(function (d) {
+        if (_directivesFilter !== 'all' && d.cat !== _directivesFilter) return false;
+        if (search && d.text.toLowerCase().indexOf(search) === -1) return false;
+        return true;
+      });
+    if (!filtered.length) {
+      directivesListEl.innerHTML = '<div class="tab-empty">No directives match this filter/search.</div>';
+      return;
+    }
+    var html = '';
+    filtered.forEach(function (d) {
+      html += '<div class="directive-item">'
+        + '<span class="directive-num">' + d.pos + '.</span>'
+        + '<span class="directive-text">' + escapeHtml(d.text) + '</span>'
+        + '<button class="directive-delete" onclick="window._removeDirective(' + d.pos + ')" title="Remove">\u2715</button>'
+        + '</div>';
+    });
+    directivesListEl.innerHTML = html;
+  }
+
+  function updateDirectiveFilterCounts() {
+    var counts = { all: _directivesCache.length, safety: 0, style: 0, memory: 0,
+                   tools: 0, voice: 0, privacy: 0, other: 0 };
+    _directivesCache.forEach(function (t) { counts[categorizeDirective(t)]++; });
+    Object.keys(counts).forEach(function (k) {
+      document.querySelectorAll('[data-count-for="' + k + '"]').forEach(function (el) {
+        el.textContent = counts[k] > 0 ? counts[k] : '';
+      });
+    });
+  }
+
   function loadDirectives() {
     if (!directivesListEl) return;
     fetch('/api/tabs/directives').then(function (r) { return r.json(); }).then(function (items) {
-      if (!items || items.length === 0) {
-        directivesListEl.innerHTML = '<div class="tab-empty">No directives. Add permanent objectives for the bot.</div>';
-        return;
-      }
-      var html = '';
-      items.forEach(function (text, i) {
-        html += '<div class="directive-item">'
-          + '<span class="directive-num">' + (i + 1) + '.</span>'
-          + '<span class="directive-text">' + escapeHtml(text) + '</span>'
-          + '<button class="directive-delete" onclick="window._removeDirective(' + (i + 1) + ')" title="Remove">\u2715</button>'
-          + '</div>';
-      });
-      directivesListEl.innerHTML = html;
+      _directivesCache = Array.isArray(items) ? items : [];
+      updateDirectiveFilterCounts();
+      renderDirectivesList();
     }).catch(function () {
       directivesListEl.innerHTML = '<div class="tab-empty">Failed to load directives.</div>';
     });
   }
+
+  // Wire sidebar filters, search, and delete-all (safe to call even if sidebar not present)
+  (function wireDirectivesSidebar() {
+    document.querySelectorAll('.dir-filter-item').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        document.querySelectorAll('.dir-filter-item').forEach(function (b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        _directivesFilter = btn.getAttribute('data-filter') || 'all';
+        renderDirectivesList();
+      });
+    });
+    var searchInput = document.getElementById('directives-search');
+    if (searchInput) {
+      searchInput.addEventListener('input', function () {
+        _directivesSearch = searchInput.value || '';
+        renderDirectivesList();
+      });
+    }
+    var delAllBtn = document.getElementById('directives-delete-all');
+    if (delAllBtn) {
+      delAllBtn.addEventListener('click', function () {
+        if (!_directivesCache.length) return;
+        showConfirm({
+          title: 'Delete all directives',
+          message: 'Delete ALL ' + _directivesCache.length + ' directives? This cannot be undone.',
+          okText: 'Delete all',
+          danger: true
+        }).then(function (ok) {
+          if (!ok) return;
+          fetch('/api/tabs/directives', { method: 'DELETE' })
+            .then(function () { loadDirectives(); });
+        });
+      });
+    }
+  })();
 
   window._removeDirective = function (pos) {
     fetch('/api/tabs/directives/' + pos, { method: 'DELETE' })

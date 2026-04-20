@@ -341,6 +341,12 @@ public class TabsController {
         return Map.of("result", result);
     }
 
+    @DeleteMapping("/directives")
+    public Map<String, String> clearAllDirectives() {
+        String result = directivesTools.clearDirectives();
+        return Map.of("result", result);
+    }
+
     @GetMapping("/directives/samples")
     public Map<String, Object> generateDirectiveSamples(
             @RequestParam(value = "n", defaultValue = "6") int n) {
