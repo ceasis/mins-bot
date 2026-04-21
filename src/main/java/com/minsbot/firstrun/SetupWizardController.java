@@ -27,10 +27,12 @@ public class SetupWizardController {
     private static final String OLLAMA_API = "http://localhost:11434";
 
     private final FirstRunService firstRun;
+    private final ComfyUiInstallerService comfyInstaller;
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
 
-    public SetupWizardController(FirstRunService firstRun) {
+    public SetupWizardController(FirstRunService firstRun, ComfyUiInstallerService comfyInstaller) {
         this.firstRun = firstRun;
+        this.comfyInstaller = comfyInstaller;
     }
 
     @GetMapping("/status")
@@ -42,6 +44,33 @@ public class SetupWizardController {
     public ResponseEntity<?> complete() {
         firstRun.markComplete();
         return ResponseEntity.ok(Map.of("markedComplete", true));
+    }
+
+    /** Persist the user's preferred default model. */
+    @PostMapping(value = "/set-default", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<?> setDefault(@RequestParam String model) {
+        firstRun.setActiveModel(model);
+        return ResponseEntity.ok(Map.of("activeModel", firstRun.getActiveModel()));
+    }
+
+    /** Start the Ollama daemon (fire-and-forget). Returns quickly; caller should poll status. */
+    @PostMapping(value = "/start-ollama-service", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<?> startOllamaService() {
+        if (firstRun.isOllamaRunning()) {
+            return ResponseEntity.ok(Map.of("alreadyRunning", true));
+        }
+        if (!firstRun.isOllamaInstalled()) {
+            return ResponseEntity.status(400).body(Map.of("error", "Ollama is not installed"));
+        }
+        try {
+            new ProcessBuilder("ollama", "serve").redirectErrorStream(true).start();
+            // Give it a moment; client will poll status separately.
+            Thread.sleep(1500);
+            return ResponseEntity.ok(Map.of("started", firstRun.isOllamaRunning()));
+        } catch (Exception e) {
+            log.warn("[Setup] start-ollama-service failed: {}", e.getMessage());
+            return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
+        }
     }
 
     /**
@@ -165,5 +194,157 @@ public class SetupWizardController {
     @GetMapping(value = "/catalog", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> catalog() {
         return ResponseEntity.ok(ModelCatalog.curated());
+    }
+
+    /**
+     * One-click ComfyUI model installer. Looks up the model in the curated
+     * catalog, checks prereqs (git, python), clones & sets up ComfyUI if
+     * missing, starts the server, and downloads the checkpoint — all while
+     * streaming live progress events over SSE.
+     *
+     * <p>Events:</p>
+     * <ul>
+     *   <li>{@code phase} — {"phase":"prereq|install|start|download|done","message":"..."}</li>
+     *   <li>{@code log} — single-line log output from subprocesses</li>
+     *   <li>{@code progress} — {"done":BYTES,"total":BYTES} for the download phase</li>
+     *   <li>{@code error} — {"error":"..."} and the stream closes</li>
+     * </ul>
+     */
+    @GetMapping(value = "/install-comfyui-model", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter installComfyUiModel(@RequestParam String tag) {
+        SseEmitter emitter = new SseEmitter(Duration.ofHours(2).toMillis());
+
+        Map<String, Object> model = findComfyModel(tag);
+        if (model == null) {
+            try {
+                emitter.send(SseEmitter.event().name("error").data(Map.of("error", "Unknown model tag: " + tag)));
+                emitter.complete();
+            } catch (Exception ignored) {}
+            return emitter;
+        }
+
+        new Thread(() -> {
+            java.util.function.Consumer<String> emit = s -> {
+                try {
+                    int sep = s.indexOf('|');
+                    String event = (sep > 0) ? s.substring(0, sep) : "log";
+                    String rest = (sep > 0) ? s.substring(sep + 1) : s;
+                    if ("progress".equals(event)) {
+                        int sep2 = rest.indexOf('|');
+                        String done = sep2 > 0 ? rest.substring(0, sep2) : rest;
+                        String total = sep2 > 0 ? rest.substring(sep2 + 1) : "-1";
+                        emitter.send(SseEmitter.event().name("progress")
+                                .data("{\"done\":" + done + ",\"total\":" + total + "}"));
+                    } else if ("phase".equals(event)) {
+                        int sep2 = rest.indexOf('|');
+                        String phase = sep2 > 0 ? rest.substring(0, sep2) : rest;
+                        String msg = sep2 > 0 ? rest.substring(sep2 + 1) : "";
+                        String escMsg = msg.replace("\\", "\\\\").replace("\"", "\\\"");
+                        emitter.send(SseEmitter.event().name("phase")
+                                .data("{\"phase\":\"" + phase + "\",\"message\":\"" + escMsg + "\"}"));
+                    } else {
+                        String escaped = rest.replace("\\", "\\\\").replace("\"", "\\\"");
+                        emitter.send(SseEmitter.event().name(event)
+                                .data("{\"message\":\"" + escaped + "\"}"));
+                    }
+                } catch (Exception ignored) {}
+            };
+
+            try {
+                // 1. Prereq check
+                emit.accept("phase|prereq|Checking git & Python…");
+                String prereqErr = comfyInstaller.prereqError();
+                if (prereqErr != null) {
+                    String esc = prereqErr.replace("\\", "\\\\").replace("\"", "\\\"");
+                    emitter.send(SseEmitter.event().name("error").data("{\"error\":\"" + esc + "\",\"prereq\":true}"));
+                    emitter.complete();
+                    return;
+                }
+
+                // 2. Install ComfyUI if not present. Either way, verify CUDA torch
+                // so a previously-botched install (CPU-only wheel) can self-heal.
+                if (!comfyInstaller.isInstalled()) {
+                    emit.accept("phase|install|Installing ComfyUI (one-time, ~2 GB download)…");
+                    comfyInstaller.installComfyUi(emit);
+                } else {
+                    emit.accept("phase|install|ComfyUI present — verifying PyTorch CUDA build…");
+                    emit.accept("log|ComfyUI already installed at " + comfyInstaller.root());
+                    comfyInstaller.ensureCudaTorch(emit);
+                }
+
+                // 3. Start ComfyUI if not running
+                if (!comfyInstaller.isRunning()) {
+                    emit.accept("phase|start|Starting ComfyUI server…");
+                    boolean started = comfyInstaller.startComfyUi(emit);
+                    if (!started) {
+                        String tail = tailComfyLog(comfyInstaller, 15);
+                        for (String line : tail.split("\\R")) {
+                            if (!line.isBlank()) emit.accept("log|[comfyui.log] " + line);
+                        }
+                        String err = "ComfyUI failed to start. Most likely cause: pip install didn't finish "
+                                + "(missing PyTorch) or CUDA/driver mismatch. Log: "
+                                + comfyInstaller.root().resolve("comfyui.log").toString().replace("\\", "/");
+                        String esc = err.replace("\\", "\\\\").replace("\"", "\\\"");
+                        emitter.send(SseEmitter.event().name("error").data("{\"error\":\"" + esc + "\"}"));
+                        emitter.complete();
+                        return;
+                    }
+                } else {
+                    emit.accept("log|ComfyUI already running on localhost:8188");
+                }
+
+                // 4. Download the model file
+                String folder = (String) model.get("comfyFolder");
+                String filename = (String) model.get("comfyFilename");
+                String url = (String) model.get("comfyDownloadUrl");
+                emit.accept("phase|download|Downloading " + filename + "…");
+                comfyInstaller.downloadModel(folder, filename, url, emit);
+
+                emit.accept("phase|done|Model ready — ask the bot to generate an image.");
+                emitter.send(SseEmitter.event().name("done").data("{\"status\":\"done\"}"));
+                emitter.complete();
+            } catch (Exception e) {
+                log.warn("[Setup] install-comfyui-model failed: {}", e.getMessage(), e);
+                try {
+                    String msg = e.getMessage() == null ? "unknown error" : e.getMessage();
+                    String esc = msg.replace("\\", "\\\\").replace("\"", "\\\"");
+                    emitter.send(SseEmitter.event().name("error").data("{\"error\":\"" + esc + "\"}"));
+                } catch (Exception ignored) {}
+                emitter.completeWithError(e);
+            }
+        }, "comfyui-install-" + tag).start();
+
+        return emitter;
+    }
+
+    /** Read the last {@code n} lines of ComfyUI's stdout/stderr log. Empty string on any failure. */
+    private String tailComfyLog(ComfyUiInstallerService installer, int n) {
+        try {
+            java.nio.file.Path logPath = installer.root().resolve("comfyui.log");
+            if (!java.nio.file.Files.exists(logPath)) return "";
+            java.util.List<String> lines = java.nio.file.Files.readAllLines(logPath, StandardCharsets.UTF_8);
+            int from = Math.max(0, lines.size() - n);
+            return String.join("\n", lines.subList(from, lines.size()));
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> findComfyModel(String tag) {
+        Map<String, Object> cat = ModelCatalog.curated();
+        Object cats = cat.get("categories");
+        if (!(cats instanceof Iterable)) return null;
+        for (Object c : (Iterable<?>) cats) {
+            if (!(c instanceof Map)) continue;
+            Object ms = ((Map<String, Object>) c).get("models");
+            if (!(ms instanceof Iterable)) continue;
+            for (Object m : (Iterable<?>) ms) {
+                if (!(m instanceof Map)) continue;
+                Map<String, Object> mm = (Map<String, Object>) m;
+                if (tag.equals(mm.get("tag")) && "comfyui".equals(mm.get("backend"))) return mm;
+            }
+        }
+        return null;
     }
 }

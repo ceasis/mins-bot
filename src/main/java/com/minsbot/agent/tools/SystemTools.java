@@ -99,6 +99,13 @@ public class SystemTools {
 
     @Tool(description = "Quit the Mins Bot application. Only call this when the user has explicitly confirmed they want to quit (e.g. replied 'yes' or 'y' to 'Quit Mins Bot?'). Do NOT call when the user just says 'quit' — in that case only reply with 'Quit Mins Bot?' and wait for their answer.")
     public String quitMinsBot() {
+        // Server-side gate: only allow quit when a confirmation prompt is active
+        // (user typed quit → bot replied "Quit Mins Bot?" → 30 s confirmation window).
+        // Without this, the LLM can silently quit mid-conversation on ambiguous phrasing.
+        if (!quitService.hasPendingQuit()) {
+            return "Cannot quit yet — user has not been prompted to confirm. "
+                    + "Reply with \"Quit Mins Bot?\" first and wait for their 'yes'.";
+        }
         notifier.notify("Quitting Mins Bot...");
         quitService.requestQuit();
         return "Quitting Mins Bot.";

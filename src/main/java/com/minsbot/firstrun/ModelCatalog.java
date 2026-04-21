@@ -107,6 +107,25 @@ final class ModelCatalog {
         return out;
     }
 
+    /** Look up a ComfyUI-backed catalog entry by tag. Returns {@code null} if not found or not ComfyUI. */
+    @SuppressWarnings("unchecked")
+    static Map<String, Object> findComfyModel(String tag) {
+        if (tag == null || tag.isBlank()) return null;
+        Map<String, Object> catalog = curated();
+        List<Map<String, Object>> cats = (List<Map<String, Object>>) catalog.get("categories");
+        if (cats == null) return null;
+        for (Map<String, Object> cat : cats) {
+            List<Map<String, Object>> models = (List<Map<String, Object>>) cat.get("models");
+            if (models == null) continue;
+            for (Map<String, Object> m : models) {
+                if (tag.equals(m.get("tag")) && "comfyui".equals(m.get("backend"))) {
+                    return m;
+                }
+            }
+        }
+        return null;
+    }
+
     private static Map<String, Object> category(String id, String kind, String label, String desc, List<Map<String, Object>> models) {
         Map<String, Object> c = new LinkedHashMap<>();
         c.put("id", id);
@@ -131,6 +150,11 @@ final class ModelCatalog {
         m.put("requiresGpu", false);
         m.put("minVramGb", 0);
         m.put("minRamGb", minRamGb);
+        // Ollama library page — strip the ':variant' suffix.
+        int colon = tag.indexOf(':');
+        String base = (colon > 0) ? tag.substring(0, colon) : tag;
+        m.put("sourceUrl", "https://ollama.com/library/" + base);
+        m.put("sourceLabel", "ollama.com");
         return m;
     }
 
@@ -153,6 +177,10 @@ final class ModelCatalog {
         m.put("comfyFolder", folder);
         m.put("comfyFilename", filename);
         m.put("comfyDownloadUrl", downloadUrl);
+        // HuggingFace repo page — strip "/resolve/<branch>/<path>" tail.
+        int slash = downloadUrl.indexOf("/resolve/");
+        m.put("sourceUrl", slash > 0 ? downloadUrl.substring(0, slash) : downloadUrl);
+        m.put("sourceLabel", "huggingface.co");
         return m;
     }
 }

@@ -1381,10 +1381,7 @@
       if (tab.dataset.tab === 'multiagent') loadMultiAgent();
       if (tab.dataset.tab === 'automations') loadAutomations();
       if (tab.dataset.tab === 'models') {
-        var mf = document.getElementById('models-iframe');
-        if (mf && (!mf.src || mf.src === 'about:blank' || mf.src.endsWith('about:blank'))) {
-          mf.src = '/models.html';
-        }
+        if (typeof window.MinsBotModelsInit === 'function') window.MinsBotModelsInit();
       }
     });
   });
@@ -3529,7 +3526,7 @@
     } catch (_) { return null; }
   }
 
-  startCalibrationBtn.addEventListener('click', async function () {
+  if (startCalibrationBtn) startCalibrationBtn.addEventListener('click', async function () {
     startCalibrationBtn.disabled = true;
     calResultsBody.innerHTML = '';
     calResultsTable.hidden = true;

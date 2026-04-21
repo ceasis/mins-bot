@@ -52,6 +52,25 @@ public class TranscriptService {
         Files.createDirectories(historyDir);
         log.info("Chat history directory: {}", historyDir);
         loadLatestHistory();
+        archivePreviousSessionOnStartup();
+    }
+
+    /**
+     * Each app launch archives whatever was in the recent in-memory transcript
+     * (loaded from the most recent daily file above) under a timestamped name,
+     * then clears it so this session starts with a clean chat. Skipped when
+     * there was nothing to archive.
+     */
+    private void archivePreviousSessionOnStartup() {
+        int loaded;
+        synchronized (recentMemory) { loaded = recentMemory.size(); }
+        if (loaded == 0) return;
+        String name = "session-" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HHmm"));
+        Path archived = archiveHistory(name);
+        if (archived != null) {
+            log.info("[Transcript] Auto-archived previous session ({} messages) on startup → {}",
+                    loaded, archived.getFileName());
+        }
     }
 
     /** Loads the most recent history file into the in-memory ring buffer on startup. */

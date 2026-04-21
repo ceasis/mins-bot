@@ -17,6 +17,8 @@
   var filterInstalled = false;
   var filterFitsGpu = false;
   var filterNoGpu = false;
+  var filterQuery = '';           // free-text search, lowercased
+  var freeDiskGb = -1;
 
   function el(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -59,6 +61,7 @@
     defaultModelTag = setup.defaultModel || null;
     gpuInfo = setup.gpu || { available: false, vendor: 'none', vramGb: 0, name: '' };
     comfyUiRunning = !!setup.comfyUiRunning;
+    freeDiskGb = typeof setup.freeDiskGb === 'number' ? setup.freeDiskGb : -1;
     catalogCache = catalog || { categories: [], comingSoon: [] };
 
     renderSummary(setup, models);
@@ -91,7 +94,10 @@
         value: gpuVal,
         sub: gpuSub,
         dot: gpuInfo.available ? 'ok' : 'warn' },
-      { label: 'Installed models', value: String((models || []).length), sub: totalBytes ? fmtBytes(totalBytes) + ' on disk' : 'none yet', dot: (models || []).length > 0 ? 'ok' : 'warn' },
+      { label: 'Installed models', value: String((models || []).length),
+        sub: (totalBytes ? fmtBytes(totalBytes) + ' used' : 'none yet')
+          + (freeDiskGb >= 0 ? ' · ' + freeDiskGb + ' GB free' : ''),
+        dot: (models || []).length > 0 ? 'ok' : 'warn' },
       { label: 'Default model',
         value: setup.defaultModel || '—',
         sub: setup.defaultModelReady ? 'ready' : 'click to download',
@@ -130,9 +136,10 @@
     } else {
       slot.innerHTML = '<div class="ollama-banner">'
         + '<div class="msg"><strong>Ollama is installed but not running.</strong> '
-        + 'Start it from a terminal: <code>ollama serve</code>, then <a href="#" id="refresh-link">refresh</a>.</div>'
+        + 'Start it with one click or run <code>ollama serve</code> in a terminal.</div>'
+        + '<button class="btn" id="start-ollama-btn">Start Ollama</button>'
         + '</div>';
-      el('refresh-link').addEventListener('click', function (e) { e.preventDefault(); loadAll(); });
+      el('start-ollama-btn').addEventListener('click', startOllamaService);
     }
   }
 
@@ -173,49 +180,123 @@
     }
   }
 
+  async function startOllamaService() {
+    var btn = el('start-ollama-btn');
+    if (!btn) return;
+    btn.disabled = true; btn.textContent = 'Starting…';
+    try {
+      var r = await fetch('/api/setup/start-ollama-service', { method: 'POST' });
+      var data = await r.json();
+      if (!r.ok) { toast(data.error || 'Start failed', 'err'); return; }
+      if (data.started || data.alreadyRunning) toast('Ollama is running', 'ok');
+      else toast('Started — waiting for Ollama to respond…', 'ok');
+      // Poll briefly for it to come up
+      for (var i = 0; i < 8; i++) {
+        await new Promise(function (r) { setTimeout(r, 750); });
+        var s = await fetch('/api/setup/status').then(function (x) { return x.json(); }).catch(function () { return {}; });
+        if (s.ollamaRunning) break;
+      }
+    } catch (e) {
+      toast('Start failed: ' + e.message, 'err');
+    } finally {
+      await loadAll();
+    }
+  }
+
+  async function setAsDefault(tag) {
+    try {
+      var r = await fetch('/api/setup/set-default?model=' + encodeURIComponent(tag), { method: 'POST' });
+      var data = await r.json();
+      if (!r.ok) { toast(data.error || 'Failed to set default', 'err'); return; }
+      toast('Default model: ' + (data.activeModel || tag), 'ok');
+      await loadAll();
+    } catch (e) {
+      toast('Failed to set default: ' + e.message, 'err');
+    }
+  }
+
+  // Inline disk-space warning before kicking off a pull. Returns true if install should proceed.
+  function confirmIfLowDisk(sizeMb, tag) {
+    if (freeDiskGb < 0 || sizeMb <= 0) return true;
+    var neededGb = sizeMb / 1024;
+    // Warn when free disk is within 2 GB of headroom after install.
+    if (freeDiskGb > neededGb + 2) return true;
+    var card = el('card-' + cardId(tag));
+    if (!card) return true;
+    var actions = card.querySelector('.model-actions');
+    var original = actions.innerHTML;
+    actions.innerHTML = '<span style="color:var(--warn);font-size:12px;margin-right:auto;">'
+      + 'Only ' + freeDiskGb + ' GB free — install anyway?</span>'
+      + '<button class="btn" id="cancel-disk-' + cardId(tag) + '">Cancel</button>'
+      + '<button class="btn danger" id="confirm-disk-' + cardId(tag) + '">Install anyway</button>';
+    el('cancel-disk-' + cardId(tag)).addEventListener('click', function () {
+      actions.innerHTML = original;
+      wireCardActions(card);
+    });
+    el('confirm-disk-' + cardId(tag)).addEventListener('click', function () {
+      actions.innerHTML = original;
+      startPull(tag);
+    });
+    return false; // Short-circuit; the explicit "Install anyway" button will retry.
+  }
+
   // ═══ Filters ═══════════════════════════════════════════════════
 
   function renderFilters() {
     var kinds = [
-      { id: 'all',    label: 'All' },
-      { id: 'llm',    label: 'LLM' },
+      { id: 'all',    label: 'All models' },
+      { id: 'llm',    label: 'Text / Chat' },
       { id: 'vision', label: 'Vision' },
-      { id: 'code',   label: 'Code' },
-      { id: 'image',  label: 'Image' },
-      { id: 'embed',  label: 'Embed' }
+      { id: 'code',   label: 'Coding' },
+      { id: 'image',  label: 'Image gen' },
+      { id: 'embed',  label: 'Embeddings' }
     ];
-    var gpuChipLabel = gpuInfo.available
+    var gpuFitsLabel = gpuInfo.available
       ? 'Fits my GPU (' + gpuInfo.vramGb + ' GB)'
-      : 'No GPU needed';
-    var html = '<span class="filter-label">Type</span>';
+      : null;
+
+    var html = '<div class="sb-search">'
+      + '<input type="search" id="sb-search-input" placeholder="Search models…" '
+      + 'value="' + esc(filterQuery) + '" autocomplete="off" spellcheck="false">'
+      + '</div>';
+    html += '<div class="sb-group">'
+      + '<div class="sb-label">Type</div>';
     kinds.forEach(function (k) {
       var count = countByKind(k.id);
       if (k.id !== 'all' && count === 0) return;
-      html += '<button class="chip kind' + (filterKind === k.id ? ' active' : '')
-        + '" data-kind="' + k.id + '">' + esc(k.label)
-        + '<span class="count">' + count + '</span></button>';
+      html += '<button class="sb-item' + (filterKind === k.id ? ' active' : '') + '" data-kind="' + k.id + '">'
+        + '<span>' + esc(k.label) + '</span>'
+        + '<span class="count">' + count + '</span>'
+        + '</button>';
     });
-    html += '<span class="filter-label" style="margin-left:8px;">Show</span>';
-    html += '<button class="chip flag' + (filterInstalled ? ' active' : '')
-      + '" data-flag="installed">Installed</button>';
-    if (gpuInfo.available) {
-      html += '<button class="chip flag' + (filterFitsGpu ? ' active' : '')
-        + '" data-flag="fitsGpu">' + esc(gpuChipLabel) + '</button>';
-    }
-    html += '<button class="chip flag' + (filterNoGpu ? ' active' : '')
-      + '" data-flag="noGpu">No GPU needed</button>';
+    html += '</div>';
 
-    var f = el('filters');
+    html += '<div class="sb-group">'
+      + '<div class="sb-label">Show</div>';
+    html += '<button class="sb-item' + (filterInstalled ? ' active' : '') + '" data-flag="installed">'
+      + '<span>Installed</span>'
+      + '</button>';
+    if (gpuFitsLabel) {
+      html += '<button class="sb-item' + (filterFitsGpu ? ' active' : '') + '" data-flag="fitsGpu">'
+        + '<span>' + esc(gpuFitsLabel) + '</span>'
+        + '</button>';
+    }
+    html += '<button class="sb-item' + (filterNoGpu ? ' active' : '') + '" data-flag="noGpu">'
+      + '<span>No GPU needed</span>'
+      + '</button>';
+    html += '</div>';
+
+    var f = el('sidebar');
+    if (!f) return;
     f.innerHTML = html;
-    f.style.display = 'flex';
-    f.querySelectorAll('.chip.kind').forEach(function (btn) {
+    f.querySelectorAll('.sb-item[data-kind]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         filterKind = btn.getAttribute('data-kind');
         renderFilters();
         applyFilters();
       });
     });
-    f.querySelectorAll('.chip.flag').forEach(function (btn) {
+    f.querySelectorAll('.sb-item[data-flag]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var flag = btn.getAttribute('data-flag');
         if (flag === 'installed') filterInstalled = !filterInstalled;
@@ -225,6 +306,18 @@
         applyFilters();
       });
     });
+    var searchInput = el('sb-search-input');
+    if (searchInput) {
+      searchInput.addEventListener('input', function () {
+        filterQuery = searchInput.value.trim().toLowerCase();
+        applyFilters();
+      });
+      // Preserve focus/caret when re-rendered during typing
+      if (document.activeElement && document.activeElement.id === 'sb-search-input') {
+        searchInput.focus();
+        searchInput.setSelectionRange(searchInput.value.length, searchInput.value.length);
+      }
+    }
   }
 
   function countByKind(kind) {
@@ -239,11 +332,12 @@
 
   function cardMatchesFilters(card) {
     var kind = card.getAttribute('data-kind') || '';
-    var backend = card.getAttribute('data-backend') || '';
     var requiresGpu = card.getAttribute('data-requires-gpu') === 'true';
     var minVram = parseInt(card.getAttribute('data-min-vram') || '0', 10);
     var isInst = card.getAttribute('data-installed') === 'true';
+    var searchText = card.getAttribute('data-search') || '';
 
+    if (filterQuery && searchText.indexOf(filterQuery) === -1) return false;
     if (filterKind !== 'all' && kind && kind !== filterKind) return false;
     if (filterInstalled && !isInst) return false;
     if (filterNoGpu && requiresGpu) return false;
@@ -379,9 +473,15 @@
     // "Can't run" styling — requires GPU you don't have, or needs more VRAM than you have
     var cantRun = requiresGpu && (!gpuInfo.available || minVram > gpuInfo.vramGb);
 
+    var canBeDefault = backend === 'ollama' && (kind === 'llm' || kind === 'code' || kind === 'vision');
+    var isCurrentDefault = isDefault;
     var rightAction;
     if (isInstalled) {
+      var setDefaultBtn = (canBeDefault && !isCurrentDefault)
+        ? '<button class="btn" data-set-default="' + esc(m.tag) + '" title="Use this as the bot\'s default local model">Set as default</button>'
+        : '';
       rightAction = '<span class="badge-installed">● Installed</span>'
+        + setDefaultBtn
         + '<button class="btn danger" data-remove="' + esc(m.tag) + '">Remove</button>';
     } else if (backend === 'comfyui') {
       rightAction = '<button class="btn" data-comfy-install="' + esc(m.tag) + '">Install via ComfyUI</button>';
@@ -393,15 +493,27 @@
     var vs = m.vs ? '<div class="vs"><span class="vs-label">vs peers</span>' + esc(m.vs) + '</div>' : '';
     var hwRow = '<div class="hw-row">' + gpuBadge(m) + '</div>';
 
+    var sourceLink = m.sourceUrl
+      ? '<a class="source-link" href="' + esc(m.sourceUrl) + '" data-ext-url="' + esc(m.sourceUrl) + '" '
+        + 'target="_blank" rel="noopener noreferrer" title="View model on ' + esc(m.sourceLabel || 'source') + '">'
+        + esc(m.sourceLabel || 'source')
+        + ' <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3h4v4"/><path d="M13 3l-7 7"/><path d="M11 9v3a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h3"/></svg>'
+        + '</a>'
+      : '';
+
+    var searchText = ((m.name || '') + ' ' + (m.tag || '') + ' ' + (m.description || '') + ' ' + (m.vs || '')).toLowerCase();
+
     return '<div class="model ' + (isInstalled ? 'installed ' : '') + (isDefault ? 'is-default ' : '') + (cantRun ? 'cant-run' : '') + '" '
       + 'id="card-' + cardId(m.tag) + '" '
       + 'data-kind="' + esc(kind) + '" '
       + 'data-backend="' + esc(backend) + '" '
       + 'data-requires-gpu="' + (requiresGpu ? 'true' : 'false') + '" '
       + 'data-min-vram="' + minVram + '" '
-      + 'data-installed="' + (isInstalled ? 'true' : 'false') + '">'
+      + 'data-installed="' + (isInstalled ? 'true' : 'false') + '" '
+      + 'data-search="' + esc(searchText) + '" '
+      + 'data-size-mb="' + (m.sizeMb || 0) + '">'
       + '<div class="row1"><div class="name">' + esc(m.name) + ' ' + defaultBadge + '</div><div class="size">' + esc(m.sizeLabel) + '</div></div>'
-      + '<div class="tag">' + esc(m.tag) + '</div>'
+      + '<div class="tag-row"><span class="tag">' + esc(m.tag) + '</span>' + sourceLink + '</div>'
       + '<div class="desc">' + esc(m.description) + '</div>'
       + hwRow
       + vs
@@ -505,36 +617,20 @@
     var slot = el('modal-slot');
     if (!slot) return;
 
-    var setupStep = comfyUiRunning
-      ? ''
-      : ''
-        + '<div class="step-head">Step 1 — Install + start ComfyUI</div>'
-        + '<pre>git clone https://github.com/comfyanonymous/ComfyUI\n'
-        + 'cd ComfyUI\n'
-        + 'python -m venv venv\n'
-        + 'venv\\Scripts\\activate\n'
-        + 'pip install -r requirements.txt\n'
-        + 'python main.py --listen 127.0.0.1 --port 8188</pre>'
-        + '<div class="small-note">Needs Python 3.10+ and an NVIDIA driver. First run downloads PyTorch (~2 GB).</div>';
-
-    var downloadStep = ''
-      + '<div class="step-head">Step ' + (comfyUiRunning ? '1' : '2') + ' — Download ' + esc(model.name) + '</div>'
-      + '<pre>cd ComfyUI\\models\\' + esc(model.comfyFolder) + '\n'
-      + 'curl -L -o ' + esc(model.comfyFilename) + ' ^\n'
-      + '  "' + esc(model.comfyDownloadUrl) + '"</pre>'
-      + '<div class="small-note">File size: ' + esc(model.sizeLabel) + '. Can resume with <code>curl -C -</code>.</div>';
-
-    var useStep = ''
-      + '<div class="step-head">Step ' + (comfyUiRunning ? '2' : '3') + ' — Use it</div>'
-      + '<div class="small-note">In chat, say "generate an image of …" — Mins Bot will route to ComfyUI automatically when it\'s running.</div>';
-
     slot.innerHTML = '<div class="modal-backdrop" id="comfy-modal-bd">'
       + '<div class="modal">'
       + '<h3>Install ' + esc(model.name) + '</h3>'
       + '<div class="modal-sub">' + esc(model.description) + '</div>'
-      + setupStep + downloadStep + useStep
+      + '<div class="one-click-hero" id="comfy-hero">'
+      + '<div class="one-click-plan">Click the button and we\'ll do everything: prereq check → '
+      + '<strong>' + (comfyUiRunning ? 'skip ComfyUI setup' : 'clone &amp; set up ComfyUI (~2 GB)') + '</strong> → '
+      + 'start server → download ' + esc(model.sizeLabel) + ' model file.</div>'
+      + '<button class="btn btn-primary" id="comfy-one-click">Install everything</button>'
+      + '</div>'
+      + '<div id="comfy-phases" class="comfy-phases" hidden></div>'
+      + '<div id="comfy-logs" class="comfy-logs" hidden></div>'
       + '<div class="modal-actions">'
-      + '<button class="btn" id="comfy-modal-close">Got it</button>'
+      + '<button class="btn" id="comfy-modal-close">Close</button>'
       + '</div>'
       + '</div></div>';
 
@@ -543,6 +639,117 @@
     el('comfy-modal-bd').addEventListener('click', function (e) {
       if (e.target.id === 'comfy-modal-bd') close();
     });
+    el('comfy-one-click').addEventListener('click', function () {
+      startOneClickComfyInstall(model);
+    });
+  }
+
+  function startOneClickComfyInstall(model) {
+    el('comfy-hero').hidden = true;
+    var phasesEl = el('comfy-phases');
+    var logsEl = el('comfy-logs');
+    phasesEl.hidden = false;
+    logsEl.hidden = false;
+
+    var phases = [
+      { id: 'prereq',   label: 'Check prerequisites' },
+      { id: 'install',  label: 'Install ComfyUI' },
+      { id: 'start',    label: 'Start ComfyUI server' },
+      { id: 'download', label: 'Download ' + model.name },
+      { id: 'done',     label: 'Ready' }
+    ];
+    phasesEl.innerHTML = phases.map(function (p) {
+      return '<div class="phase" data-phase="' + p.id + '">'
+        + '<span class="phase-dot"></span>'
+        + '<span class="phase-label">' + esc(p.label) + '</span>'
+        + '<span class="phase-msg"></span>'
+        + '<div class="phase-progress" hidden><div class="progress"><div class="progress-fill"></div></div><div class="progress-text"></div></div>'
+        + '</div>';
+    }).join('');
+
+    function setPhase(id, state, msg) {
+      var node = phasesEl.querySelector('[data-phase="' + id + '"]');
+      if (!node) return;
+      node.classList.remove('active', 'done', 'error');
+      if (state) node.classList.add(state);
+      if (msg != null) node.querySelector('.phase-msg').textContent = msg;
+    }
+    function appendLog(line) {
+      var row = document.createElement('div');
+      row.className = 'log-line';
+      row.textContent = line;
+      logsEl.appendChild(row);
+      logsEl.scrollTop = logsEl.scrollHeight;
+    }
+
+    var currentPhase = 'prereq';
+    setPhase('prereq', 'active');
+
+    var es = new EventSource('/api/setup/install-comfyui-model?tag=' + encodeURIComponent(model.tag));
+
+    es.addEventListener('phase', function (ev) {
+      try {
+        var d = JSON.parse(ev.data);
+        // mark previous phases done
+        var order = ['prereq', 'install', 'start', 'download', 'done'];
+        var newIdx = order.indexOf(d.phase);
+        var curIdx = order.indexOf(currentPhase);
+        if (newIdx > curIdx) {
+          for (var i = curIdx; i < newIdx; i++) setPhase(order[i], 'done');
+        }
+        currentPhase = d.phase;
+        setPhase(d.phase, 'active', d.message || '');
+      } catch (e) {}
+    });
+
+    es.addEventListener('log', function (ev) {
+      try { var d = JSON.parse(ev.data); appendLog(d.message || ''); } catch (e) {}
+    });
+
+    es.addEventListener('progress', function (ev) {
+      try {
+        var d = JSON.parse(ev.data);
+        var node = phasesEl.querySelector('[data-phase="download"] .phase-progress');
+        if (!node) return;
+        node.hidden = false;
+        var pct = d.total > 0 ? Math.floor((d.done / d.total) * 100) : 0;
+        node.querySelector('.progress-fill').style.width = pct + '%';
+        var got = fmtBytes(d.done);
+        var all = d.total > 0 ? fmtBytes(d.total) : '?';
+        node.querySelector('.progress-text').textContent = got + ' / ' + all + ' (' + pct + '%)';
+      } catch (e) {}
+    });
+
+    es.addEventListener('done', function () {
+      es.close();
+      setPhase('done', 'done', 'All set.');
+      toast('Model ready — ask the bot to generate an image.', 'ok');
+      setTimeout(function () { loadAll(); }, 500);
+    });
+
+    es.addEventListener('error', function (ev) {
+      es.close();
+      var msg = 'Install failed.';
+      var isPrereq = false;
+      if (ev && ev.data) {
+        try { var d = JSON.parse(ev.data); msg = d.error || msg; isPrereq = !!d.prereq; } catch (e) {}
+      }
+      setPhase(currentPhase, 'error', msg);
+      toast(msg, 'err');
+      if (isPrereq) showManualFallback(model, msg);
+    });
+  }
+
+  function showManualFallback(model, why) {
+    var logsEl = el('comfy-logs');
+    if (!logsEl) return;
+    logsEl.insertAdjacentHTML('beforeend',
+      '<div class="manual-fallback">'
+      + '<div class="mf-title">Prerequisite missing — ' + esc(why) + '</div>'
+      + '<div class="mf-sub">Install the missing tool, then click "Install everything" again. Or run the steps manually:</div>'
+      + '<pre>git clone https://github.com/comfyanonymous/ComfyUI\ncd ComfyUI\npython -m venv venv\nvenv\\Scripts\\activate\npip install -r requirements.txt\npython main.py --listen 127.0.0.1 --port 8188</pre>'
+      + '<pre>cd ComfyUI\\models\\' + esc(model.comfyFolder) + '\ncurl -L -o ' + esc(model.comfyFilename) + ' "' + esc(model.comfyDownloadUrl) + '"</pre>'
+      + '</div>');
   }
 
   function findCatalogModel(tag) {
@@ -558,11 +765,39 @@
 
   // ═══ Wiring ══════════════════════════════════════════════════════
 
+  function openExternal(url) {
+    // Prefer the Java bridge from the parent window (we run inside an iframe).
+    try {
+      var j = (window.parent && window.parent.java) || window.java;
+      if (j && typeof j.openUrl === 'function') { j.openUrl(url); return; }
+    } catch (e) { /* cross-frame access blocked */ }
+    window.open(url, '_blank', 'noopener');
+  }
+
   function wireCardActions(scope) {
+    (scope || document).querySelectorAll('[data-ext-url]').forEach(function (link) {
+      if (link.__wired) return;
+      link.__wired = true;
+      link.addEventListener('click', function (e) {
+        e.preventDefault();
+        openExternal(link.getAttribute('data-ext-url'));
+      });
+    });
     (scope || document).querySelectorAll('[data-install]').forEach(function (btn) {
       if (btn.__wired) return;
       btn.__wired = true;
-      btn.addEventListener('click', function () { startPull(btn.getAttribute('data-install')); });
+      btn.addEventListener('click', function () {
+        var tag = btn.getAttribute('data-install');
+        var card = el('card-' + cardId(tag));
+        var sizeMb = card ? parseInt(card.getAttribute('data-size-mb') || '0', 10) : 0;
+        if (!confirmIfLowDisk(sizeMb, tag)) return;
+        startPull(tag);
+      });
+    });
+    (scope || document).querySelectorAll('[data-set-default]').forEach(function (btn) {
+      if (btn.__wired) return;
+      btn.__wired = true;
+      btn.addEventListener('click', function () { setAsDefault(btn.getAttribute('data-set-default')); });
     });
     (scope || document).querySelectorAll('[data-remove]').forEach(function (btn) {
       if (btn.__wired) return;
@@ -585,5 +820,15 @@
       + '</div>';
   }
 
-  loadAll();
+  // Init entry point. Safe to call multiple times (e.g., each time the tab opens).
+  var initialized = false;
+  window.MinsBotModelsInit = function () {
+    if (initialized) { loadAll(); return; }
+    initialized = true;
+    loadAll();
+  };
+  // Auto-init for standalone /models.html (no other script calls init).
+  if (document.body && document.body.classList.contains('models-page')) {
+    window.MinsBotModelsInit();
+  }
 })();

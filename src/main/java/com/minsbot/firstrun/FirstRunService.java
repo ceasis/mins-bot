@@ -26,6 +26,7 @@ public class FirstRunService {
 
     private static final Logger log = LoggerFactory.getLogger(FirstRunService.class);
     private static final Path FLAG = Paths.get("memory", "first-run-complete.flag").toAbsolutePath();
+    private static final Path ACTIVE_MODEL_FLAG = Paths.get("memory", "active-model.txt").toAbsolutePath();
 
     /** Default local model — small enough to pull in a few minutes on a typical connection. */
     public static final String DEFAULT_MODEL = "llama3.2:3b";
@@ -98,16 +99,56 @@ public class FirstRunService {
         Map<String, Object> out = new LinkedHashMap<>();
         boolean installed = isOllamaInstalled();
         boolean running = installed && isOllamaRunning();
-        boolean hasDefault = running && hasModel(DEFAULT_MODEL);
+        String active = getActiveModel();
+        boolean hasActive = running && hasModel(active);
         out.put("firstRun", isFirstRun());
         out.put("ollamaInstalled", installed);
         out.put("ollamaRunning", running);
-        out.put("defaultModel", DEFAULT_MODEL);
-        out.put("defaultModelReady", hasDefault);
-        out.put("setupComplete", installed && running && hasDefault);
+        out.put("defaultModel", active);
+        out.put("defaultModelReady", hasActive);
+        out.put("isCustomDefault", !DEFAULT_MODEL.equals(active));
+        out.put("setupComplete", installed && running && hasActive);
         out.put("comfyUiRunning", isComfyUiRunning());
         out.put("gpu", detectGpu());
+        out.put("freeDiskGb", freeDiskGb());
         return out;
+    }
+
+    /** User-selected default, or {@link #DEFAULT_MODEL} when unset. */
+    public String getActiveModel() {
+        try {
+            if (Files.exists(ACTIVE_MODEL_FLAG)) {
+                String v = Files.readString(ACTIVE_MODEL_FLAG).trim();
+                if (!v.isEmpty()) return v;
+            }
+        } catch (IOException ignored) {}
+        return DEFAULT_MODEL;
+    }
+
+    /** Persist the user's preferred default model. Pass null/blank to reset. */
+    public void setActiveModel(String model) {
+        try {
+            Files.createDirectories(ACTIVE_MODEL_FLAG.getParent());
+            if (model == null || model.isBlank()) {
+                Files.deleteIfExists(ACTIVE_MODEL_FLAG);
+            } else {
+                Files.writeString(ACTIVE_MODEL_FLAG, model.trim());
+            }
+            log.info("[FirstRun] active model set to: {}", model);
+        } catch (IOException e) {
+            log.warn("[FirstRun] setActiveModel failed: {}", e.getMessage());
+        }
+    }
+
+    /** Free disk space (GB) on the partition holding Ollama's model cache. */
+    public int freeDiskGb() {
+        Path probe = Paths.get(System.getProperty("user.home"), ".ollama");
+        Path root = Files.exists(probe) ? probe : Paths.get(System.getProperty("user.home"));
+        try {
+            return (int) (Files.getFileStore(root).getUsableSpace() / (1024L * 1024L * 1024L));
+        } catch (IOException e) {
+            return -1;
+        }
     }
 
     /** True if a ComfyUI server is responding on {@code localhost:8188}. */

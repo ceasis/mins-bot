@@ -68,4 +68,14 @@ public class MinsBotQuitService {
             pendingQuitFuture = null;
         }
     }
+
+    /**
+     * True when the user has been prompted with "Quit Mins Bot?" and a 30-second
+     * confirmation window is active. Used as a server-side gate on the {@code quitMinsBot}
+     * tool so the LLM can't autonomously quit mid-conversation on an ambiguous word.
+     */
+    public boolean hasPendingQuit() {
+        ScheduledFuture<?> f = pendingQuitFuture;
+        return f != null && !f.isDone() && !f.isCancelled();
+    }
 }
