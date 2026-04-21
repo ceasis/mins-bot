@@ -157,6 +157,34 @@ public class PlaywrightService {
         return context.newPage();
     }
 
+    /**
+     * Render a webpage as a PDF to the given absolute path. Waits for network-idle
+     * so lazy-loaded content appears. Returns the output path on success.
+     */
+    public String renderToPdf(String url, String outputPath, String format, boolean landscape) {
+        try (Page page = newPage()) {
+            page.navigate(url);
+            page.waitForLoadState(LoadState.NETWORKIDLE);
+            // Small extra settle for fonts/images
+            page.waitForTimeout(500);
+            java.nio.file.Path out = java.nio.file.Path.of(outputPath);
+            if (out.getParent() != null) java.nio.file.Files.createDirectories(out.getParent());
+            Page.PdfOptions opts = new Page.PdfOptions()
+                    .setPath(out)
+                    .setFormat(format != null && !format.isBlank() ? format : "Letter")
+                    .setLandscape(landscape)
+                    .setPrintBackground(true)
+                    .setMargin(new com.microsoft.playwright.options.Margin()
+                            .setTop("0.5in").setBottom("0.5in")
+                            .setLeft("0.5in").setRight("0.5in"));
+            page.pdf(opts);
+            page.context().close();
+            return out.toString();
+        } catch (Exception e) {
+            throw new RuntimeException("renderToPdf failed: " + e.getMessage(), e);
+        }
+    }
+
     /** Navigate to a URL, wait for content to load, and return the rendered text. */
     public String getPageText(String url) {
         try (Page page = newPage()) {

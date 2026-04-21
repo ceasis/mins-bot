@@ -147,6 +147,16 @@ public class ToolRouter {
     private final com.minsbot.skills.upcoming.UpcomingTools upcomingTools;
     private final com.minsbot.skills.recurringtask.RecurringTaskTools recurringTaskTools;
     private final WindowsSettingsTools windowsSettingsTools;
+    private final com.minsbot.skills.journal.JournalService journalService;
+    private final com.minsbot.skills.screenwatcher.ScreenRegionWatcherService screenRegionWatcher;
+    private final com.minsbot.skills.filesearch.SemanticFileSearchService semanticFileSearch;
+    private final com.minsbot.skills.meetingmode.MeetingModeService meetingMode;
+    private final HeyGenTools heyGenTools;
+    private final VeoVideoTools veoVideoTools;
+    private final PdfAdvancedTools pdfAdvancedTools;
+    private final PdfPasswordCrackerTools pdfPasswordCrackerTools;
+    private final WebToPdfTools webToPdfTools;
+    private final YouTubeTranscriptTools youTubeTranscriptTools;
 
     @Autowired(required = false)
     private ToolClassifierService classifier;
@@ -270,7 +280,17 @@ public class ToolRouter {
             MapsTools mapsTools,
             com.minsbot.skills.upcoming.UpcomingTools upcomingTools,
             com.minsbot.skills.recurringtask.RecurringTaskTools recurringTaskTools,
-            WindowsSettingsTools windowsSettingsTools) {
+            WindowsSettingsTools windowsSettingsTools,
+            com.minsbot.skills.journal.JournalService journalService,
+            com.minsbot.skills.screenwatcher.ScreenRegionWatcherService screenRegionWatcher,
+            com.minsbot.skills.filesearch.SemanticFileSearchService semanticFileSearch,
+            com.minsbot.skills.meetingmode.MeetingModeService meetingMode,
+            HeyGenTools heyGenTools,
+            VeoVideoTools veoVideoTools,
+            PdfAdvancedTools pdfAdvancedTools,
+            PdfPasswordCrackerTools pdfPasswordCrackerTools,
+            WebToPdfTools webToPdfTools,
+            YouTubeTranscriptTools youTubeTranscriptTools) {
 
         this.directivesTools = directivesTools;
         this.directiveDataTools = directiveDataTools;
@@ -378,6 +398,16 @@ public class ToolRouter {
         this.upcomingTools = upcomingTools;
         this.recurringTaskTools = recurringTaskTools;
         this.windowsSettingsTools = windowsSettingsTools;
+        this.journalService = journalService;
+        this.screenRegionWatcher = screenRegionWatcher;
+        this.semanticFileSearch = semanticFileSearch;
+        this.meetingMode = meetingMode;
+        this.heyGenTools = heyGenTools;
+        this.veoVideoTools = veoVideoTools;
+        this.pdfAdvancedTools = pdfAdvancedTools;
+        this.pdfPasswordCrackerTools = pdfPasswordCrackerTools;
+        this.webToPdfTools = webToPdfTools;
+        this.youTubeTranscriptTools = youTubeTranscriptTools;
 
         // Count @Tool methods on every bean (once, via reflection)
         countToolsOnAllBeans();
@@ -533,7 +563,10 @@ public class ToolRouter {
                 orchestratorTools, youTubeTools, mapsTools, upcomingTools, recurringTaskTools,
                 remindersTools,
                 driveTools,
-                windowsSettingsTools
+                windowsSettingsTools,
+                journalService, screenRegionWatcher, semanticFileSearch, meetingMode,
+                heyGenTools, veoVideoTools,
+                pdfAdvancedTools, pdfPasswordCrackerTools, webToPdfTools, youTubeTranscriptTools
         };
         for (Object bean : allBeans) {
             if (bean != null && !toolCounts.containsKey(bean)) {
@@ -593,7 +626,7 @@ public class ToolRouter {
         map.put("sites",        List.of(sitesConfigTools));
         map.put("files",        List.of(fileTools, fileSystemTools, excelTools, systemTools, wordDocTools, pdfTools, backupConfigTools));
         map.put("excel",        List.of(excelTools));
-        map.put("system",       List.of(screenClickTools, systemTools, softwareTools, screenRecordTools, appSwitchTools));
+        map.put("system",       List.of(screenClickTools, systemTools, softwareTools, screenRecordTools, appSwitchTools, musicControlTools));
         map.put("software",    List.of(softwareTools));
         map.put("network",     List.of(networkTools));
         map.put("printing",    List.of(printerTools));
@@ -666,6 +699,16 @@ public class ToolRouter {
         map.put("upcoming",           List.of(upcomingTools));
         map.put("recurring_task",     List.of(recurringTaskTools, scheduledTaskTools));
         map.put("windows_settings",   List.of(windowsSettingsTools, musicControlTools));
+        map.put("journal",            List.of(journalService, episodicMemoryTools));
+        map.put("screen_watcher",     List.of(screenRegionWatcher));
+        map.put("file_search",        List.of(semanticFileSearch, fileSystemTools));
+        map.put("meeting_mode",       List.of(meetingMode, audioListeningTools));
+        map.put("heygen",             List.of(heyGenTools));
+        map.put("veo",                List.of(veoVideoTools));
+        map.put("pdf_advanced",       List.of(pdfAdvancedTools, pdfTools));
+        map.put("pdf_password",       List.of(pdfPasswordCrackerTools, pdfAdvancedTools));
+        map.put("web_to_pdf",         List.of(webToPdfTools, playwrightTools));
+        map.put("youtube_transcript", List.of(youTubeTranscriptTools, webScraperTools));
 
         return Collections.unmodifiableMap(map);
     }
@@ -694,7 +737,7 @@ public class ToolRouter {
         map.put("cdp",           List.of(chromeCdpTools));
         map.put("files",         List.of(fileTools, fileSystemTools, excelTools, wordDocTools, pdfTools));
         map.put("excel",         List.of(excelTools));
-        map.put("system",        List.of(systemTools, softwareTools));
+        map.put("system",        List.of(systemTools, softwareTools, musicControlTools));
         map.put("software",     List.of(softwareTools));
         map.put("network",      List.of(networkTools));
         map.put("printing",     List.of(printerTools));

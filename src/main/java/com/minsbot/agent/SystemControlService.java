@@ -993,10 +993,35 @@ public class SystemControlService {
         }
     }
 
+    /** Lazy-wired — SystemControlService predates the permission gate. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.minsbot.MousePermissionService mousePermission;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.minsbot.agent.AsyncMessageService mouseAsyncMessages;
+
+    /** Gate — returns a reason string if blocked, null if OK to proceed. */
+    private String mouseGate() {
+        if (mousePermission == null) return null;
+        if (mousePermission.isAllowed()) return null;
+        if (mousePermission.currentDecision() == com.minsbot.MousePermissionService.Decision.DENIED) {
+            return "Mouse control is denied until midnight. Say 'allow mouse control today' to re-enable.";
+        }
+        // Unset → prompt user via chat
+        if (mouseAsyncMessages != null) {
+            mouseAsyncMessages.push("[action:mouse-permission]\n"
+                    + "The bot wants to move/click your mouse. How long do you want to allow this?");
+        }
+        return "PERMISSION_REQUIRED: mouse control. Check the chat prompt and pick "
+                + "'Allow Today', 'Allow 3 Hours', or 'Don't Allow'.";
+    }
+
     /**
      * Move the mouse cursor to the given screen coordinates.
      */
     public String mouseMove(int x, int y) {
+        String gate = mouseGate();
+        if (gate != null) return gate;
         try {
             Robot robot = new Robot();
             smoothMove(robot, x, y);
@@ -1011,6 +1036,8 @@ public class SystemControlService {
      * button: "left" (default), "right", or "middle".
      */
     public String mouseClick(int x, int y, String button) {
+        String gate = mouseGate();
+        if (gate != null) return gate;
         try {
             Robot robot = new Robot();
             smoothMove(robot, x, y);
@@ -1033,6 +1060,8 @@ public class SystemControlService {
      * Double-click the mouse at the given screen coordinates.
      */
     public String mouseDoubleClick(int x, int y) {
+        String gate = mouseGate();
+        if (gate != null) return gate;
         try {
             Robot robot = new Robot();
             smoothMove(robot, x, y);
@@ -1055,6 +1084,8 @@ public class SystemControlService {
      * Drag the mouse from one point to another (left button).
      */
     public String mouseDrag(int fromX, int fromY, int toX, int toY) {
+        String gate = mouseGate();
+        if (gate != null) return gate;
         try {
             Robot robot = new Robot();
             smoothMove(robot, fromX, fromY);
@@ -1082,6 +1113,8 @@ public class SystemControlService {
      * Positive = scroll down, negative = scroll up.
      */
     public String mouseScroll(int amount) {
+        String gate = mouseGate();
+        if (gate != null) return gate;
         try {
             Robot robot = new Robot();
             robot.mouseWheel(amount);

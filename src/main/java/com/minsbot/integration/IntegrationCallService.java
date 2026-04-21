@@ -24,17 +24,22 @@ public class IntegrationCallService {
 
     private final IntegrationRegistry registry;
     private final IntegrationCredentialStore credentials;
+    private final com.minsbot.offline.OfflineModeService offlineMode;
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .followRedirects(HttpClient.Redirect.NORMAL)
             .build();
 
-    public IntegrationCallService(IntegrationRegistry registry, IntegrationCredentialStore credentials) {
+    public IntegrationCallService(IntegrationRegistry registry,
+                                  IntegrationCredentialStore credentials,
+                                  com.minsbot.offline.OfflineModeService offlineMode) {
         this.registry = registry;
         this.credentials = credentials;
+        this.offlineMode = offlineMode;
     }
 
     public Map<String, Object> call(String integrationId, String method, String path, Map<String, String> headers, String body) throws Exception {
+        offlineMode.requireOnline("integration.call:" + integrationId);
         IntegrationRegistry.Integration integration = registry.get(integrationId)
                 .orElseThrow(() -> new IllegalArgumentException("unknown integration: " + integrationId));
 

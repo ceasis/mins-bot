@@ -37,6 +37,32 @@ public final class SetupSecretsRegistry {
                     new SetupField("serper.api.key", "Serper API key", true),
                     new SetupField("serpapi.api.key", "SerpAPI key", true)
             )),
+            new SetupGroup("video-gen", "Video generation (text/image → video)", List.of(
+                    new SetupField("app.sora.api-key", "OpenAI Sora API key (often same as OpenAI key)", true),
+                    new SetupField("app.runway.api-key", "Runway API key", true),
+                    new SetupField("app.luma.api-key", "Luma Dream Machine API key", true),
+                    new SetupField("app.pika.api-key", "Pika Labs API key", true),
+                    new SetupField("app.minimax.api-key", "MiniMax / Hailuo API key", true),
+                    new SetupField("app.minimax.group-id", "MiniMax group ID", false),
+                    new SetupField("app.kling.access-key", "Kling access key", true),
+                    new SetupField("app.kling.secret-key", "Kling secret key", true),
+                    new SetupField("app.stability.api-key", "Stability AI API key", true)
+            )),
+            new SetupGroup("video-aggregators", "Video aggregators (one key, many models)", List.of(
+                    new SetupField("app.replicate.api-key", "Replicate API token", true),
+                    new SetupField("app.falai.api-key", "fal.ai API key", true),
+                    new SetupField("app.segmind.api-key", "Segmind API key", true)
+            )),
+            new SetupGroup("video-avatars", "Video avatars (talking heads)", List.of(
+                    new SetupField("app.heygen.api-key", "HeyGen API key", true),
+                    new SetupField("app.heygen.default-avatar-id", "HeyGen default avatar ID", false),
+                    new SetupField("app.heygen.default-voice-id", "HeyGen default voice ID", false),
+                    new SetupField("app.did.api-key", "D-ID API key", true),
+                    new SetupField("app.synthesia.api-key", "Synthesia API key", true),
+                    new SetupField("app.tavus.api-key", "Tavus API key", true),
+                    new SetupField("app.captions.api-key", "Captions.ai API key", true),
+                    new SetupField("app.higgsfield.api-key", "Higgsfield API key", true)
+            )),
             new SetupGroup("google-integrations", "Google integrations (OAuth)", List.of(
                     new SetupField("spring.security.oauth2.client.registration.google.client-id",
                             "Google OAuth client ID (same key as TelliChat)", false),

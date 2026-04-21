@@ -1296,6 +1296,21 @@
         if (btn) btn.click();
       });
     });
+    // Live status on the Models tile — installed count / Ollama state.
+    Promise.all([
+      fetch('/api/setup/status').then(function (r) { return r.json(); }).catch(function () { return {}; }),
+      fetch('/api/setup/installed-models').then(function (r) { return r.json(); }).catch(function () { return {}; })
+    ]).then(function (res) {
+      var setup = res[0] || {};
+      var tags = res[1] || {};
+      var count = (tags.models && tags.models.length) || 0;
+      var parts = [];
+      if (!setup.ollamaInstalled) parts.push('Ollama not installed');
+      else if (!setup.ollamaRunning) parts.push('Ollama stopped');
+      else parts.push(count + (count === 1 ? ' model' : ' models') + ' installed');
+      var tile = tabMenuGridEl.querySelector('[data-tab-target="models"] .tab-menu-card-desc');
+      if (tile) tile.textContent = parts.join(' · ');
+    });
   }
 
   // Tag body with `on-tab-<name>` so CSS can hide chat-specific UI (panel-header
@@ -1365,6 +1380,12 @@
       if (tab.dataset.tab === 'dashboard') loadDashboard();
       if (tab.dataset.tab === 'multiagent') loadMultiAgent();
       if (tab.dataset.tab === 'automations') loadAutomations();
+      if (tab.dataset.tab === 'models') {
+        var mf = document.getElementById('models-iframe');
+        if (mf && (!mf.src || mf.src === 'about:blank' || mf.src.endsWith('about:blank'))) {
+          mf.src = '/models.html';
+        }
+      }
     });
   });
 
@@ -2071,6 +2092,38 @@
     return d.innerHTML;
   }
 
+  function applySetupFilter() {
+    var formEl = document.getElementById('setup-form');
+    var chipsEl = document.getElementById('setup-filter-chips');
+    var searchInput = document.getElementById('setup-search');
+    var emptyEl = document.getElementById('setup-empty');
+    if (!formEl) return;
+    var activeChip = chipsEl ? chipsEl.querySelector('.setup-chip.active') : null;
+    var filterType = activeChip ? activeChip.getAttribute('data-filter-type') : 'all';
+    var filterSlug = activeChip ? activeChip.getAttribute('data-filter-slug') : null;
+    var query = (searchInput && searchInput.value ? searchInput.value.trim().toLowerCase() : '');
+    var totalVisible = 0;
+    formEl.querySelectorAll('.setup-group').forEach(function (groupEl) {
+      var slug = groupEl.getAttribute('data-group-slug');
+      var groupMatchesFilter = true;
+      if (filterType === 'group') groupMatchesFilter = (slug === filterSlug);
+      var visibleInGroup = 0;
+      groupEl.querySelectorAll('.setup-field').forEach(function (fieldEl) {
+        var search = fieldEl.getAttribute('data-field-search') || '';
+        var configured = fieldEl.getAttribute('data-configured') === '1';
+        var show = groupMatchesFilter;
+        if (show && filterType === 'saved') show = configured;
+        if (show && filterType === 'notset') show = !configured;
+        if (show && query) show = search.indexOf(query) !== -1;
+        fieldEl.hidden = !show;
+        if (show) visibleInGroup++;
+      });
+      groupEl.hidden = (visibleInGroup === 0);
+      totalVisible += visibleInGroup;
+    });
+    if (emptyEl) emptyEl.hidden = (totalVisible > 0);
+  }
+
   function loadSetupTab() {
     var formEl = document.getElementById('setup-form');
     var pathEl = document.getElementById('setup-file-path');
@@ -2086,9 +2139,22 @@
       return r.json();
     }).then(function (data) {
       if (pathEl) pathEl.textContent = data.secretsFile ? 'File: ' + data.secretsFile : '';
+      var groups = data.groups || [];
+      var totalFields = 0;
+      var savedCount = 0;
+      var notSetCount = 0;
+      groups.forEach(function (g) {
+        (g.fields || []).forEach(function (f) {
+          totalFields++;
+          if (f.configured) savedCount++; else notSetCount++;
+        });
+      });
       var html = '';
-      (data.groups || []).forEach(function (g) {
-        html += '<div class="setup-group"><h3 class="setup-group-title">' + escapeHtml(g.title) + '</h3>';
+      groups.forEach(function (g, gi) {
+        var fieldCount = (g.fields || []).length;
+        var groupSlug = 'g' + gi;
+        html += '<div class="setup-group" data-group-slug="' + groupSlug + '" data-group-title="' + escapeHtml(g.title) + '">';
+        html += '<h3 class="setup-group-title"><span>' + escapeHtml(g.title) + '</span><span class="setup-group-count">' + fieldCount + (fieldCount === 1 ? ' item' : ' items') + '</span></h3>';
         (g.fields || []).forEach(function (f) {
           var safeKey = String(f.key).replace(/[^a-zA-Z0-9]/g, '_');
           var id = 'setup-f-' + safeKey;
@@ -2099,12 +2165,10 @@
           var forget = f.configured
             ? '<button type="button" class="setup-forget" data-key="' + escapeHtml(f.key) + '">Forget</button>'
             : '';
-          html += '<div class="setup-field">';
+          var search = (f.label + ' ' + f.key).toLowerCase();
+          html += '<div class="setup-field" data-field-search="' + escapeHtml(search) + '" data-configured="' + (f.configured ? '1' : '0') + '">';
           html += '<div class="setup-field-head"><label class="setup-label-text" for="' + id + '">' + escapeHtml(f.label) + '</label>' + forget + '</div>';
           html += '<div class="setup-field-meta">' + hint + '</div>';
-          // Use the preview (first 5 chars + asterisks for secrets, full value for non-secrets)
-          // as placeholder so the user sees what's currently saved without revealing full secrets.
-          // Input type stays 'text' so the placeholder is readable — secret entry still masked on typing is handled via password type below.
           var inputType = f.mask ? 'password' : 'text';
           var placeholder = previewText ? 'Current: ' + previewText : '';
           html += '<input class="tab-input setup-input" id="' + id + '" data-prop-key="' + escapeHtml(f.key) + '" type="' + inputType + '" autocomplete="off" spellcheck="false" placeholder="' + escapeHtml(placeholder) + '">';
@@ -2113,6 +2177,36 @@
         html += '</div>';
       });
       formEl.innerHTML = html;
+
+      // Build quick-filter chips (All, Saved, Not set, plus one per category)
+      var chipsEl = document.getElementById('setup-filter-chips');
+      if (chipsEl) {
+        var chipsHtml = ''
+          + '<button type="button" class="setup-chip active" data-filter-type="all">All <span class="setup-chip-count">' + totalFields + '</span></button>'
+          + '<button type="button" class="setup-chip" data-filter-type="saved">Saved <span class="setup-chip-count">' + savedCount + '</span></button>'
+          + '<button type="button" class="setup-chip" data-filter-type="notset">Not set <span class="setup-chip-count">' + notSetCount + '</span></button>';
+        groups.forEach(function (g, gi) {
+          var fieldCount = (g.fields || []).length;
+          chipsHtml += '<button type="button" class="setup-chip" data-filter-type="group" data-filter-slug="g' + gi + '">'
+            + escapeHtml(g.title) + ' <span class="setup-chip-count">' + fieldCount + '</span></button>';
+        });
+        chipsEl.innerHTML = chipsHtml;
+        chipsEl.querySelectorAll('.setup-chip').forEach(function (chip) {
+          chip.addEventListener('click', function () {
+            chipsEl.querySelectorAll('.setup-chip').forEach(function (c) { c.classList.remove('active'); });
+            chip.classList.add('active');
+            applySetupFilter();
+          });
+        });
+      }
+
+      var searchInput = document.getElementById('setup-search');
+      if (searchInput && !searchInput._setupBound) {
+        searchInput.addEventListener('input', applySetupFilter);
+        searchInput._setupBound = true;
+      }
+
+      applySetupFilter();
       formEl.querySelectorAll('.setup-forget').forEach(function (btn) {
         btn.addEventListener('click', function () {
           var key = btn.getAttribute('data-key');

@@ -128,10 +128,13 @@ public class MusicControlTools {
         }
     }
 
-    @Tool(description = "Set the system master volume to an exact percentage (0–100). "
-            + "Use when the user says 'set volume to 50', 'max volume', 'volume to 100%', "
-            + "'put volume at 30 percent', 'turn volume up to 100', 'volume to the max'. "
-            + "Uses Windows Core Audio API via inline PowerShell — no extra installs required.")
+    @Tool(description = "Set the system master volume to an EXACT percentage (0-100). "
+            + "This is the ONLY correct tool for exact-volume requests — do NOT use runPowerShell with Get-AudioDevice "
+            + "(that module isn't installed on most PCs). "
+            + "Use when the user says 'set volume to 50', 'audio to 42%', 'volume to 42', 'set audio to 80', "
+            + "'max volume', 'volume to 100%', 'put volume at 30 percent', 'turn volume up to 100', 'volume to the max', "
+            + "'volume 75', 'audio 60'. Accepts a number from 0 to 100. "
+            + "Uses Windows Core Audio API via inline C# in PowerShell — no extra modules required; works on every Windows install.")
     public String setSystemVolume(
             @ToolParam(description = "Target volume percentage from 0 to 100 (e.g. 100 for max)") double percent) {
         int pct = Math.max(0, Math.min(100, (int) Math.round(percent)));
@@ -142,23 +145,82 @@ public class MusicControlTools {
             return "System volume set to " + pct + "%.";
         }
 
-        // Fallback: spam VK_VOLUME_DOWN to min then VK_VOLUME_UP N times.
-        // Each press = ~2% on Windows, so 50 presses = 100%.
-        try {
-            Robot robot = new Robot();
-            // Drop to zero first (50 down-presses will saturate the minimum)
-            for (int i = 0; i < 52; i++) {
-                robot.keyPress(0xAE); robot.keyRelease(0xAE);
-                Thread.sleep(15);
-            }
-            int upPresses = pct / 2;
-            for (int i = 0; i < upPresses; i++) {
-                robot.keyPress(0xAF); robot.keyRelease(0xAF);
-                Thread.sleep(15);
-            }
+        // Fallback: drive media keys via PowerShell WScript.Shell SendKeys.
+        // Avoids Java Robot's key-code validation (which rejects VK_VOLUME_UP=0xAF on some JDKs).
+        // Not as precise as the Core Audio API path — each press = ~2% on Windows.
+        if (setVolumeViaSendKeys(pct)) {
             return "System volume set to approximately " + pct + "% (media-key fallback).";
+        }
+        return "Failed to set volume: both the Core Audio API and media-key fallback paths failed. "
+                + "Check that PowerShell is available on PATH and that the app has permission to drive keys.";
+    }
+
+    /**
+     * Fallback: use Win32 keybd_event P/Invoked via PowerShell Add-Type to drive real
+     * VK_VOLUME_DOWN / VK_VOLUME_UP virtual keys (NOT SendKeys, which sends Unicode).
+     * Each press ≈ 2%; we drop to 0 then step up to the target.
+     */
+    private boolean setVolumeViaSendKeys(int pct) {
+        int targetSteps = Math.max(0, Math.min(50, pct / 2));
+        java.nio.file.Path scriptFile = null;
+        try {
+            String psSource = String.join("\r\n",
+                "$ErrorActionPreference='Stop'",
+                "$src = @'",
+                "using System;",
+                "using System.Runtime.InteropServices;",
+                "public class MinsKeybd {",
+                "  [DllImport(\"user32.dll\")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);",
+                "  public static void Press(byte vk) { keybd_event(vk, 0, 0, UIntPtr.Zero); keybd_event(vk, 0, 2, UIntPtr.Zero); }",
+                "}",
+                "'@",
+                "if (-not ('MinsKeybd' -as [type])) { Add-Type -TypeDefinition $src -Language CSharp }",
+                "for ($i = 0; $i -lt 52; $i++) { [MinsKeybd]::Press(0xAE); Start-Sleep -Milliseconds 8 }",
+                "for ($i = 0; $i -lt " + targetSteps + "; $i++) { [MinsKeybd]::Press(0xAF); Start-Sleep -Milliseconds 8 }"
+            );
+            scriptFile = java.nio.file.Files.createTempFile("mins_volkey_", ".ps1");
+            java.nio.file.Files.writeString(scriptFile, psSource, java.nio.charset.StandardCharsets.UTF_8);
+
+            for (String exe : new String[]{"powershell", "pwsh"}) {
+                try {
+                    ProcessBuilder pb = new ProcessBuilder(
+                            exe, "-NoProfile", "-ExecutionPolicy", "Bypass",
+                            "-File", scriptFile.toAbsolutePath().toString());
+                    java.io.ByteArrayOutputStream errBuf = new java.io.ByteArrayOutputStream();
+                    pb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
+                    Process p = pb.start();
+                    Thread drainer = new Thread(() -> {
+                        try (var in = p.getErrorStream()) {
+                            byte[] buf = new byte[1024];
+                            int n;
+                            while ((n = in.read(buf)) > 0) errBuf.write(buf, 0, n);
+                        } catch (Exception ignored) {}
+                    }, "ps-stderr-drain");
+                    drainer.setDaemon(true);
+                    drainer.start();
+                    boolean done = p.waitFor(12, java.util.concurrent.TimeUnit.SECONDS);
+                    if (done && p.exitValue() == 0) return true;
+                    String err = errBuf.toString(java.nio.charset.StandardCharsets.UTF_8).trim();
+                    if (done) {
+                        log.warn("[Music] keybd_event {} exit={}: {}", exe, p.exitValue(),
+                                err.isEmpty() ? "(no stderr)" : err);
+                    } else {
+                        p.destroyForcibly();
+                    }
+                } catch (java.io.IOException notInstalled) {
+                    // try next
+                } catch (Exception e) {
+                    log.warn("[Music] keybd_event {} failed: {}", exe, e.getMessage());
+                }
+            }
+            return false;
         } catch (Exception e) {
-            return "Failed to set volume: " + e.getMessage();
+            log.warn("[Music] setVolumeViaSendKeys outer failure: {}", e.getMessage());
+            return false;
+        } finally {
+            if (scriptFile != null) {
+                try { java.nio.file.Files.deleteIfExists(scriptFile); } catch (Exception ignored) {}
+            }
         }
     }
 
@@ -952,51 +1014,105 @@ public class MusicControlTools {
      * modules — pure .NET + COM, ships with every Windows install.
      * Returns true on success, false on any failure.
      */
+    /**
+     * Set Windows master volume via Core Audio API (MMDevice + IAudioEndpointVolume).
+     * Script is written to a temp .ps1 file so PowerShell's here-string rules aren't mangled
+     * by command-line quoting. Works on PowerShell 5.1 (ships with Windows) and 7+.
+     * Stderr is logged at WARN so failures are visible without needing debug level.
+     */
     private boolean setVolumeViaPowerShell(int pct) {
         float scalar = Math.max(0f, Math.min(1f, pct / 100f));
-        // Note: the single-quoted here-doc avoids JVM string-escape noise. Scalar is inlined safely.
-        String script =
-            "$ErrorActionPreference='Stop';" +
-            "Add-Type -Language CSharp @'\n" +
-            "using System;using System.Runtime.InteropServices;\n" +
-            "[Guid(\"5CDF2C82-841E-4546-9722-0CF74078229A\"),InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]\n" +
-            "public interface IAudioEndpointVolume{\n" +
-            "  int f();int g();int h();int i();\n" +
-            "  int SetMasterVolumeLevelScalar(float l,Guid ctx);\n" +
-            "  int j();\n" +
-            "  int GetMasterVolumeLevelScalar(out float l);\n" +
-            "}\n" +
-            "[Guid(\"A95664D2-9614-4F35-A746-DE8DB63617E6\"),InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]\n" +
-            "public interface IMMDeviceEnumerator{\n" +
-            "  int f();\n" +
-            "  int GetDefaultAudioEndpoint(int d,int r,out IMMDevice e);\n" +
-            "}\n" +
-            "[Guid(\"D666063F-1587-4E43-81F1-B948E807363F\"),InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]\n" +
-            "public interface IMMDevice{\n" +
-            "  int Activate(ref Guid id,int clsCtx,int ap,[MarshalAs(UnmanagedType.IUnknown)]out object o);\n" +
-            "}\n" +
-            "[ComImport,Guid(\"BCDE0395-E52F-467C-8E3D-C4579291692E\")] public class MMDE{}\n" +
-            "public class A{\n" +
-            "  public static void S(float v){\n" +
-            "    var e=(IMMDeviceEnumerator)(new MMDE());\n" +
-            "    IMMDevice d=null; Marshal.ThrowExceptionForHR(e.GetDefaultAudioEndpoint(0,1,out d));\n" +
-            "    Guid g=typeof(IAudioEndpointVolume).GUID; object o;\n" +
-            "    Marshal.ThrowExceptionForHR(d.Activate(ref g,0x17,0,out o));\n" +
-            "    Marshal.ThrowExceptionForHR(((IAudioEndpointVolume)o).SetMasterVolumeLevelScalar(v,Guid.Empty));\n" +
-            "  }\n" +
-            "}\n" +
-            "'@ -ReferencedAssemblies System.Runtime,System.Private.CoreLib;" +
-            "[A]::S(" + scalar + ")";
+        java.nio.file.Path scriptFile = null;
         try {
-            ProcessBuilder pb = new ProcessBuilder("powershell", "-NoProfile", "-Command", script);
-            pb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
-            pb.redirectError(ProcessBuilder.Redirect.DISCARD);
-            Process p = pb.start();
-            boolean done = p.waitFor(6, java.util.concurrent.TimeUnit.SECONDS);
-            return done && p.exitValue() == 0;
-        } catch (Exception e) {
-            log.debug("[Music] setVolumeViaPowerShell failed: {}", e.getMessage());
+            String csSource = String.join("\n",
+                "using System;",
+                "using System.Runtime.InteropServices;",
+                "[Guid(\"5CDF2C82-841E-4546-9722-0CF74078229A\"),InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]",
+                "public interface IMinsAudioEndpointVolume {",
+                "  int _f(); int _g(); int _h(); int _i();",
+                "  [PreserveSig] int SetMasterVolumeLevelScalar(float level, Guid ctx);",
+                "  int _j();",
+                "  [PreserveSig] int GetMasterVolumeLevelScalar(out float level);",
+                "}",
+                "[Guid(\"A95664D2-9614-4F35-A746-DE8DB63617E6\"),InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]",
+                "public interface IMinsMMDeviceEnumerator {",
+                "  int _f();",
+                "  [PreserveSig] int GetDefaultAudioEndpoint(int dataFlow, int role, out IMinsMMDevice endpoint);",
+                "}",
+                "[Guid(\"D666063F-1587-4E43-81F1-B948E807363F\"),InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]",
+                "public interface IMinsMMDevice {",
+                "  [PreserveSig] int Activate(ref Guid iid, int dwClsCtx, IntPtr pActivationParams, [MarshalAs(UnmanagedType.IUnknown)] out object ppInterface);",
+                "}",
+                "[ComImport, Guid(\"BCDE0395-E52F-467C-8E3D-C4579291692E\")] public class MinsMMDeviceEnumerator { }",
+                "public class MinsAudio {",
+                "  public static void Set(float level) {",
+                "    var enumerator = (IMinsMMDeviceEnumerator)(new MinsMMDeviceEnumerator());",
+                "    IMinsMMDevice device = null;",
+                "    Marshal.ThrowExceptionForHR(enumerator.GetDefaultAudioEndpoint(0, 1, out device));",
+                "    Guid iid = typeof(IMinsAudioEndpointVolume).GUID; object epv;",
+                "    Marshal.ThrowExceptionForHR(device.Activate(ref iid, 0x17, IntPtr.Zero, out epv));",
+                "    Marshal.ThrowExceptionForHR(((IMinsAudioEndpointVolume)epv).SetMasterVolumeLevelScalar(level, Guid.Empty));",
+                "  }",
+                "}"
+            );
+            String psSource = String.join("\r\n",
+                "$ErrorActionPreference='Stop'",
+                "$src = @'",
+                csSource,
+                "'@",
+                "if (-not ('MinsAudio' -as [type])) {",
+                "  Add-Type -TypeDefinition $src -Language CSharp",
+                "}",
+                "[MinsAudio]::Set(" + scalar + ")"
+            );
+
+            scriptFile = java.nio.file.Files.createTempFile("mins_setvol_", ".ps1");
+            java.nio.file.Files.writeString(scriptFile, psSource, java.nio.charset.StandardCharsets.UTF_8);
+
+            // Try powershell (5.1) first, then pwsh (7+)
+            for (String exe : new String[]{"powershell", "pwsh"}) {
+                try {
+                    ProcessBuilder pb = new ProcessBuilder(
+                            exe, "-NoProfile", "-ExecutionPolicy", "Bypass",
+                            "-File", scriptFile.toAbsolutePath().toString());
+                    java.io.ByteArrayOutputStream errBuf = new java.io.ByteArrayOutputStream();
+                    pb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
+                    Process p = pb.start();
+                    Thread drainer = new Thread(() -> {
+                        try (var in = p.getErrorStream()) {
+                            byte[] buf = new byte[1024];
+                            int n;
+                            while ((n = in.read(buf)) > 0) errBuf.write(buf, 0, n);
+                        } catch (Exception ignored) {}
+                    }, "ps-stderr-drain");
+                    drainer.setDaemon(true);
+                    drainer.start();
+                    boolean done = p.waitFor(10, java.util.concurrent.TimeUnit.SECONDS);
+                    if (done && p.exitValue() == 0) {
+                        return true;
+                    }
+                    String err = errBuf.toString(java.nio.charset.StandardCharsets.UTF_8).trim();
+                    if (done) {
+                        log.warn("[Music] {} exit={}: {}", exe, p.exitValue(),
+                                err.isEmpty() ? "(no stderr)" : err);
+                    } else {
+                        p.destroyForcibly();
+                        log.warn("[Music] {} timed out after 10s", exe);
+                    }
+                } catch (java.io.IOException notInstalled) {
+                    log.debug("[Music] {} not on PATH, trying next", exe);
+                } catch (Exception e) {
+                    log.warn("[Music] {} launch failed: {}", exe, e.getMessage());
+                }
+            }
             return false;
+        } catch (Exception e) {
+            log.warn("[Music] setVolumeViaPowerShell outer failure: {}", e.getMessage());
+            return false;
+        } finally {
+            if (scriptFile != null) {
+                try { java.nio.file.Files.deleteIfExists(scriptFile); } catch (Exception ignored) {}
+            }
         }
     }
 

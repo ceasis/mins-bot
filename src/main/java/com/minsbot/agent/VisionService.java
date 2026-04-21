@@ -46,6 +46,9 @@ public class VisionService {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private ModuleStatsService moduleStats;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.minsbot.offline.OfflineModeService offlineMode;
+
     private HttpClient httpClient;
 
     private static final String SYSTEM_PROMPT = """
@@ -158,6 +161,10 @@ public class VisionService {
 
     /** Analyze with raw image bytes (in-memory, no disk I/O). */
     public String analyzeWithPrompt(byte[] imageBytes, String prompt, String modelOverride) {
+        if (offlineMode != null && offlineMode.isOffline()) {
+            log.info("[Vision] offline mode is ON — blocking cloud vision call");
+            return null;
+        }
         if (!isAvailable() || imageBytes == null || imageBytes.length == 0) return null;
         try {
             String useModel = (modelOverride != null && !modelOverride.isBlank()) ? modelOverride : model;
@@ -189,6 +196,10 @@ public class VisionService {
     }
 
     public String analyzeWithPrompt(Path imagePath, String prompt, String modelOverride) {
+        if (offlineMode != null && offlineMode.isOffline()) {
+            log.info("[Vision] offline mode is ON — blocking cloud vision call");
+            return null;
+        }
         if (!isAvailable()) return null;
         if (imagePath == null || !Files.exists(imagePath)) return null;
         try {

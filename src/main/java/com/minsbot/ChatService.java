@@ -985,6 +985,7 @@ public class ChatService {
         if (isSimpleMapsCommand(message)) return false;
         if (isSimpleFileOpenCommand(message)) return false;
         if (isSimpleConnectedServiceCommand(message)) return false;
+        if (isSimpleSystemSettingCommand(message)) return false;
         if (SystemContextProvider.isMessageAboutMinsbotSelfConfig(message)) return false;
         return true;
     }
@@ -1002,6 +1003,7 @@ public class ChatService {
         if (isSimpleMapsCommand(message)) return false;
         if (isSimpleFileOpenCommand(message)) return false;
         if (isSimpleConnectedServiceCommand(message)) return false;
+        if (isSimpleSystemSettingCommand(message)) return false;
         if (SystemContextProvider.isMessageAboutMinsbotSelfConfig(message)) return false;
         int wordCount = message.trim().split("\\s+").length;
         if (wordCount <= 2) return false;
@@ -1098,6 +1100,52 @@ public class ChatService {
                 && (m.startsWith("my ") || m.startsWith("show ") || m.startsWith("list ")
                     || m.contains("subscribers") || m.contains("subscriptions") || m.contains("trending"));
         return gmail || calendar || drive || youtube;
+    }
+
+    /**
+     * "Set volume to 48%", "brightness to 60", "dark mode", "turn on wifi", "lock screen",
+     * "restart now", "change wallpaper to X" — one-shot Windows-settings tool calls.
+     * Skip planning so the agent invokes the right tool in one go.
+     */
+    private static boolean isSimpleSystemSettingCommand(String message) {
+        String m = message.trim().toLowerCase();
+        if (m.isEmpty()) return false;
+        // Volume / audio level
+        if (m.matches(".*\\b(set|change|turn|put)\\b.*\\b(volume|audio|sound)\\b.*(\\d{1,3}|max|min|mute).*")) return true;
+        if (m.matches(".*\\b(volume|audio)\\b.*\\b(to|at)\\b.*\\d{1,3}.*")) return true;
+        if (m.matches(".*\\b(max|full|100%?)\\b.*\\b(volume|audio)\\b.*")) return true;
+        // Brightness
+        if (m.matches(".*\\bbrightness\\b.*(\\d{1,3}|max|min|bright|dim).*")) return true;
+        if (m.startsWith("dim ") || m.startsWith("brighter") || m.equals("brighter")) return true;
+        // Theme
+        if (m.contains("dark mode") || m.contains("light mode") || m.contains("dark theme") || m.contains("light theme")) return true;
+        if (m.contains("night light") || m.contains("blue filter") || m.contains("night mode")) return true;
+        // Network
+        if (m.matches(".*\\b(turn|switch)\\b.*\\b(on|off)\\b.*\\b(wifi|wi-fi|bluetooth)\\b.*")) return true;
+        if (m.matches(".*\\b(wifi|wi-fi|bluetooth)\\b.*\\b(on|off)\\b.*")) return true;
+        if (m.contains("enable wifi") || m.contains("disable wifi")
+                || m.contains("enable bluetooth") || m.contains("disable bluetooth")) return true;
+        // Power
+        if (m.startsWith("lock ") || m.equals("lock screen") || m.equals("lock my pc") || m.equals("lock windows")) return true;
+        if (m.equals("sleep") || m.startsWith("sleep now") || m.startsWith("put") && m.contains("sleep")) return true;
+        if (m.startsWith("restart") || m.startsWith("reboot")) return true;
+        if (m.startsWith("shutdown") || m.startsWith("shut down") || m.startsWith("cancel shutdown")) return true;
+        if (m.contains("power plan") || m.contains("performance mode") || m.contains("battery saver")) return true;
+        // Mic
+        if ((m.contains("mute") || m.contains("unmute")) && (m.contains("mic") || m.contains("microphone"))) return true;
+        // Explorer
+        if (m.contains("hidden files") || m.contains("file extensions")) return true;
+        if (m.contains("taskbar") && (m.contains("left") || m.contains("center"))) return true;
+        if (m.contains("empty") && (m.contains("recycle") || m.contains("trash"))) return true;
+        // Caps lock / num lock
+        if (m.contains("caps lock") || m.contains("num lock") || m.contains("numlock") || m.contains("capslock")) return true;
+        // Wallpaper
+        if (m.contains("wallpaper") || (m.contains("background") && (m.startsWith("set ") || m.startsWith("change ")))) return true;
+        // Clipboard / notifications toggles
+        if (m.contains("clipboard history") && (m.contains("on") || m.contains("off") || m.contains("enable") || m.contains("disable"))) return true;
+        if ((m.contains("enable") || m.contains("disable") || m.contains("turn off") || m.contains("turn on"))
+                && m.contains("notification")) return true;
+        return false;
     }
 
     private static boolean isSimpleToggleCommand(String message) {

@@ -47,6 +47,9 @@ public class WebSearchTools {
 
     private final ObjectMapper jsonMapper = new ObjectMapper();
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.minsbot.offline.OfflineModeService offlineMode;
+
     public WebSearchTools(
             ToolExecutionNotifier notifier,
             @Value("${app.web-search.provider:auto}") String providerRaw,
@@ -73,6 +76,10 @@ public class WebSearchTools {
             + "For image downloads use searchAndDownloadImages instead.")
     public String searchWeb(
             @ToolParam(description = "Search query, e.g. 'weather Tokyo April 2026'") String query) {
+        if (offlineMode != null && offlineMode.isOffline()) {
+            return "Offline mode is ON — web search blocked. Nothing left the machine. "
+                    + "Toggle via the title-bar shield icon to re-enable.";
+        }
         notifier.notify("Searching: " + query);
         try {
             String p = providerRaw.trim().toLowerCase();
@@ -109,6 +116,9 @@ public class WebSearchTools {
             + "Use this after searchWeb to read the full content of a specific result page.")
     public String readWebPage(
             @ToolParam(description = "Full URL, e.g. 'https://example.com/article'") String url) {
+        if (offlineMode != null && offlineMode.isOffline()) {
+            return "Offline mode is ON — web fetch blocked. Nothing left the machine.";
+        }
         notifier.notify("Reading: " + url);
         try {
             String html = fetchHtml(url);

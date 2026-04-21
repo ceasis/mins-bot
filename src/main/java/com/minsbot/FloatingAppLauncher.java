@@ -483,6 +483,22 @@ public class FloatingAppLauncher extends Application {
         }
 
         Runnable quitAction = () -> {
+            // Billion-dollar rule: never lose a conversation on close.
+            // Archive synchronously before anything that could tear down Spring.
+            // We deliberately skip the LLM auto-namer here (it can take >10s);
+            // the user has a dedicated "New chat" button when they want a
+            // descriptive name. A timestamp name keeps quit snappy and data
+            // safe. archiveHistory() is a no-op if the transcript is empty.
+            try {
+                TranscriptService transcript = springContext.getBean(TranscriptService.class);
+                String autoName = "Auto-save " + java.time.LocalDateTime.now()
+                        .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
+                transcript.archiveHistory(autoName);
+            } catch (Exception ex) {
+                // Archive must never block exit; log and move on.
+                System.err.println("[FloatingAppLauncher] archive-on-quit failed: " + ex.getMessage());
+            }
+
             bridge.shutdownNativeVoice();
             Platform.exit();
             if (springContext != null) {

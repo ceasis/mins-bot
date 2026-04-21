@@ -99,6 +99,21 @@ public class ClipboardHistoryTools {
         return "Found " + matches.size() + " matching clipboard entries:\n\n" + String.join("\n", matches);
     }
 
+    /**
+     * Return the Nth-most-recent clipboard entry (1-based, counted from the newest).
+     * {@code n=1} → latest, {@code n=2} → one before that, etc.
+     * Returns {@code null} if history has fewer than {@code n} entries.
+     * Used by the Ctrl+Shift+V cycle hotkey — not @Tool because it's a helper, not AI-facing.
+     */
+    public String getEntryFromEnd(int n) {
+        if (n <= 0) return null;
+        // Make sure the very latest copy is captured before we read
+        poll();
+        int size = history.size();
+        if (size < n) return null;
+        return history.get(size - n).text;
+    }
+
     @Tool(description = "Get the full content of a specific clipboard history entry by its number. "
             + "Use after showHistory or searchHistory to retrieve the complete text of a specific entry.")
     public String getHistoryEntry(

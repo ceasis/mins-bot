@@ -41,6 +41,30 @@ public class SystemTools {
 
     private static final Logger log = LoggerFactory.getLogger(SystemTools.class);
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.minsbot.MousePermissionService mousePermission;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.minsbot.agent.AsyncMessageService mouseAsyncMessages;
+
+    /**
+     * Mouse-control permission gate. Returns a reason string when blocked so the
+     * tool can short-circuit; returns null when it's OK to proceed.
+     */
+    private String checkMousePermission() {
+        if (mousePermission == null) return null;
+        if (mousePermission.isAllowed()) return null;
+        if (mousePermission.currentDecision() == com.minsbot.MousePermissionService.Decision.DENIED) {
+            return "Mouse control is denied until midnight. Say 'allow mouse control today' to re-enable.";
+        }
+        if (mouseAsyncMessages != null) {
+            mouseAsyncMessages.push("[action:mouse-permission]\n"
+                    + "The bot wants to move/click your mouse. How long do you want to allow this?");
+        }
+        return "PERMISSION_REQUIRED: mouse control. Check the chat prompt and pick "
+                + "'Allow Today', 'Allow 3 Hours', or 'Don't Allow'.";
+    }
+
     private final SystemControlService systemControl;
     private final ToolExecutionNotifier notifier;
     private final MinsBotQuitService quitService;
@@ -293,6 +317,10 @@ public class SystemTools {
             @ToolParam(description = "X coordinate to click (0 for sequence mode)") double x,
             @ToolParam(description = "Y coordinate to click (0 for sequence mode)") double y,
             @ToolParam(description = "Text to paste, OR a pipe-separated sequence: 'x1,y1,text1|x2,y2,text2'") String text) {
+        // Mouse-permission gate — fastPaste clicks at screen coordinates
+        String gate = checkMousePermission();
+        if (gate != null) return gate;
+
         notifier.notify("Fast paste...");
         try {
             java.awt.Robot robot = new java.awt.Robot();
