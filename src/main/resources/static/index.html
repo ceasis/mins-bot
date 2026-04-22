@@ -129,6 +129,7 @@
         <button class="tab tab-extra" data-tab="templates" data-desc="Save reusable prompts with fill-in variables." hidden>Templates</button>
         <button class="tab tab-extra" data-tab="marketplace" data-desc="Browse and install community plugins.">Marketplace</button>
         <button class="tab tab-extra" data-tab="dashboard" data-desc="Usage analytics: calls, tokens, cost, response time.">Dashboard</button>
+        <button class="tab tab-extra" data-tab="diagnostics" data-desc="Health checks: Java, disk, GPU, Ollama, ComfyUI, API keys.">Diagnostics</button>
         <button class="tab tab-extra" data-tab="models" data-desc="Install local AI models — LLM, vision, code, embeddings.">Models</button>
         <button class="tab tab-extra" data-tab="multiagent" data-desc="Multi-persona conversations with Analyst / Creative / Mediator." hidden>Multi-Agent</button>
         <button class="tab tab-extra" data-tab="automations" data-desc="If-this-then-that rules that fire on message patterns." hidden>Automations</button>
@@ -177,14 +178,14 @@
         </div>
         <div id="vision-status" class="vision-status" hidden></div>
         <div class="input-row">
-          <input type="text" id="input" class="input" placeholder="Ask me anything..." autocomplete="off" aria-label="Message input">
-          <button type="button" id="voice-btn" class="btn btn-voice" data-tip="Voice input" aria-label="Toggle voice input">
+          <textarea id="input" class="input" placeholder="Ask me anything..." autocomplete="off" spellcheck="true" rows="1" aria-label="Message input"></textarea>
+          <button type="button" id="voice-btn" class="btn btn-voice" data-tip="Voice input" data-tip-align="right" aria-label="Toggle voice input">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 1 0 6 0V6a3 3 0 0 0-3-3Z"></path>
               <path d="M5 11a1 1 0 1 1 2 0 5 5 0 1 0 10 0 1 1 0 1 1 2 0 7 7 0 0 1-6 6.93V21h3a1 1 0 1 1 0 2H8a1 1 0 1 1 0-2h3v-3.07A7 7 0 0 1 5 11Z"></path>
             </svg>
           </button>
-          <button type="button" id="send-btn" class="btn btn-send" data-tip="Send (Enter)" aria-label="Send message">
+          <button type="button" id="send-btn" class="btn btn-send" data-tip="Send (Enter)" data-tip-align="right" aria-label="Send message">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M3.478 2.405a.75.75 0 0 0-.926.94l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94l18-8.5a.75.75 0 0 0 0-1.38l-18-8.5Z"/>
             </svg>
@@ -1093,6 +1094,32 @@
         </div>
       </div>
 
+      <!-- Diagnostics tab — system health with category nav, search + quick filters. -->
+      <div id="tab-diagnostics" class="tab-content">
+        <div class="tab-page-title">Diagnostics</div>
+        <div class="diag-page">
+          <div class="diag-header">
+            <div>
+              <div class="diag-title" id="diag-overall-title">Checking system…</div>
+              <div class="diag-sub" id="diag-overall-sub">—</div>
+            </div>
+            <div class="diag-actions">
+              <input type="search" id="diag-search" class="diag-search" placeholder="Search checks (e.g. cuda, api, gpu)…" autocomplete="off">
+              <button type="button" id="diag-refresh" class="action-btn">Re-run</button>
+            </div>
+          </div>
+          <div class="diag-layout">
+            <aside id="diag-sidebar" class="diag-sidebar" aria-label="Categories"></aside>
+            <div class="diag-main">
+              <div id="diag-filters" class="diag-filters" style="display:none;"></div>
+              <div id="diag-list" class="diag-list">
+                <div class="diag-loading">Running checks…</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Models tab — native, shares shared stylesheets with the rest of the
            app. Standalone page at /models.html reuses the same CSS + JS. -->
       <div id="tab-models" class="tab-content">
@@ -1282,5 +1309,6 @@
   <script src="js/offline-mode.js?v={{v}}"></script>
   <script src="js/first-run-wizard.js?v={{v}}"></script>
   <script src="js/models.js?v={{v}}"></script>
+  <script src="js/diagnostics.js?v={{v}}"></script>
 </body>
 </html>

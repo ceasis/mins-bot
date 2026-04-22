@@ -92,6 +92,15 @@ public class IconAnimator {
     private long lastBotActivityAt = System.currentTimeMillis();
     private double earWigglePhase = 0;       // 0..2π sine phase
 
+    // Random giggle state — tilts + squint + open grin on a random interval
+    private static final long GIGGLE_DURATION_MS = 700;
+    private static final long GIGGLE_MIN_GAP_MS = 45_000;
+    private static final long GIGGLE_MAX_GAP_MS = 180_000;
+    private long giggleStartedAt = 0;
+    private long giggleUntil = 0;
+    private long nextGiggleAt = System.currentTimeMillis()
+            + GIGGLE_MIN_GAP_MS + (long)(Math.random() * (GIGGLE_MAX_GAP_MS - GIGGLE_MIN_GAP_MS));
+
     // Mouse-follow state
     private Point lastMouse;
     private long lastMouseMoveAt = 0;
@@ -213,6 +222,14 @@ public class IconAnimator {
             earWigglePhase += 0.35;
             if (earWigglePhase > Math.PI * 2) earWigglePhase -= Math.PI * 2;
 
+            // Random giggle trigger — fires on its own random schedule
+            if (giggleUntil <= now && now >= nextGiggleAt) {
+                giggleStartedAt = now;
+                giggleUntil = now + GIGGLE_DURATION_MS;
+                nextGiggleAt = now + GIGGLE_DURATION_MS + GIGGLE_MIN_GAP_MS
+                        + (long)(Math.random() * (GIGGLE_MAX_GAP_MS - GIGGLE_MIN_GAP_MS));
+            }
+
             Image i256 = render(base256);
             Image i64  = render(base64);
             Image i32  = render(base32);
@@ -232,11 +249,25 @@ public class IconAnimator {
         int h = base.getHeight();
         long now = System.currentTimeMillis();
         boolean bored = (now - lastBotActivityAt) > BORED_THRESHOLD_MS;
+        boolean giggling = giggleUntil > now;
 
         BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = out.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+
+        // While giggling: rotate the whole canvas around its center with a
+        // fast sine wobble (~7 Hz) so the icon visibly shakes in the taskbar.
+        AffineTransform savedXf = null;
+        if (giggling) {
+            double t = (now - giggleStartedAt) / (double) GIGGLE_DURATION_MS; // 0..1
+            double envelope = Math.sin(Math.min(1.0, t) * Math.PI);           // ease in/out
+            double wobble = Math.sin((now - giggleStartedAt) * (2 * Math.PI * 7 / 1000.0));
+            double angle = Math.toRadians(6.0) * envelope * wobble;           // ±6°
+            savedXf = g.getTransform();
+            g.rotate(angle, w / 2.0, h / 2.0);
+        }
+
         g.drawImage(base, 0, 0, null);
 
         // Ears first (behind/beside the head) — wiggle when bored
@@ -246,13 +277,47 @@ public class IconAnimator {
         double pupilR = w * PUPIL_RADIUS;
         double range  = w * PUPIL_RANGE;
 
-        drawEye(g, w * LEFT_EYE_X,  h * LEFT_EYE_Y,  eyeR, pupilR, range);
-        drawEye(g, w * RIGHT_EYE_X, h * RIGHT_EYE_Y, eyeR, pupilR, range);
+        if (giggling) {
+            // Squinted happy eyes: ^ ^
+            drawSquintEye(g, w * LEFT_EYE_X,  h * LEFT_EYE_Y,  eyeR);
+            drawSquintEye(g, w * RIGHT_EYE_X, h * RIGHT_EYE_Y, eyeR);
+        } else {
+            drawEye(g, w * LEFT_EYE_X,  h * LEFT_EYE_Y,  eyeR, pupilR, range);
+            drawEye(g, w * RIGHT_EYE_X, h * RIGHT_EYE_Y, eyeR, pupilR, range);
+        }
 
-        drawMouth(g, w, h, now);
+        if (giggling) drawGiggleMouth(g, w, h);
+        else          drawMouth(g, w, h, now);
+
+        if (savedXf != null) g.setTransform(savedXf);
 
         g.dispose();
         return SwingFXUtils.toFXImage(out, null);
+    }
+
+    /** Closed arched eye (^-shape) — classic "laughing" face. */
+    private void drawSquintEye(Graphics2D g, double cx, double cy, double eyeR) {
+        g.setColor(new Color(25, 28, 40));
+        float stroke = Math.max(1.5f, (float)(eyeR * 0.28));
+        g.setStroke(new BasicStroke(stroke, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        double w = eyeR * 2.0;
+        double h = eyeR * 1.2;
+        // Arc from 20° to 160° — opens downward like "^"
+        g.draw(new Arc2D.Double(cx - w / 2, cy - h / 2, w, h, 20, 140, Arc2D.OPEN));
+    }
+
+    /** Big open grin — oval filled dark, for giggle frames. */
+    private void drawGiggleMouth(Graphics2D g, int w, int h) {
+        double cx = w * MOUTH_CX;
+        double cy = h * (MOUTH_CY + 0.02);
+        double mw = w * (MOUTH_WIDTH * 1.1);
+        double mh = h * (MOUTH_HEIGHT_MAX * 1.35);
+        Shape oval = new Ellipse2D.Double(cx - mw / 2, cy - mh / 2, mw, mh);
+        g.setColor(new Color(140, 30, 50));
+        g.fill(oval);
+        g.setColor(new Color(25, 28, 40));
+        g.setStroke(new BasicStroke(Math.max(1f, (float)(w * 0.008))));
+        g.draw(oval);
     }
 
     /**

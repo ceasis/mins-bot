@@ -1,7 +1,9 @@
 package com.minsbot;
 
+import com.minsbot.offline.OfflineModeService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
@@ -30,6 +32,9 @@ public class ElevenLabsVoiceService {
     private final ElevenLabsConfig.ElevenLabsProperties properties;
     private final HttpClient httpClient;
 
+    @Autowired(required = false)
+    private OfflineModeService offlineMode;
+
     public ElevenLabsVoiceService(RestTemplate restTemplate, ElevenLabsConfig.ElevenLabsProperties properties) {
         this.restTemplate = restTemplate;
         this.properties = properties;
@@ -46,6 +51,7 @@ public class ElevenLabsVoiceService {
     }
 
     public boolean isEnabled() {
+        if (offlineMode != null && offlineMode.isOffline()) return false;
         return properties.isEnabled()
                 && properties.getApiKey() != null && !properties.getApiKey().isBlank()
                 && properties.getVoiceId() != null && !properties.getVoiceId().isBlank();

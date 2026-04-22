@@ -80,28 +80,23 @@ final class ModelCatalog {
                                 "Fastest SDXL variant. Slightly lower detail than full SDXL 30-step but 6–8× quicker."),
                         comfyui("juggernaut-xl-lightning", "Juggernaut XL Lightning",
                                 "Photorealistic SDXL + Lightning LoRA baked in. Great for realistic photos.",
-                                "6.6 GB", 6600, 6,
-                                "checkpoints", "juggernautXL_v9Rdphoto2Lightning.safetensors",
-                                "https://huggingface.co/RunDiffusion/Juggernaut-XL-Lightning/resolve/main/juggernautXL_v9Rdphoto2Lightning.safetensors",
+                                "7.1 GB", 7100, 6,
+                                "checkpoints", "Juggernaut_RunDiffusionPhoto2_Lightning_4Steps.safetensors",
+                                "https://huggingface.co/RunDiffusion/Juggernaut-XL-Lightning/resolve/main/Juggernaut_RunDiffusionPhoto2_Lightning_4Steps.safetensors",
                                 "Best photorealism in this list. Sharper faces & skin than base SDXL-Lightning."),
-                        comfyui("flux1-schnell-nf4", "FLUX.1 schnell (NF4)",
-                                "Premium FLUX quality, 4-bit quantized to fit 8 GB. ~30 sec per image.",
-                                "6.8 GB", 6800, 8,
-                                "checkpoints", "flux1-schnell-bnb-nf4.safetensors",
-                                "https://huggingface.co/silveroxides/flux1-schnell-nf4/resolve/main/flux1-schnell-bnb-nf4.safetensors",
-                                "Near-cloud-tier quality. Beats SDXL on prompt adherence, complex scenes, hands. Slower."),
                         comfyui("sd15-realistic-vision", "SD 1.5 Realistic Vision v6",
-                                "Tiny 4 GB model. Fast on low VRAM. Decent photorealism for quick iteration.",
+                                "Tiny 2 GB model. Fast on low VRAM. Decent photorealism for quick iteration.",
                                 "2.1 GB", 2100, 4,
-                                "checkpoints", "realisticVisionV60B1_v51HyperVAE.safetensors",
-                                "https://huggingface.co/SG161222/Realistic_Vision_V6.0_B1_noVAE/resolve/main/Realistic_Vision_V6.0_B1_fp16.safetensors",
+                                "checkpoints", "Realistic_Vision_V6.0_NV_B1_fp16.safetensors",
+                                "https://huggingface.co/SG161222/Realistic_Vision_V6.0_B1_noVAE/resolve/main/Realistic_Vision_V6.0_NV_B1_fp16.safetensors",
                                 "Older SD 1.5 but very fast on 4–6 GB cards. Weaker than SDXL on wide scenes / text.")
                 ))
         ));
         out.put("comingSoon", List.of(
                 Map.of("name", "Whisper (speech-to-text)", "note", "Runs via whisper.cpp, not Ollama. Phase 2."),
                 Map.of("name", "Piper / Coqui (text-to-speech)", "note", "Runs as its own binary. Phase 2."),
-                Map.of("name", "FLUX.1 dev (NF4)", "note", "Higher quality than schnell but ~2× slower. Phase 2."),
+                Map.of("name", "FLUX.1 schnell (GGUF Q4)", "note", "Near-cloud-tier quality at 6.8 GB — but needs the ComfyUI-GGUF custom node. Auto-install in Phase 2."),
+                Map.of("name", "FLUX.1 dev (NF4)", "note", "Higher quality than schnell but ~2× slower. Needs bnb_NF4 custom node. Phase 2."),
                 Map.of("name", "Stable Diffusion 3.5 Medium", "note", "Tight on 8 GB — needs offload profile tuning. Phase 2.")
         ));
         return out;

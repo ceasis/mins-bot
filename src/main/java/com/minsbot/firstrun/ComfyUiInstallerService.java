@@ -43,6 +43,9 @@ public class ComfyUiInstallerService {
             .followRedirects(HttpClient.Redirect.NORMAL)
             .build();
 
+    /** Tracked child process from {@link #startComfyUi}; lets us stop it before pip reinstalls. */
+    private volatile Process comfyProcess;
+
     public Path root() { return ROOT; }
 
     public boolean isInstalled() {
@@ -125,12 +128,52 @@ public class ComfyUiInstallerService {
             return;
         }
 
+        // Critical: ComfyUI's python holds torch's .pyd files open. Stop it before pip overwrites
+        // them, otherwise pip fails with WinError 32 (file in use).
+        if (isRunning() || (comfyProcess != null && comfyProcess.isAlive())) {
+            emit.accept("log|Stopping ComfyUI so pip can replace the torch files…");
+            stopComfyUi(emit);
+        }
+
         emit.accept("log|CPU-only PyTorch detected. Reinstalling CUDA wheels (~2 GB, one time)…");
+        // --no-cache-dir sidesteps half-extracted wheels from a previously-interrupted install.
         run(ROOT, emit, venvPython.toString(), "-m", "pip", "install",
-                "--upgrade", "--force-reinstall",
+                "--upgrade", "--force-reinstall", "--no-cache-dir",
                 "torch", "torchvision",
                 "--index-url", "https://download.pytorch.org/whl/cu121");
         emit.accept("log|CUDA torch installed.");
+    }
+
+    /** Terminate the tracked ComfyUI server and wait up to 10 s for it to exit. */
+    public void stopComfyUi(Consumer<String> emit) {
+        Process p = comfyProcess;
+        if (p != null && p.isAlive()) {
+            p.destroy();
+            try {
+                if (!p.waitFor(5, TimeUnit.SECONDS)) {
+                    p.destroyForcibly();
+                    p.waitFor(5, TimeUnit.SECONDS);
+                }
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        comfyProcess = null;
+
+        // Also sweep any orphan ComfyUI python on Windows that isn't tracked (e.g. from an
+        // earlier app run). Filters by the venv path so we don't touch unrelated python.exe.
+        if (isWindows()) {
+            try {
+                String venvSubpath = ROOT.resolve("venv\\Scripts\\python.exe").toString().replace("\\", "\\\\");
+                new ProcessBuilder("wmic", "process", "where",
+                        "ExecutablePath='" + venvSubpath + "'", "delete")
+                        .redirectErrorStream(true).start().waitFor(10, TimeUnit.SECONDS);
+            } catch (Exception ignored) {}
+        }
+
+        // Give the OS a beat to release file handles so pip can overwrite.
+        try { Thread.sleep(1500); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+        emit.accept("log|ComfyUI stopped.");
     }
 
     /** Lightweight nvidia-smi probe — same idea as {@code FirstRunService.detectGpu} but local. */
@@ -153,7 +196,7 @@ public class ComfyUiInstallerService {
                 .directory(ROOT.toFile())
                 .redirectErrorStream(true)
                 .redirectOutput(ROOT.resolve("comfyui.log").toFile());
-        pb.start();
+        comfyProcess = pb.start();
 
         // Poll /system_stats for up to 120 s, emitting a heartbeat every 5 s so the UI isn't silent.
         int maxWaitS = 120;
@@ -189,39 +232,110 @@ public class ComfyUiInstallerService {
         Path target = modelsDir.resolve(filename);
         long existing = Files.exists(target) ? Files.size(target) : 0L;
 
-        HttpRequest.Builder rb = HttpRequest.newBuilder(URI.create(url))
-                .timeout(Duration.ofMinutes(30))
-                .GET();
-        if (existing > 0) rb.header("Range", "bytes=" + existing + "-");
-        HttpRequest req = rb.build();
+        // HEAD first to learn the real total. Avoids HTTP 416 when the file is
+        // already complete (Range: bytes=N- where N == total).
+        long remoteTotal = -1L;
+        try {
+            HttpRequest headReq = HttpRequest.newBuilder(URI.create(url))
+                    .timeout(Duration.ofSeconds(30))
+                    .method("HEAD", HttpRequest.BodyPublishers.noBody())
+                    .build();
+            HttpResponse<Void> headResp = http.send(headReq, HttpResponse.BodyHandlers.discarding());
+            if (headResp.statusCode() / 100 == 2) {
+                remoteTotal = headResp.headers().firstValueAsLong("Content-Length").orElse(-1L);
+            }
+        } catch (Exception ignored) { /* HEAD may not be supported on all CDNs; fall through */ }
 
-        emit.accept("log|" + (existing > 0 ? "Resuming" : "Starting") + " download: " + filename);
-        HttpResponse<InputStream> resp = http.send(req, HttpResponse.BodyHandlers.ofInputStream());
-        int status = resp.statusCode();
-        if (status != 200 && status != 206) {
-            throw new IOException("HTTP " + status + " fetching " + url);
+        if (remoteTotal > 0 && existing == remoteTotal) {
+            emit.accept("log|" + filename + " already fully downloaded (" + existing + " bytes) — skipping.");
+            emit.accept("progress|" + existing + "|" + remoteTotal);
+            return;
         }
-        long contentLength = resp.headers().firstValueAsLong("Content-Length").orElse(-1L);
-        long total = (status == 206 && contentLength > 0) ? existing + contentLength : contentLength;
+        if (remoteTotal > 0 && existing > remoteTotal) {
+            emit.accept("log|Local file is larger than remote (" + existing + " > " + remoteTotal
+                    + "). Truncating and starting fresh.");
+            Files.deleteIfExists(target);
+            existing = 0L;
+        }
 
-        try (InputStream in = resp.body();
-             OutputStream out = Files.newOutputStream(target,
-                     existing > 0 ? StandardOpenOption.APPEND : StandardOpenOption.CREATE)) {
-            byte[] buf = new byte[65536];
-            long done = existing;
-            long lastEmit = 0L;
-            int n;
-            while ((n = in.read(buf)) > 0) {
-                out.write(buf, 0, n);
-                done += n;
-                if (done - lastEmit > 2L * 1024 * 1024 || total > 0 && done == total) {
-                    emit.accept("progress|" + done + "|" + total);
-                    lastEmit = done;
+        // Retry loop: on any IOException mid-stream (HuggingFace CDN likes to
+        // drop long-lived connections) we pick up where we left off via a fresh
+        // Range request. Up to 10 attempts.
+        int maxAttempts = 10;
+        long done = existing;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            HttpRequest.Builder rb = HttpRequest.newBuilder(URI.create(url)).GET();
+            // No per-request timeout — large models on slow links can take hours.
+            // The server's SSE emitter keeps the client informed via progress events.
+            if (done > 0) rb.header("Range", "bytes=" + done + "-");
+            HttpRequest req = rb.build();
+
+            emit.accept("log|" + (done > 0 ? "Resuming at " + fmtBytes(done) : "Starting")
+                    + " download (attempt " + attempt + "/" + maxAttempts + "): " + filename);
+            try {
+                HttpResponse<InputStream> resp = http.send(req, HttpResponse.BodyHandlers.ofInputStream());
+                int status = resp.statusCode();
+                if (status == 416) {
+                    // Server says the range is past EOF — we're probably done, verify via HEAD.
+                    if (remoteTotal > 0 && done >= remoteTotal) {
+                        emit.accept("log|Already at end of file. Done.");
+                        emit.accept("progress|" + done + "|" + remoteTotal);
+                        return;
+                    }
+                    emit.accept("log|HTTP 416: truncating and starting from 0.");
+                    Files.deleteIfExists(target);
+                    done = 0L;
+                    continue;
+                }
+                if (status != 200 && status != 206) {
+                    throw new IOException("HTTP " + status + " fetching " + url);
+                }
+                long contentLength = resp.headers().firstValueAsLong("Content-Length").orElse(-1L);
+                long total = (status == 206 && contentLength > 0) ? done + contentLength
+                        : (contentLength > 0 ? contentLength : remoteTotal);
+
+                try (InputStream in = resp.body();
+                     OutputStream out = Files.newOutputStream(target,
+                             done > 0 ? StandardOpenOption.APPEND : StandardOpenOption.CREATE)) {
+                    byte[] buf = new byte[65536];
+                    long lastEmit = 0L;
+                    int n;
+                    while ((n = in.read(buf)) > 0) {
+                        out.write(buf, 0, n);
+                        done += n;
+                        if (done - lastEmit > 2L * 1024 * 1024 || (total > 0 && done == total)) {
+                            emit.accept("progress|" + done + "|" + total);
+                            lastEmit = done;
+                        }
+                    }
+                }
+                // Stream closed cleanly — verify we actually reached the end.
+                if (remoteTotal > 0 && done < remoteTotal) {
+                    emit.accept("log|Stream ended at " + fmtBytes(done) + " of " + fmtBytes(remoteTotal)
+                            + " — reconnecting for remainder.");
+                    continue;
+                }
+                emit.accept("progress|" + done + "|" + (remoteTotal > 0 ? remoteTotal : done));
+                emit.accept("log|Download complete: " + target);
+                return;
+            } catch (IOException e) {
+                emit.accept("log|Stream error at " + fmtBytes(done) + ": " + e.getMessage()
+                        + " — retrying in 3 s");
+                if (attempt >= maxAttempts) throw e;
+                try { Thread.sleep(3000); } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw e;
                 }
             }
-            emit.accept("progress|" + done + "|" + (total > 0 ? total : done));
         }
-        emit.accept("log|Download complete: " + target);
+        throw new IOException("Download failed after " + maxAttempts + " attempts at " + fmtBytes(done));
+    }
+
+    private static String fmtBytes(long n) {
+        if (n < 1024) return n + " B";
+        if (n < 1024L * 1024) return String.format("%.1f KB", n / 1024.0);
+        if (n < 1024L * 1024 * 1024) return String.format("%.1f MB", n / (1024.0 * 1024));
+        return String.format("%.2f GB", n / (1024.0 * 1024 * 1024));
     }
 
     // ═══ helpers ═════════════════════════════════════════════════════

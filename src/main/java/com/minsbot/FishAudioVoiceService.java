@@ -1,7 +1,9 @@
 package com.minsbot;
 
+import com.minsbot.offline.OfflineModeService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.io.InputStream;
@@ -15,6 +17,10 @@ import java.time.Duration;
 /**
  * Fish Audio text-to-speech API. Returns streaming PCM audio for real-time playback.
  * See https://docs.fish.audio
+ *
+ * <p>Respects {@link OfflineModeService} — when offline mode is on, {@link #isEnabled()}
+ * returns false so callers fall back to local Windows SAPI / Piper. This is non-negotiable
+ * for the "nothing leaves this machine" guarantee we sell offline mode on.
  */
 @Service
 public class FishAudioVoiceService {
@@ -24,6 +30,9 @@ public class FishAudioVoiceService {
 
     private final FishAudioConfig.FishAudioProperties properties;
     private final HttpClient httpClient;
+
+    @Autowired(required = false)
+    private OfflineModeService offlineMode;
 
     public FishAudioVoiceService(FishAudioConfig.FishAudioProperties properties) {
         this.properties = properties;
@@ -38,6 +47,7 @@ public class FishAudioVoiceService {
     }
 
     public boolean isEnabled() {
+        if (offlineMode != null && offlineMode.isOffline()) return false;
         return properties.isEnabled()
                 && properties.getApiKey() != null && !properties.getApiKey().isBlank();
     }

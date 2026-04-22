@@ -388,10 +388,9 @@ public class ChatService {
         // Auto-extract life facts from user message (async, never blocks chat)
         autoMemoryExtractor.analyzeAsync(trimmed);
 
-        Consumer<String> asyncCallback = result -> {
-            transcriptService.save("BOT(agent)", result);
-            asyncMessages.push(result);
-        };
+        // SSE on transcript.save pushes to the UI; don't also enqueue on asyncMessages
+        // or the user sees each reply rendered twice.
+        Consumer<String> asyncCallback = result -> transcriptService.save("BOT(agent)", result);
 
         try {
             fileTools.setAsyncCallback(asyncCallback);
@@ -511,9 +510,17 @@ public class ChatService {
                     workingSound.stop();
                     if (moduleStats != null) moduleStats.recordChatCall(chatModelName);
                     if (reply != null && !reply.isBlank()) {
-                        transcriptService.save("BOT", reply);
-                        asyncMessages.push(reply);
+                        reply = appendToolsFootnote(reply);
+                        transcriptService.save("BOT", reply); // SSE delivers to UI; no asyncMessages push (would double-render)
                         autoSpeak(reply);
+                    } else {
+                        // Empty LLM reply (e.g., tool call was self-sufficient). If tools fired,
+                        // still surface a line so the user sees what happened instead of silence.
+                        java.util.List<String> used = toolNotifier.drainTurnLog();
+                        if (!used.isEmpty()) {
+                            String summary = "— used: " + String.join(" · ", used);
+                            transcriptService.save("BOT", summary);
+                        }
                     }
                     return;
                 } catch (Exception e) {
@@ -536,8 +543,7 @@ public class ChatService {
                     } else {
                         workingSound.stop();
                         String errorReply = "AI error: " + e.getMessage();
-                        transcriptService.save("BOT(error)", errorReply);
-                        asyncMessages.push(errorReply);
+                        transcriptService.save("BOT(error)", errorReply); // SSE delivers; no async push
                         return;
                     }
                 }
@@ -553,10 +559,7 @@ public class ChatService {
      * Autonomous observation — captures screen, analyzes it, and acts on what's visible.
      */
     private void runAutonomousObservation() {
-        Consumer<String> asyncCallback = result -> {
-            transcriptService.save("BOT(observe)", result);
-            asyncMessages.push(result);
-        };
+        Consumer<String> asyncCallback = result -> transcriptService.save("BOT(observe)", result);
         fileTools.setAsyncCallback(asyncCallback);
 
         // Capture and analyze screen FIRST so the AI has context
@@ -594,8 +597,7 @@ public class ChatService {
             workingSound.stop();
 
             if (reply != null && !reply.isBlank() && !reply.trim().equalsIgnoreCase("IDLE")) {
-                transcriptService.save("BOT(observe)", reply);
-                asyncMessages.push(reply);
+                transcriptService.save("BOT(observe)", reply); // SSE delivers; no async push
                 lastActivityTime = System.currentTimeMillis();
             } else {
                 // Nothing to do — wait longer before next check (30s idle)
@@ -657,6 +659,18 @@ public class ChatService {
     /** Returns and removes all pending tool execution status messages. */
     public java.util.List<String> drainToolStatus() {
         return toolNotifier.drain();
+    }
+
+    /**
+     * Drain the per-turn tool log and append a footnote line to the bot reply so
+     * the user can see exactly which tools ran. Returns the reply unchanged when
+     * no tools fired this turn.
+     */
+    private String appendToolsFootnote(String reply) {
+        java.util.List<String> used = toolNotifier.drainTurnLog();
+        if (used.isEmpty()) return reply;
+        String footnote = "— used: " + String.join(" · ", used);
+        return reply + "\n\n" + footnote;
     }
 
     // ═══ Task planning ═══
@@ -813,10 +827,7 @@ public class ChatService {
 
         // No AI configured — regex fallback (sync)
         if (chatClient == null) {
-            Consumer<String> asyncCallback = result -> {
-                transcriptService.save("BOT(agent)", result);
-                asyncMessages.push(result);
-            };
+            Consumer<String> asyncCallback = result -> transcriptService.save("BOT(agent)", result);
             String agentReply = pcAgent.tryExecute(trimmed, asyncCallback);
             if (agentReply != null) {
                 transcriptService.save("BOT", agentReply);
@@ -918,8 +929,7 @@ public class ChatService {
             banner.append("═════════════════════════════════════════════════════");
             System.out.println(banner);
 
-            asyncMessages.push(generatedPlan);
-            transcriptService.save("BOT(plan)", generatedPlan);
+            transcriptService.save("BOT(plan)", generatedPlan); // SSE delivers; no async push (avoids double-render)
 
             try {
                 java.nio.file.Path todoPath = java.nio.file.Paths.get(
@@ -986,8 +996,37 @@ public class ChatService {
         if (isSimpleFileOpenCommand(message)) return false;
         if (isSimpleConnectedServiceCommand(message)) return false;
         if (isSimpleSystemSettingCommand(message)) return false;
+        if (isImageGenerationCommand(message)) return false;
+        if (isHelpCommand(message)) return false;
         if (SystemContextProvider.isMessageAboutMinsbotSelfConfig(message)) return false;
         return true;
+    }
+
+    /**
+     * "Create me an image of X", "draw a fox", "generate a logo" — single-tool-call requests
+     * that should route directly to {@code generateLocalImage}. Planning produces
+     * unhelpful browser-based steps (open DALL-E, etc.) and misleads the user.
+     */
+    private static final java.util.regex.Pattern IMAGE_GEN_PATTERN = java.util.regex.Pattern.compile(
+            "\\b(generate|create|make|draw|render|paint|produce)\\b.{0,40}\\b(image|picture|illustration|artwork|logo|portrait|photo|scene|drawing|painting|render)\\b",
+            java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    private static boolean isImageGenerationCommand(String message) {
+        return message != null && IMAGE_GEN_PATTERN.matcher(message).find();
+    }
+
+    /**
+     * "what can you do", "help", "list your skills" — a direct self-description request.
+     * One tool call, no planning or screen capture needed.
+     */
+    private static final java.util.regex.Pattern HELP_PATTERN = java.util.regex.Pattern.compile(
+            "^\\s*(what\\s+(can\\s+you|do\\s+you)\\s+do|what\\s+are\\s+(your|the)\\s+(capabilities|skills)|" +
+            "list\\s+(your\\s+)?(skills|tools|capabilities)|what\\s+tools\\s+do\\s+you\\s+have|" +
+            "help|show\\s+capabilities|what's\\s+possible)\\b.*",
+            java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    private static boolean isHelpCommand(String message) {
+        return message != null && HELP_PATTERN.matcher(message).matches();
     }
 
     /**
@@ -1004,6 +1043,8 @@ public class ChatService {
         if (isSimpleFileOpenCommand(message)) return false;
         if (isSimpleConnectedServiceCommand(message)) return false;
         if (isSimpleSystemSettingCommand(message)) return false;
+        if (isImageGenerationCommand(message)) return false;
+        if (isHelpCommand(message)) return false;
         if (SystemContextProvider.isMessageAboutMinsbotSelfConfig(message)) return false;
         int wordCount = message.trim().split("\\s+").length;
         if (wordCount <= 2) return false;
@@ -1327,10 +1368,7 @@ public class ChatService {
 
                 String prompt = buildAutonomousPrompt(directives, step);
 
-                Consumer<String> asyncCallback = result -> {
-                    transcriptService.save("BOT(autonomous-agent)", result);
-                    asyncMessages.push(result);
-                };
+                Consumer<String> asyncCallback = result -> transcriptService.save("BOT(autonomous-agent)", result);
                 fileTools.setAsyncCallback(asyncCallback);
                 workingSound.start();
 
@@ -1387,8 +1425,7 @@ public class ChatService {
                         log.info("[Autonomous] Non-actionable directives detected — stopping silently.");
                         break; // Don't push analysis messages to chat
                     }
-                    transcriptService.save("BOT(autonomous)", reply);
-                    asyncMessages.push(reply);
+                    transcriptService.save("BOT(autonomous)", reply); // SSE delivers; no async push
                     lastAutonomousMessageSent = normalized;
                     log.info("[Autonomous] Step {} done: {}", step,
                             reply.length() > 100 ? reply.substring(0, 100) + "..." : reply);

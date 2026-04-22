@@ -140,6 +140,19 @@ public class FloatingAppLauncher extends Application {
             """;
 
     public static void main(String[] args) {
+        // Prism render-order — D3D first, then ES2 (ANGLE), then software fallback.
+        // The bare "d3d" default occasionally loses a texture resource mid-resize
+        // on Windows with transparent stages (D3DTextureResource.getResource() returns
+        // null → NullPointerException on the render thread). Providing a fallback
+        // chain lets JavaFX recover on the next frame instead of crashing the renderer.
+        if (System.getProperty("prism.order") == null) {
+            System.setProperty("prism.order", "d3d,es2,sw");
+        }
+        // Encourage D3D to upload dynamic vertex buffers fresh each frame — sidesteps
+        // stale-texture bugs during rapid geometry changes (window resize).
+        if (System.getProperty("prism.forceUploadVB") == null) {
+            System.setProperty("prism.forceUploadVB", "true");
+        }
         Application.launch(FloatingAppLauncher.class, args);
     }
 
@@ -257,6 +270,11 @@ public class FloatingAppLauncher extends Application {
 
         // ─── Edge-resize support (UNDECORATED windows don't get native resize handles) ──
         final int RESIZE_BORDER = 6;
+        // Throttle the setWidth/setHeight/setX/setY storm from MOUSE_DRAGGED so the
+        // D3D render pipeline doesn't get hammered at 120+ Hz. ~60 fps is plenty smooth
+        // and prevents stale-texture NPEs in com.sun.prism.d3d during drag-resize.
+        final long RESIZE_MIN_INTERVAL_MS = 16;
+        final long[] resizeLastMs = {0L};
         final int MIN_W = 280;
         final int MIN_H = 320;
         // 0 = none, 1 = LEFT, 2 = RIGHT, 3 = BOTTOM, 4 = BOTTOM_LEFT, 5 = BOTTOM_RIGHT
@@ -306,11 +324,20 @@ public class FloatingAppLauncher extends Application {
 
         scene.addEventFilter(MouseEvent.MOUSE_DRAGGED, e -> {
             if (resizeEdge[0] != 0) {
+                // Frame-cap geometry updates. Drop events that arrive within 16 ms
+                // of the last resize so the D3D pool isn't overwhelmed.
+                long now = System.currentTimeMillis();
+                if (now - resizeLastMs[0] < RESIZE_MIN_INTERVAL_MS) {
+                    e.consume();
+                    return;
+                }
+                resizeLastMs[0] = now;
                 double dx = e.getScreenX() - resizePressScreen[0];
                 double dy = e.getScreenY() - resizePressScreen[1];
                 double startX = resizePressStage[0];
                 double startW = resizePressStage[2];
                 double startH = resizePressStage[3];
+                double startY = resizePressStage[1];
                 switch (resizeEdge[0]) {
                     case 1 -> { // LEFT
                         double newW = Math.max(MIN_W, startW - dx);
@@ -330,6 +357,26 @@ public class FloatingAppLauncher extends Application {
                     case 5 -> { // BOTTOM_RIGHT
                         primaryStage.setWidth(Math.max(MIN_W, startW + dx));
                         primaryStage.setHeight(Math.max(MIN_H, startH + dy));
+                    }
+                    case 6 -> { // TOP — anchor the bottom edge, move top
+                        double newH = Math.max(MIN_H, startH - dy);
+                        primaryStage.setY(startY + (startH - newH));
+                        primaryStage.setHeight(newH);
+                    }
+                    case 7 -> { // TOP_LEFT
+                        double newW = Math.max(MIN_W, startW - dx);
+                        double newH = Math.max(MIN_H, startH - dy);
+                        primaryStage.setX(startX + (startW - newW));
+                        primaryStage.setY(startY + (startH - newH));
+                        primaryStage.setWidth(newW);
+                        primaryStage.setHeight(newH);
+                    }
+                    case 8 -> { // TOP_RIGHT
+                        double newW = Math.max(MIN_W, startW + dx);
+                        double newH = Math.max(MIN_H, startH - dy);
+                        primaryStage.setY(startY + (startH - newH));
+                        primaryStage.setWidth(newW);
+                        primaryStage.setHeight(newH);
                     }
                 }
                 e.consume();
@@ -408,6 +455,9 @@ public class FloatingAppLauncher extends Application {
                     case 3 -> Cursor.S_RESIZE;
                     case 4 -> Cursor.SW_RESIZE;
                     case 5 -> Cursor.SE_RESIZE;
+                    case 6 -> Cursor.N_RESIZE;
+                    case 7 -> Cursor.NW_RESIZE;
+                    case 8 -> Cursor.NE_RESIZE;
                     default -> Cursor.DEFAULT;
                 };
                 scene.setCursor(rc);
@@ -528,9 +578,13 @@ public class FloatingAppLauncher extends Application {
         boolean nearLeft   = x <= border;
         boolean nearRight  = x >= w - border;
         boolean nearBottom = y >= h - border;
+        boolean nearTop    = y <= border;
         // Don't trigger LEFT/RIGHT inside the title-bar drag area — that would steal drag/click events
         // from the controls. Only allow side-resize below the title bar.
         boolean sideOk = y >= titleBarHeight;
+        if (nearTop    && nearLeft)  return 7; // TOP_LEFT
+        if (nearTop    && nearRight) return 8; // TOP_RIGHT
+        if (nearTop)                 return 6; // TOP
         if (nearBottom && nearLeft)  return 4; // BOTTOM_LEFT
         if (nearBottom && nearRight) return 5; // BOTTOM_RIGHT
         if (nearBottom)              return 3; // BOTTOM

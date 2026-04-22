@@ -1,7 +1,9 @@
 package com.minsbot.agent;
 
+import com.minsbot.offline.OfflineModeService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -37,6 +39,9 @@ public class OpenAiTtsService {
 
     private HttpClient httpClient;
 
+    @Autowired(required = false)
+    private OfflineModeService offlineMode;
+
     @PostConstruct
     void init() {
         httpClient = HttpClient.newBuilder()
@@ -50,6 +55,7 @@ public class OpenAiTtsService {
     }
 
     public boolean isAvailable() {
+        if (offlineMode != null && offlineMode.isOffline()) return false;
         return apiKey != null && !apiKey.isBlank() && httpClient != null;
     }
 

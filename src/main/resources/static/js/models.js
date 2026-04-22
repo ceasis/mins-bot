@@ -464,7 +464,9 @@
   }
 
   function renderModelCard(m, kind) {
-    var isInstalled = installed.has(normalizeTag(m.tag));
+    // ComfyUI models come with m.installed from the backend (file-existence check);
+    // Ollama models are tracked in the installed map built from /api/tags.
+    var isInstalled = installed.has(normalizeTag(m.tag)) || m.installed === true;
     var isDefault = defaultModelTag && normalizeTag(m.tag) === normalizeTag(defaultModelTag);
     var backend = m.backend || 'ollama';
     var requiresGpu = !!m.requiresGpu;

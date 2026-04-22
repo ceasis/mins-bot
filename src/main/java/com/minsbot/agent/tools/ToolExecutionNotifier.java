@@ -16,6 +16,9 @@ import java.util.function.Consumer;
 public class ToolExecutionNotifier {
 
     private final ConcurrentLinkedQueue<String> statusMessages = new ConcurrentLinkedQueue<>();
+    /** Per-turn tool usage log. Populated alongside {@link #statusMessages} but never drained
+     *  by the status poller so the reply path can attach a "tools used" footnote. */
+    private final CopyOnWriteArrayList<String> turnLog = new CopyOnWriteArrayList<>();
     private final CopyOnWriteArrayList<Consumer<String>> progressMirrors = new CopyOnWriteArrayList<>();
     private volatile Consumer<String> soundListener;
 
@@ -43,6 +46,11 @@ public class ToolExecutionNotifier {
     public void notify(String message) {
         if (QUIET_MESSAGES.contains(message)) return;
         statusMessages.add(message);
+        // Track for the per-turn footnote. Skip trivial duplicates of the last entry
+        // so "Waiting on ComfyUI…" doesn't show up 40 times in one summary.
+        if (turnLog.isEmpty() || !message.equals(turnLog.get(turnLog.size() - 1))) {
+            turnLog.add(message);
+        }
         for (Consumer<String> mirror : progressMirrors) {
             try {
                 mirror.accept(message);
@@ -70,8 +78,16 @@ public class ToolExecutionNotifier {
         return result;
     }
 
+    /** Returns and clears the accumulated turn log (used for "tools used" footnote). */
+    public List<String> drainTurnLog() {
+        List<String> snapshot = new ArrayList<>(turnLog);
+        turnLog.clear();
+        return snapshot;
+    }
+
     /** Clears any stale messages (called at start of each chat request). */
     public void clear() {
         statusMessages.clear();
+        turnLog.clear();
     }
 }

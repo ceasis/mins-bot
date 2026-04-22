@@ -174,7 +174,7 @@
     // Reset sync state so we don't misread the server-clear that follows as a
     // "clear happened elsewhere" event.
     _syncedKeys = new Set();
-    appendMessage('Chat cleared. How can I help?', false);
+    renderWelcomeIfEmpty();
     var wfInner = document.getElementById('watch-feed-inner');
     var wfEl = document.getElementById('watch-feed');
     if (wfInner) wfInner.innerHTML = '';
@@ -271,10 +271,128 @@
     return parts;
   }
 
+  function escapeForChat(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  /** Render a text segment into `el` with paths turned into clickable .path-link
+   *  spans plus a tiny "Open in Explorer" icon immediately after each path.
+   *  Preserves newlines via <br>. */
+  function appendTextSegment(el, text) {
+    if (text == null || text === '') return;
+    var parts = linkifyPaths(text);
+    for (var i = 0; i < parts.length; i++) {
+      if (parts[i].type === 'text') {
+        var lines = parts[i].value.split('\n');
+        for (var j = 0; j < lines.length; j++) {
+          if (j > 0) el.appendChild(document.createElement('br'));
+          if (lines[j]) el.appendChild(document.createTextNode(lines[j]));
+        }
+      } else {
+        var link = document.createElement('span');
+        link.className = 'path-link';
+        link.textContent = parts[i].value;
+        link.dataset.path = parts[i].value;
+        link.addEventListener('click', function (e) {
+          e.stopPropagation();
+          fetch('/api/open-path', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: this.dataset.path })
+          });
+        });
+        el.appendChild(link);
+        el.appendChild(buildExplorerButton(parts[i].value));
+      }
+    }
+  }
+
+  function buildExplorerButton(pathStr) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'path-explorer-btn';
+    btn.title = 'Open in Explorer';
+    btn.setAttribute('aria-label', 'Open ' + pathStr + ' in Explorer');
+    btn.innerHTML = '<svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5a1 1 0 0 1 1-1h3l1.5 1.5H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5Z"/></svg>';
+    btn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      fetch('/api/explorer/show?path=' + encodeURIComponent(pathStr), { method: 'POST' })
+        .then(function (r) { return r.json(); })
+        .then(function (d) { if (!d.ok) console.warn('[explorer] failed:', d.error); })
+        .catch(function (err) { console.warn('[explorer] error:', err); });
+    });
+    return btn;
+  }
+
+  function buildGeneratedImageBlock(url) {
+    var wrap = document.createElement('div');
+    wrap.className = 'gen-image-block';
+    var img = document.createElement('img');
+    img.src = url;
+    img.alt = 'Generated image';
+    img.className = 'gen-image';
+    img.loading = 'lazy';
+    // Click the thumbnail → open the full-size image in the system default
+    // browser (so the user can zoom / save-as / share). Fallback to new tab.
+    img.addEventListener('click', function () {
+      var abs = window.location.origin + url;
+      if (window.java && typeof window.java.openUrl === 'function') {
+        window.java.openUrl(abs);
+      } else {
+        window.open(abs, '_blank', 'noopener');
+      }
+    });
+    var filename = url.split('/').pop() || 'image.png';
+    var dl = document.createElement('a');
+    dl.className = 'gen-image-icon gen-image-download';
+    dl.title = 'Download';
+    dl.href = url;
+    dl.download = filename;
+    dl.innerHTML = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v9"/><path d="M4 7l4 4 4-4"/><path d="M3 14h10"/></svg>';
+
+    var openFolder = document.createElement('button');
+    openFolder.type = 'button';
+    openFolder.className = 'gen-image-icon gen-image-folder';
+    openFolder.title = 'Show in Explorer';
+    openFolder.innerHTML = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5a1 1 0 0 1 1-1h3l1.5 1.5H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5Z"/></svg>';
+    openFolder.addEventListener('click', function (e) {
+      e.stopPropagation();
+      fetch('/api/generated/' + encodeURIComponent(filename) + '/show-in-explorer', { method: 'POST' })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (!d.ok) console.warn('[gen-image] show-in-explorer failed:', d.error);
+        })
+        .catch(function (err) { console.warn('[gen-image] show-in-explorer error:', err); });
+    });
+
+    wrap.appendChild(img);
+    wrap.appendChild(openFolder);
+    wrap.appendChild(dl);
+    return wrap;
+  }
+
   function buildMessageContent(el, text) {
     // Translation format: <small>original</small>\ntranslation — render as HTML
     if (text.indexOf('<small>') !== -1 && text.indexOf('</small>') !== -1) {
       el.innerHTML = text.replace(/\n/g, '<br>');
+      return;
+    }
+
+    // Inline image marker: [image:/api/generated/X.png]
+    // Renders an <img> + small download button. Any surrounding text renders as usual.
+    var imageMarker = /\[image:([^\]\s]+)\]/g;
+    if (imageMarker.test(text)) {
+      imageMarker.lastIndex = 0;
+      var lastIdx = 0;
+      var m;
+      while ((m = imageMarker.exec(text)) !== null) {
+        if (m.index > lastIdx) appendTextSegment(el, text.slice(lastIdx, m.index));
+        el.appendChild(buildGeneratedImageBlock(m[1]));
+        lastIdx = m.index + m[0].length;
+      }
+      if (lastIdx < text.length) appendTextSegment(el, text.slice(lastIdx));
       return;
     }
 
@@ -384,6 +502,7 @@
             });
           });
           el.appendChild(link);
+          el.appendChild(buildExplorerButton(parts[i].value));
         }
       }
       return;
@@ -410,6 +529,7 @@
               });
             });
             el.appendChild(plink);
+            el.appendChild(buildExplorerButton(textParts[k].value));
           }
         }
       } else {
@@ -437,6 +557,8 @@
 
   function appendMessage(text, isUser, typewriter, opts) {
     opts = opts || {};
+    // The moment any real message lands, drop the welcome card.
+    removeWelcomeCard();
     var wrapper = document.createElement('div');
     wrapper.className = 'message-wrapper ' + (isUser ? 'user' : 'bot');
     // Sync bookkeeping:
@@ -540,6 +662,68 @@
       el.remove();
     });
     _syncedKeys = new Set();
+    renderWelcomeIfEmpty();
+  }
+
+  // Welcome card — shown whenever the chat has no messages. Clickable chips
+  // fire example prompts so the user sees what the bot can do without reading docs.
+  var WELCOME_CHIPS = [
+    { icon: '🎨', text: 'Generate an image of a red fox in a forest',
+      label: 'Make an image' },
+    { icon: '📸', text: 'What do you see on my screen right now?',
+      label: 'Read my screen' },
+    { icon: '☁️', text: 'What\'s the weather today?',
+      label: 'Ask the weather' },
+    { icon: '⚡', text: 'What can you do?',
+      label: 'Show capabilities' }
+  ];
+
+  function renderWelcomeIfEmpty() {
+    if (!messagesEl) return;
+    // Already a welcome card? Nothing to do.
+    if (messagesEl.querySelector('#welcome-card')) return;
+    // Any actual messages already rendered? Skip.
+    if (messagesEl.querySelector('.message-wrapper')) return;
+
+    var card = document.createElement('div');
+    card.id = 'welcome-card';
+    card.className = 'welcome-card';
+    var title = document.createElement('div');
+    title.className = 'welcome-title';
+    title.textContent = 'Welcome to Mins Bot';
+    var sub = document.createElement('div');
+    sub.className = 'welcome-sub';
+    sub.textContent = 'Clean slate. Pick one to get rolling, or just type what you need.';
+    card.appendChild(title);
+    card.appendChild(sub);
+
+    var grid = document.createElement('div');
+    grid.className = 'welcome-chips';
+    WELCOME_CHIPS.forEach(function (c) {
+      var chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'welcome-chip';
+      chip.innerHTML = '<span class="chip-icon">' + c.icon + '</span>'
+        + '<span class="chip-label">' + c.label + '</span>'
+        + '<span class="chip-prompt">' + c.text.replace(/</g, '&lt;') + '</span>';
+      chip.addEventListener('click', function () {
+        if (typeof sendMessage === 'function') sendMessage(c.text);
+      });
+      grid.appendChild(chip);
+    });
+    card.appendChild(grid);
+
+    var hint = document.createElement('div');
+    hint.className = 'welcome-hint';
+    hint.textContent = 'Tip: everything above runs on your PC. Toggle the shield in the title bar to go fully offline.';
+    card.appendChild(hint);
+
+    messagesEl.appendChild(card);
+  }
+
+  function removeWelcomeCard() {
+    var card = document.getElementById('welcome-card');
+    if (card) card.remove();
   }
 
   async function syncHistory() {
@@ -558,6 +742,8 @@
       if (clearDetected) applyServerCleared();
 
       for (var j = 0; j < serverMsgs.length; j++) applyServerMessage(serverMsgs[j]);
+      // After initial paint, if there's nothing to show, put up the welcome card.
+      renderWelcomeIfEmpty();
     } catch (_) {
       // Network blip — SSE or next poll will catch up.
     } finally {
@@ -730,6 +916,9 @@
     historyIndex = -1;
     savedInput = '';
     inputEl.value = '';
+    // Shrink the textarea back to a single row after sending.
+    inputEl.style.height = 'auto';
+    inputEl.classList.remove('multiline');
     appendMessage(msg, true, false, { persist: true });
     if (window._minsSound) window._minsSound.sent();
     showThinking();
@@ -810,12 +999,48 @@
     }
   });
 
+  // Auto-grow the chat textarea as the user types. Enter sends, Shift+Enter
+  // inserts a newline (default textarea behaviour), and we grow the height to
+  // fit up to maxRows worth of content before switching to scrollable overflow.
+  function autosizeInput() {
+    if (!inputEl) return;
+    // Reset to baseline so scrollHeight reflects current content accurately.
+    inputEl.style.height = 'auto';
+    var maxPx = 160; // matches CSS max-height
+    var next = Math.min(inputEl.scrollHeight, maxPx);
+    inputEl.style.height = next + 'px';
+    if (inputEl.scrollHeight > maxPx) inputEl.classList.add('multiline');
+    else inputEl.classList.remove('multiline');
+  }
+  if (inputEl) {
+    inputEl.addEventListener('input', autosizeInput);
+    // Baseline size on load (also re-runs after a send clears the value).
+    autosizeInput();
+  }
+
+  // Tracks Shift+Enter presses so the matching keyup events don't accidentally
+  // trigger a send when the user releases Shift before Enter.
+  var suppressNextEnterKeyup = false;
+
   // Enter key — multiple fallbacks for JavaFX WebView
   inputEl.addEventListener('keydown', function (e) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       sendMessage(inputEl.value);
       focusInputSoon();
+      // After sendMessage clears the value, collapse back to 1 row.
+      setTimeout(autosizeInput, 0);
+    } else if (e.key === 'Enter' && e.shiftKey) {
+      // Let the browser insert the newline, then pre-grow to at least 3 rows
+      // so the user sees the expanded input immediately.
+      suppressNextEnterKeyup = true;
+      setTimeout(function () {
+        var rows3 = 3 * 20 + 18; // ~3 lines of line-height 1.45 @ 13px + padding
+        if (parseInt(inputEl.style.height || '0', 10) < rows3) {
+          inputEl.style.height = rows3 + 'px';
+        }
+        autosizeInput();
+      }, 0);
     }
   });
 
@@ -830,6 +1055,7 @@
 
   inputEl.addEventListener('keyup', function (e) {
     if (e.key === 'Enter' && !e.shiftKey) {
+      if (suppressNextEnterKeyup) { suppressNextEnterKeyup = false; return; }
       e.preventDefault();
       if (inputEl.value && inputEl.value.trim()) {
         sendMessage(inputEl.value);
@@ -841,6 +1067,7 @@
   document.addEventListener('keyup', function (e) {
     if (!root.classList.contains('expanded')) return;
     if (e.keyCode !== 13 || e.shiftKey) return;
+    if (suppressNextEnterKeyup) { suppressNextEnterKeyup = false; return; }
     if (inputEl.value && inputEl.value.trim()) {
       sendMessage(inputEl.value);
       focusInputSoon();
@@ -1382,6 +1609,9 @@
       if (tab.dataset.tab === 'automations') loadAutomations();
       if (tab.dataset.tab === 'models') {
         if (typeof window.MinsBotModelsInit === 'function') window.MinsBotModelsInit();
+      }
+      if (tab.dataset.tab === 'diagnostics') {
+        if (typeof window.MinsBotDiagnosticsInit === 'function') window.MinsBotDiagnosticsInit();
       }
     });
   });

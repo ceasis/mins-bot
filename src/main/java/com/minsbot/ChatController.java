@@ -122,6 +122,95 @@ public class ChatController {
     }
 
     /**
+     * Open any file path in the OS file manager, with the file selected
+     * (or open the directory if {@code path} points to a folder). Used by the
+     * chat UI's inline "open in Explorer" button next to any file path the
+     * bot mentions in its reply.
+     */
+    @PostMapping(value = "/explorer/show", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> showInExplorer(@org.springframework.web.bind.annotation.RequestParam String path) {
+        try {
+            java.nio.file.Path p = java.nio.file.Paths.get(path).toAbsolutePath().normalize();
+            if (!java.nio.file.Files.exists(p)) {
+                return Map.of("ok", false, "error", "path not found: " + p);
+            }
+            boolean isDir = java.nio.file.Files.isDirectory(p);
+            String os = System.getProperty("os.name", "").toLowerCase();
+            if (os.contains("win")) {
+                if (isDir) new ProcessBuilder("explorer.exe", p.toString()).start();
+                else       new ProcessBuilder("explorer.exe", "/select,", p.toString()).start();
+            } else if (os.contains("mac")) {
+                if (isDir) new ProcessBuilder("open", p.toString()).start();
+                else       new ProcessBuilder("open", "-R", p.toString()).start();
+            } else {
+                new ProcessBuilder("xdg-open", (isDir ? p : p.getParent()).toString()).start();
+            }
+            return Map.of("ok", true, "path", p.toString(), "dir", isDir);
+        } catch (Exception e) {
+            return Map.of("ok", false, "error", e.getMessage());
+        }
+    }
+
+    /**
+     * Open the containing folder of a generated image in the OS file manager,
+     * with the file selected (Windows: {@code explorer /select,...}, macOS:
+     * {@code open -R}, Linux: {@code xdg-open} on the parent dir).
+     */
+    @PostMapping(value = "/generated/{filename:.+}/show-in-explorer", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> showGeneratedInExplorer(@org.springframework.web.bind.annotation.PathVariable String filename) {
+        if (filename.contains("/") || filename.contains("\\") || filename.contains("..")) {
+            return Map.of("ok", false, "error", "invalid filename");
+        }
+        java.nio.file.Path dir = java.nio.file.Paths.get(
+                System.getProperty("user.home"), "mins_bot_data", "generated").toAbsolutePath();
+        java.nio.file.Path file = dir.resolve(filename).normalize();
+        if (!file.startsWith(dir) || !java.nio.file.Files.exists(file)) {
+            return Map.of("ok", false, "error", "file not found");
+        }
+        String os = System.getProperty("os.name", "").toLowerCase();
+        try {
+            if (os.contains("win")) {
+                new ProcessBuilder("explorer.exe", "/select,", file.toString()).start();
+            } else if (os.contains("mac")) {
+                new ProcessBuilder("open", "-R", file.toString()).start();
+            } else {
+                new ProcessBuilder("xdg-open", file.getParent().toString()).start();
+            }
+            return Map.of("ok", true, "path", file.toString());
+        } catch (Exception e) {
+            return Map.of("ok", false, "error", e.getMessage());
+        }
+    }
+
+    /**
+     * Serve a locally-generated image from {@code ~/mins_bot_data/generated/}.
+     * Used by the chat UI to render inline <img> tags for images produced by
+     * {@code LocalImageTools.generateLocalImage}. Path-traversal protected.
+     */
+    @GetMapping("/generated/{filename:.+}")
+    public org.springframework.http.ResponseEntity<org.springframework.core.io.Resource> servedImage(
+            @org.springframework.web.bind.annotation.PathVariable String filename) {
+        // Sanity: reject anything that could climb out of the generated directory.
+        if (filename.contains("/") || filename.contains("\\") || filename.contains("..")) {
+            return org.springframework.http.ResponseEntity.badRequest().build();
+        }
+        java.nio.file.Path dir = java.nio.file.Paths.get(
+                System.getProperty("user.home"), "mins_bot_data", "generated").toAbsolutePath();
+        java.nio.file.Path file = dir.resolve(filename).normalize();
+        if (!file.startsWith(dir) || !java.nio.file.Files.exists(file) || !java.nio.file.Files.isRegularFile(file)) {
+            return org.springframework.http.ResponseEntity.notFound().build();
+        }
+        String lower = filename.toLowerCase();
+        MediaType mt = lower.endsWith(".jpg") || lower.endsWith(".jpeg") ? MediaType.IMAGE_JPEG
+                : lower.endsWith(".webp") ? MediaType.parseMediaType("image/webp")
+                : MediaType.IMAGE_PNG;
+        return org.springframework.http.ResponseEntity.ok()
+                .contentType(mt)
+                .cacheControl(org.springframework.http.CacheControl.maxAge(java.time.Duration.ofDays(30)))
+                .body(new org.springframework.core.io.FileSystemResource(file.toFile()));
+    }
+
+    /**
      * Archive the current chat (save under a name) and start fresh.
      * Called by the "New chat" button in the title bar.
      * If no name is supplied, uses a small AI model to auto-name the chat from its content.

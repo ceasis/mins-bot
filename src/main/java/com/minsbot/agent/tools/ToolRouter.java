@@ -53,6 +53,8 @@ public class ToolRouter {
     private final SystemTools systemTools;
 
     private final ImageTools imageTools;
+    private final LocalImageTools localImageTools;
+    private final CapabilitiesTool capabilitiesTool;
     private final PdfTools pdfTools;
     private final TtsTools ttsTools;
 
@@ -194,6 +196,8 @@ public class ToolRouter {
             ExcelTools excelTools,
             SystemTools systemTools,
             ImageTools imageTools,
+            LocalImageTools localImageTools,
+            CapabilitiesTool capabilitiesTool,
             PdfTools pdfTools,
             TtsTools ttsTools,
             LocalModelTools localModelTools,
@@ -311,6 +315,8 @@ public class ToolRouter {
         this.excelTools = excelTools;
         this.systemTools = systemTools;
         this.imageTools = imageTools;
+        this.localImageTools = localImageTools;
+        this.capabilitiesTool = capabilitiesTool;
         this.pdfTools = pdfTools;
         this.ttsTools = ttsTools;
         this.localModelTools = localModelTools;
@@ -630,7 +636,7 @@ public class ToolRouter {
         map.put("software",    List.of(softwareTools));
         map.put("network",     List.of(networkTools));
         map.put("printing",    List.of(printerTools));
-        map.put("media",       List.of(imageTools, pdfTools, ttsTools));
+        map.put("media",       List.of(imageTools, localImageTools, pdfTools, ttsTools));
         map.put("ai_model",     List.of(localModelTools, huggingFaceImageTool, summarizationTools, modelSwitchTools));
         map.put("communication", List.of(emailTools, weatherTools, gmailApiTools, calendarTools));
         map.put("scheduling",   List.of(scheduledTaskTools, timerTools, notificationTools, cronConfigTools));
@@ -718,7 +724,12 @@ public class ToolRouter {
                 systemTools, fileTools, chromeCdpTools,
                 screenClickTools, screenMemoryTools, audioMemoryTools,
                 scheduledTaskTools, notificationTools,
-                weatherTools);
+                weatherTools,
+                // Always in scope: the local image generator should fire on "generate an image"
+                // regardless of whether the classifier routed to the media category this turn.
+                localImageTools,
+                // Self-description needs to be reliably callable for "what can you do?" etc.
+                capabilitiesTool);
     }
 
     // ─── Autonomous mode ───
@@ -741,7 +752,7 @@ public class ToolRouter {
         map.put("software",     List.of(softwareTools));
         map.put("network",      List.of(networkTools));
         map.put("printing",     List.of(printerTools));
-        map.put("media",        List.of(imageTools, pdfTools));
+        map.put("media",        List.of(imageTools, localImageTools, pdfTools));
         map.put("ai_model",     List.of(localModelTools, summarizationTools));
         map.put("communication", List.of(emailTools, gmailApiTools, calendarTools));
         map.put("scheduling",   List.of(scheduledTaskTools, cronConfigTools));

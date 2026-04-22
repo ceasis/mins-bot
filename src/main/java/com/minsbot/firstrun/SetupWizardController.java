@@ -16,6 +16,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -190,10 +191,33 @@ public class SetupWizardController {
         }
     }
 
-    /** Curated catalog of Ollama-servable models grouped by category. */
+    /** Curated catalog of local models. ComfyUI entries are enriched with an
+     *  {@code installed} flag based on whether the checkpoint file exists on disk. */
     @GetMapping(value = "/catalog", produces = MediaType.APPLICATION_JSON_VALUE)
+    @SuppressWarnings("unchecked")
     public ResponseEntity<?> catalog() {
-        return ResponseEntity.ok(ModelCatalog.curated());
+        Map<String, Object> cat = ModelCatalog.curated();
+        java.nio.file.Path comfyRoot = comfyInstaller.root();
+        List<Map<String, Object>> cats = (List<Map<String, Object>>) cat.get("categories");
+        if (cats != null) {
+            for (Map<String, Object> c : cats) {
+                List<Map<String, Object>> models = (List<Map<String, Object>>) c.get("models");
+                if (models == null) continue;
+                for (Map<String, Object> m : models) {
+                    if (!"comfyui".equals(m.get("backend"))) continue;
+                    String folder = (String) m.get("comfyFolder");
+                    String filename = (String) m.get("comfyFilename");
+                    if (folder == null || filename == null) continue;
+                    java.nio.file.Path f = comfyRoot.resolve("models").resolve(folder).resolve(filename);
+                    m.put("installed", java.nio.file.Files.exists(f) && fileSize(f) > 1024 * 1024);
+                }
+            }
+        }
+        return ResponseEntity.ok(cat);
+    }
+
+    private long fileSize(java.nio.file.Path p) {
+        try { return java.nio.file.Files.size(p); } catch (Exception e) { return 0; }
     }
 
     /**
