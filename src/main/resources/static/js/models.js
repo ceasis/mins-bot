@@ -487,6 +487,8 @@
         + '<button class="btn danger" data-remove="' + esc(m.tag) + '">Remove</button>';
     } else if (backend === 'comfyui') {
       rightAction = '<button class="btn" data-comfy-install="' + esc(m.tag) + '">Install via ComfyUI</button>';
+    } else if (backend === 'piper') {
+      rightAction = '<button class="btn" data-piper-install="' + esc(m.tag) + '">Install voice</button>';
     } else {
       rightAction = '<button class="btn" data-install="' + esc(m.tag) + '">Install</button>';
     }
@@ -810,6 +812,76 @@
       if (btn.__wired) return;
       btn.__wired = true;
       btn.addEventListener('click', function () { openComfyInstallModal(btn.getAttribute('data-comfy-install')); });
+    });
+    (scope || document).querySelectorAll('[data-piper-install]').forEach(function (btn) {
+      if (btn.__wired) return;
+      btn.__wired = true;
+      btn.addEventListener('click', function () { startPiperPull(btn.getAttribute('data-piper-install')); });
+    });
+  }
+
+  /* Piper voice install — mirrors startPull (Ollama) but against /api/setup/install-piper-voice
+     which emits our custom {phase,log,progress,done,error} events. Renders progress inline
+     on the card: no modal, since installs finish in <60 s on a decent connection. */
+  function startPiperPull(tag) {
+    if (activePulls.has(tag)) return;
+    var card = el('card-' + cardId(tag));
+    if (!card) return;
+
+    var slot = card.querySelector('.progress-slot');
+    slot.innerHTML = '<div class="progress"><div class="progress-fill"></div></div>'
+      + '<div class="progress-text">Starting…</div>';
+    var fill = slot.querySelector('.progress-fill');
+    var text = slot.querySelector('.progress-text');
+
+    var actions = card.querySelector('.model-actions');
+    actions.innerHTML = '<button class="btn danger" id="cancel-' + cardId(tag) + '">Cancel</button>';
+
+    var es = new EventSource('/api/setup/install-piper-voice?tag=' + encodeURIComponent(tag));
+    activePulls.set(tag, es);
+
+    el('cancel-' + cardId(tag)).addEventListener('click', function () {
+      es.close();
+      activePulls.delete(tag);
+      slot.innerHTML = '';
+      actions.innerHTML = '<button class="btn" data-piper-install="' + esc(tag) + '">Install voice</button>';
+      actions.querySelector('[data-piper-install]').addEventListener('click', function () { startPiperPull(tag); });
+      toast('Cancelled — partial data saved, resume anytime.', 'ok');
+    });
+
+    es.addEventListener('phase', function (ev) {
+      try {
+        var d = JSON.parse(ev.data);
+        text.textContent = d.message || d.phase || 'working…';
+      } catch (e) {}
+    });
+    es.addEventListener('progress', function (ev) {
+      try {
+        var d = JSON.parse(ev.data);
+        var total = Number(d.total) || 0;
+        var done = Number(d.done) || 0;
+        var pct = total > 0 ? Math.floor((done / total) * 100) : 0;
+        fill.style.width = pct + '%';
+        var got = done > 0 ? fmtBytes(done) : '';
+        var all = total > 0 ? fmtBytes(total) : '';
+        text.textContent = got && all ? got + ' / ' + all + ' (' + pct + '%)' : got || 'downloading…';
+      } catch (e) {}
+    });
+    es.addEventListener('done', function () {
+      es.close();
+      activePulls.delete(tag);
+      toast('Voice installed — offline TTS is now active.', 'ok');
+      loadAll();
+    });
+    es.addEventListener('error', function (ev) {
+      es.close();
+      activePulls.delete(tag);
+      var msg = 'Install failed — click Retry.';
+      if (ev && ev.data) { try { var d = JSON.parse(ev.data); msg = d.error || msg; } catch (e) {} }
+      text.textContent = msg;
+      actions.innerHTML = '<button class="btn" data-piper-install="' + esc(tag) + '">Retry</button>';
+      actions.querySelector('[data-piper-install]').addEventListener('click', function () { startPiperPull(tag); });
+      toast('Voice install failed', 'err');
     });
   }
 

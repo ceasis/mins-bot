@@ -36,6 +36,7 @@ public class SoraVideoTools {
 
     public SoraVideoTools(ToolExecutionNotifier notifier) { this.notifier = notifier; }
 
+    @com.minsbot.offline.RequiresOnline("OpenAI Sora video generation")
     @Tool(description = "Generate an AI video with OpenAI Sora 2 from a text prompt. Returns a job ID; "
             + "poll with getSoraVideoStatus. Use when user says 'sora video', 'openai video', 'make a sora clip'.")
     public String generateSoraVideo(

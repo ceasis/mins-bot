@@ -29,11 +29,21 @@ public class SetupWizardController {
 
     private final FirstRunService firstRun;
     private final ComfyUiInstallerService comfyInstaller;
+    private final PiperInstallerService piperInstaller;
+    private final com.minsbot.LocalTtsService localTts;
+    private final com.minsbot.agent.AsyncMessageService asyncMessages;
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
 
-    public SetupWizardController(FirstRunService firstRun, ComfyUiInstallerService comfyInstaller) {
+    public SetupWizardController(FirstRunService firstRun,
+                                 ComfyUiInstallerService comfyInstaller,
+                                 PiperInstallerService piperInstaller,
+                                 com.minsbot.LocalTtsService localTts,
+                                 com.minsbot.agent.AsyncMessageService asyncMessages) {
         this.firstRun = firstRun;
         this.comfyInstaller = comfyInstaller;
+        this.piperInstaller = piperInstaller;
+        this.localTts = localTts;
+        this.asyncMessages = asyncMessages;
     }
 
     @GetMapping("/status")
@@ -325,6 +335,7 @@ public class SetupWizardController {
                 comfyInstaller.downloadModel(folder, filename, url, emit);
 
                 emit.accept("phase|done|Model ready — ask the bot to generate an image.");
+                if (asyncMessages != null) asyncMessages.push("✅ ComfyUI model '" + tag + "' installed. Try: \"generate an image of …\"");
                 emitter.send(SseEmitter.event().name("done").data("{\"status\":\"done\"}"));
                 emitter.complete();
             } catch (Exception e) {
@@ -370,5 +381,87 @@ public class SetupWizardController {
             }
         }
         return null;
+    }
+
+    /**
+     * One-click Piper voice installer. Installs the Piper binary if missing, then
+     * downloads the requested {@code .onnx} + {@code .onnx.json} pair into
+     * {@code ~/mins_bot_data/piper/voices/}. Auto-selects the voice on success so
+     * the next bot reply uses it.
+     *
+     * <p>Event shape matches {@code /install-comfyui-model} so the frontend can reuse the same modal.</p>
+     */
+    @GetMapping(value = "/install-piper-voice", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter installPiperVoice(@RequestParam String tag) {
+        SseEmitter emitter = new SseEmitter(Duration.ofMinutes(30).toMillis());
+
+        Map<String, Object> voice = ModelCatalog.findPiperVoice(tag);
+        if (voice == null) {
+            try {
+                emitter.send(SseEmitter.event().name("error").data(Map.of("error", "Unknown voice tag: " + tag)));
+                emitter.complete();
+            } catch (Exception ignored) {}
+            return emitter;
+        }
+
+        new Thread(() -> {
+            java.util.function.Consumer<String> emit = s -> {
+                try {
+                    int sep = s.indexOf('|');
+                    String event = (sep > 0) ? s.substring(0, sep) : "log";
+                    String rest = (sep > 0) ? s.substring(sep + 1) : s;
+                    if ("progress".equals(event)) {
+                        int sep2 = rest.indexOf('|');
+                        String done = sep2 > 0 ? rest.substring(0, sep2) : rest;
+                        String total = sep2 > 0 ? rest.substring(sep2 + 1) : "-1";
+                        emitter.send(SseEmitter.event().name("progress")
+                                .data("{\"done\":" + done + ",\"total\":" + total + "}"));
+                    } else if ("phase".equals(event)) {
+                        int sep2 = rest.indexOf('|');
+                        String phase = sep2 > 0 ? rest.substring(0, sep2) : rest;
+                        String msg = sep2 > 0 ? rest.substring(sep2 + 1) : "";
+                        String escMsg = msg.replace("\\", "\\\\").replace("\"", "\\\"");
+                        emitter.send(SseEmitter.event().name("phase")
+                                .data("{\"phase\":\"" + phase + "\",\"message\":\"" + escMsg + "\"}"));
+                    } else {
+                        String escaped = rest.replace("\\", "\\\\").replace("\"", "\\\"");
+                        emitter.send(SseEmitter.event().name(event)
+                                .data("{\"message\":\"" + escaped + "\"}"));
+                    }
+                } catch (Exception ignored) {}
+            };
+
+            try {
+                if (!piperInstaller.isInstalled()) {
+                    emit.accept("phase|install|Installing Piper binary (one-time, ~25 MB)…");
+                    piperInstaller.installBinary(emit);
+                } else {
+                    emit.accept("log|Piper binary already installed at " + piperInstaller.binary());
+                }
+
+                String hfPath = (String) voice.get("piperHfPath");
+                String filename = (String) voice.get("piperFilename");
+                emit.accept("phase|download|Downloading voice " + filename + "…");
+                piperInstaller.installVoice(hfPath, filename, emit);
+
+                // Auto-select the newly installed voice so the next reply uses it
+                localTts.setSelectedVoice(filename);
+
+                emit.accept("phase|done|Voice ready — offline TTS is now active.");
+                if (asyncMessages != null) asyncMessages.push("🎙️ Piper voice '" + tag + "' installed + selected. Next reply will use it.");
+                emitter.send(SseEmitter.event().name("done").data("{\"status\":\"done\"}"));
+                emitter.complete();
+            } catch (Exception e) {
+                log.warn("[Setup] install-piper-voice failed: {}", e.getMessage(), e);
+                try {
+                    String msg = e.getMessage() == null ? "unknown error" : e.getMessage();
+                    String esc = msg.replace("\\", "\\\\").replace("\"", "\\\"");
+                    emitter.send(SseEmitter.event().name("error").data("{\"error\":\"" + esc + "\"}"));
+                } catch (Exception ignored) {}
+                emitter.completeWithError(e);
+            }
+        }, "piper-install-" + tag).start();
+
+        return emitter;
     }
 }

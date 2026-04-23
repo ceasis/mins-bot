@@ -50,6 +50,7 @@ public class GmailApiTools {
             "and a snippet of each unread email. Use for morning briefings, email checks, or when the user asks " +
             "'check my email' or 'any new emails'. Requires Gmail integration connected in Integrations tab. " +
             "If Gmail API is not connected, falls back to suggesting IMAP readInbox.")
+    @com.minsbot.offline.RequiresOnline("Gmail unread emails")
     public String getUnreadEmails(
             @ToolParam(description = "Maximum number of unread emails to fetch (1-20)") double maxResults) {
         int max = Math.max(1, Math.min(20, (int) Math.round(maxResults)));

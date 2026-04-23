@@ -51,6 +51,7 @@ public class GitHubTools {
 
     @Tool(description = "List the authenticated GitHub user's repositories. "
             + "Shows name, description, stars, language, and last updated date. Requires a GitHub token.")
+    @com.minsbot.offline.RequiresOnline("GitHub — list repos")
     public String listMyRepos() {
         notifier.notify("Listing your GitHub repositories...");
         try {

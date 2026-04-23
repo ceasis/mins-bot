@@ -133,6 +133,7 @@ public class AudioListeningTools {
             + "Use when the user says 'listen to what I'm listening', 'what song is this', "
             + "'listen to my meeting', or 'turn on your ears'. "
             + "Call stopListening() to stop.")
+    @com.minsbot.offline.RequiresOnline("Audio listening (Whisper + GPT translation)")
     public String startListening() {
         notifier.notify("Starting audio listening...");
 

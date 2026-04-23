@@ -75,6 +75,7 @@ public class ClaudeVisionService {
      * Find a UI element's center coordinates in an image.
      * Returns int[] {x, y} or null if not found.
      */
+    @com.minsbot.offline.RequiresOnline("Claude Vision coordinate detection")
     public int[] findElementCoordinates(Path imagePath, String elementDescription,
                                          int imgWidth, int imgHeight) {
         if (!isAvailable() || imagePath == null || !Files.exists(imagePath)) return null;

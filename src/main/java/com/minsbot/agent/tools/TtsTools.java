@@ -4,6 +4,9 @@ import com.minsbot.ElevenLabsConfig;
 import com.minsbot.ElevenLabsVoiceService;
 import com.minsbot.FishAudioConfig;
 import com.minsbot.FishAudioVoiceService;
+import com.minsbot.LocalTtsService;
+import com.minsbot.offline.OfflineModeService;
+import org.springframework.beans.factory.annotation.Autowired;
 import com.minsbot.agent.OpenAiTtsService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,6 +50,12 @@ public class TtsTools {
     private final ElevenLabsConfig.ElevenLabsProperties elevenLabsProps;
     private final FishAudioVoiceService fishAudio;
     private final FishAudioConfig.FishAudioProperties fishAudioProps;
+
+    @Autowired(required = false)
+    private LocalTtsService localTts;
+
+    @Autowired(required = false)
+    private OfflineModeService offlineMode;
 
     /** In-memory cache: sanitized text key → WAV bytes. */
     private final ConcurrentHashMap<String, byte[]> audioCache = new ConcurrentHashMap<>();
@@ -578,6 +587,23 @@ public class TtsTools {
         String cachedMsg = "Spoke (cached): \"" + truncate(text) + "\"";
         String spokeMsg = "Spoke: \"" + truncate(text) + "\"";
 
+        // Offline mode: Piper is the only legal path. Every cloud service self-gated
+        // itself to isEnabled=false earlier, so there's nothing to fall through to
+        // except an error — skip the whole cloud cascade and stream from Piper.
+        boolean offline = offlineMode != null && offlineMode.isOffline();
+        if (offline) {
+            if (tryStreamLocalPiper(text, cacheKeyForProvider(text, "piper"))) return spokeMsg;
+            log.warn("[TTS] Offline mode is ON but no Piper voice is installed.");
+            return "Offline mode is ON and no local voice is installed. "
+                    + "Open the Models tab → TTS voices → install one (e.g. Amy or Ryan).";
+        }
+
+        // Online: if Piper is available, prefer it anyway. Zero cloud latency,
+        // no API credit spend. User can still force cloud via engine= setting.
+        if ("auto".equals(engine) && localTts != null && localTts.isEnabled()) {
+            if (tryStreamLocalPiper(text, cacheKeyForProvider(text, "piper"))) return spokeMsg;
+        }
+
         if ("elevenlabs".equals(engine)) {
             if (tryPlayCachedProvider(text, "elevenlabs")) return cachedMsg;
             if (tryStreamElevenLabs(text, cacheKeyForProvider(text, "elevenlabs"))) return spokeMsg;
@@ -610,6 +636,18 @@ public class TtsTools {
 
         log.warn("[TTS] All cloud TTS engines failed — no audio produced");
         return "TTS failed: no cloud engine available. Configure OpenAI or ElevenLabs API key.";
+    }
+
+    private boolean tryStreamLocalPiper(String text, String key) {
+        if (localTts == null || !localTts.isEnabled()) {
+            log.debug("[TTS] Local Piper skipped — not enabled (installed={}, voice={})",
+                    localTts != null, localTts != null ? localTts.getSelectedVoice() : "n/a");
+            return false;
+        }
+        log.info("[TTS] Trying local Piper stream (voice={})...", localTts.getSelectedVoice());
+        boolean ok = streamAndPlay(localTts.textToSpeechStream(text), key, text, "Piper");
+        if (!ok) log.warn("[TTS] Local Piper stream returned no data");
+        return ok;
     }
 
     private boolean tryStreamElevenLabs(String text, String key) {

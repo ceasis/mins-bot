@@ -71,6 +71,24 @@ final class ModelCatalog {
                         ollama("mxbai-embed-large", "mxbai-embed-large", "Larger embedder. Higher recall for retrieval.", "669 MB", 669, 4,
                                 "Higher MTEB scores than nomic. ~2–3× slower embed; worth it for serious RAG.")
                 )),
+                category("tts", "tts", "Text-to-speech voices (local)", "Piper — runs fully offline, no cloud call. ~30–120 MB per voice, CPU only.", List.of(
+                        piper("piper-amy-medium", "Amy (US female, medium)",
+                                "Clean, warm US female — the default Piper voice. Fast, small footprint.",
+                                "63 MB", 63, "en/en_US/amy/medium", "en_US-amy-medium.onnx",
+                                "Best all-round default. Comparable to Azure neural voices."),
+                        piper("piper-ryan-high", "Ryan (US male, high)",
+                                "Natural US male — closest to the Jarvis tone. Bigger model, higher quality.",
+                                "114 MB", 114, "en/en_US/ryan/high", "en_US-ryan-high.onnx",
+                                "Richer than the medium variant. Pick this for a Jarvis-style assistant voice."),
+                        piper("piper-alan-medium", "Alan (British male, medium)",
+                                "British male RP accent. Crisp and measured.",
+                                "63 MB", 63, "en/en_GB/alan/medium", "en_GB-alan-medium.onnx",
+                                "Only RP-accent English voice in this list. Good for formal reads."),
+                        piper("piper-lessac-high", "Lessac (US female, high)",
+                                "Smooth narrator female — great for long reads, audiobooks, TTS of articles.",
+                                "114 MB", 114, "en/en_US/lessac/high", "en_US-lessac-high.onnx",
+                                "Higher fidelity than amy-medium at the cost of ~50 MB extra. Best for long text.")
+                )),
                 category("image_gen", "image", "Image generation (local)", "Runs via ComfyUI on localhost:8188. GPU strongly recommended.", List.of(
                         comfyui("sdxl-lightning-4step", "SDXL Lightning 4-step",
                                 "Fast SDXL. 2–4 sec per image on 8 GB GPU. Good everyday quality.",
@@ -103,8 +121,17 @@ final class ModelCatalog {
     }
 
     /** Look up a ComfyUI-backed catalog entry by tag. Returns {@code null} if not found or not ComfyUI. */
-    @SuppressWarnings("unchecked")
     static Map<String, Object> findComfyModel(String tag) {
+        return findByTagAndBackend(tag, "comfyui");
+    }
+
+    /** Look up a Piper-backed catalog entry by tag. Returns {@code null} if not found or not Piper. */
+    static Map<String, Object> findPiperVoice(String tag) {
+        return findByTagAndBackend(tag, "piper");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> findByTagAndBackend(String tag, String backend) {
         if (tag == null || tag.isBlank()) return null;
         Map<String, Object> catalog = curated();
         List<Map<String, Object>> cats = (List<Map<String, Object>>) catalog.get("categories");
@@ -113,7 +140,7 @@ final class ModelCatalog {
             List<Map<String, Object>> models = (List<Map<String, Object>>) cat.get("models");
             if (models == null) continue;
             for (Map<String, Object> m : models) {
-                if (tag.equals(m.get("tag")) && "comfyui".equals(m.get("backend"))) {
+                if (tag.equals(m.get("tag")) && backend.equals(m.get("backend"))) {
                     return m;
                 }
             }
@@ -150,6 +177,27 @@ final class ModelCatalog {
         String base = (colon > 0) ? tag.substring(0, colon) : tag;
         m.put("sourceUrl", "https://ollama.com/library/" + base);
         m.put("sourceLabel", "ollama.com");
+        return m;
+    }
+
+    /** Piper-backed TTS voice. Runs fully offline on CPU. */
+    private static Map<String, Object> piper(String tag, String name, String description,
+                                             String sizeLabel, long sizeMb,
+                                             String hfPath, String filename,
+                                             String vs) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("tag", tag);
+        m.put("name", name);
+        m.put("description", description);
+        m.put("sizeLabel", sizeLabel);
+        m.put("sizeMb", sizeMb);
+        m.put("vs", vs);
+        m.put("backend", "piper");
+        m.put("requiresGpu", false);
+        m.put("minVramGb", 0);
+        m.put("minRamGb", 2);
+        m.put("piperHfPath", hfPath);     // e.g. "en/en_US/amy/medium"
+        m.put("piperFilename", filename); // e.g. "en_US-amy-medium.onnx"
         return m;
     }
 

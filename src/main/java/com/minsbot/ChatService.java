@@ -138,6 +138,24 @@ public class ChatService {
             User: "what time is it?"
             SKIP
 
+            User: "how much is this app in $?"
+            SKIP
+
+            User: "how much does gpt-4 cost?"
+            SKIP
+
+            User: "what's the price of notion?"
+            SKIP
+
+            User: "is obsidian free?"
+            SKIP
+
+            User: "who is the ceo of anthropic?"
+            SKIP
+
+            User: "when was react 19 released?"
+            SKIP
+
             User: "open claude architect pdf in my desktop"
             SKIP
 
@@ -224,6 +242,18 @@ public class ChatService {
     private final ToolExecutionNotifier toolNotifier;
     private final WorkingSoundService workingSound;
     private final ToolRouter toolRouter;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.minsbot.agent.AgentLoopService agentLoopService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.minsbot.cost.TokenUsageService tokenUsageService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.minsbot.approval.ToolPermissionService approvalService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.minsbot.offline.OfflineModeService offlineModeService;
     private final TtsTools ttsTools;
     private final ScreenStateService screenStateService;
     private final com.minsbot.agent.tools.ScreenWatchingTools screenWatchingTools;
@@ -493,12 +523,68 @@ public class ChatService {
                     return;
                 }
                 try {
-                    String reply = chatClient.prompt()
-                            .system(finalSystemMessage)
-                            .user(trimmed)
-                            .tools(toolRouter.selectTools(trimmed))
-                            .call()
-                            .content();
+                    // Offline mode gate: the active chatClient here is the configured
+                    // provider (OpenAI / Anthropic / Gemini if a cloud key is set, or Ollama
+                    // when the user has swapped via ModelSwitchTools). Spring AI routes
+                    // cloud calls to api.openai.com / api.anthropic.com etc. — those need
+                    // to be blocked when the user has flipped the offline shield.
+                    if (offlineModeService != null && offlineModeService.isOffline()
+                            && isCloudModel(chatModelName)) {
+                        String msg = "🛡️ Offline mode is ON and the active chat model is `"
+                                + chatModelName + "` (cloud). I won't call out to "
+                                + cloudProviderLabel(chatModelName) + ". "
+                                + "Switch to a local Ollama model (e.g. say 'switch to llama3.1:8b') "
+                                + "or toggle offline mode off.";
+                        workingSound.stop();
+                        transcriptService.save("BOT", msg);
+                        return;
+                    }
+
+                    // Agent-loop wrapper: the LLM can request additional turns by emitting
+                    // `[[CONTINUE]]` at the end of its reply. AgentLoopService handles the
+                    // marker stripping + concatenation. First turn uses the real user message;
+                    // subsequent turns get a "continue" prompt so the model keeps working.
+                    final String[] turnUserMsg = { trimmed };
+                    String reply = agentLoopService.runUntilDone(() -> {
+                        String um = turnUserMsg[0];
+                        turnUserMsg[0] = "Continue the task. Use tools as needed. "
+                                + "If still incomplete after this turn, end with [[CONTINUE]] again.";
+                        org.springframework.ai.chat.model.ChatResponse resp = chatClient.prompt()
+                                .system(finalSystemMessage)
+                                .user(um)
+                                .tools(toolRouter.selectTools(trimmed))
+                                .call()
+                                .chatResponse();
+                        // Record every call for the Costs tab, even if usage metadata is absent.
+                        // Some provider configs (Ollama, certain Azure gateways, proxies that strip
+                        // fields) don't return usage — we still want the call count to reflect reality.
+                        try {
+                            if (tokenUsageService != null && resp != null) {
+                                int pt = 0, ct = 0;
+                                boolean haveUsage = false;
+                                if (resp.getMetadata() != null && resp.getMetadata().getUsage() != null) {
+                                    var u = resp.getMetadata().getUsage();
+                                    if (u.getPromptTokens() != null) pt = u.getPromptTokens().intValue();
+                                    if (u.getCompletionTokens() != null) ct = u.getCompletionTokens().intValue();
+                                    haveUsage = (pt > 0 || ct > 0);
+                                }
+                                tokenUsageService.record(chatModelName, pt, ct);
+                                if (!haveUsage) {
+                                    log.warn("[Cost] Provider returned null/zero usage for model '{}'. "
+                                            + "Call is logged with 0 tokens ($0). Check the provider's "
+                                            + "API response or upgrade Spring AI if this is unexpected.",
+                                            chatModelName);
+                                } else {
+                                    log.debug("[Cost] recorded {} (pt={}, ct={})", chatModelName, pt, ct);
+                                }
+                            }
+                        } catch (Exception costEx) {
+                            log.debug("[Cost] could not record usage: {}", costEx.getMessage());
+                        }
+                        return (resp != null && resp.getResult() != null
+                                && resp.getResult().getOutput() != null)
+                                ? resp.getResult().getOutput().getText() : "";
+                    }, 10);
 
                     if (stopRequested) {
                         log.info("[MainLoop] Stop requested after AI call — discarding reply");
@@ -781,6 +867,21 @@ public class ChatService {
             return QUIT_REPLY;
         }
 
+        // /cost — inline session-spend summary for the FX chat window (which can't see the Costs tab)
+        if (isCostQuery(trimmed)) {
+            String reply = buildCostReply();
+            transcriptService.save("BOT", reply);
+            return reply;
+        }
+
+        // /bypass — FX users can't reach the title-bar ⚡ toggle, so this is their way in.
+        // "bypass" / "/bypass" → status, "/bypass on" → enable, "/bypass off" → disable.
+        String bypassReply = tryHandleBypassCommand(trimmed);
+        if (bypassReply != null) {
+            transcriptService.save("BOT", bypassReply);
+            return bypassReply;
+        }
+
         // Open command center: reply synchronously
         if (isOpenCommandCenter(trimmed)) {
             String url = "http://localhost:" + serverPort;
@@ -885,6 +986,117 @@ public class ChatService {
     }
 
     /** True if the user message is a quit request (e.g. "quit", "exit", "close mins bot"). */
+    /**
+     * Inline cost-summary queries. Accepts slash-style ("/cost", "/spend") + the
+     * natural-language variants a user might type in chat. Kept short + exact-match
+     * so it can't accidentally catch a conversational question like "what was the cost of X".
+     */
+    private static boolean isCostQuery(String trimmed) {
+        if (trimmed == null || trimmed.isEmpty()) return false;
+        String m = trimmed.toLowerCase().trim();
+        // Strip trailing punctuation
+        while (!m.isEmpty() && ".?!".indexOf(m.charAt(m.length() - 1)) >= 0) m = m.substring(0, m.length() - 1);
+        return m.equals("/cost") || m.equals("/costs") || m.equals("/spend") || m.equals("/usage")
+                || m.equals("cost") || m.equals("costs") || m.equals("usage")
+                || m.equals("how much did i spend") || m.equals("how much have i spent")
+                || m.equals("what did i spend") || m.equals("what did i spend today")
+                || m.equals("show my llm spend") || m.equals("show me my spend")
+                || m.equals("how much am i spending");
+    }
+
+    /** Formats the current cost summary as a compact chat reply. Safe when TokenUsageService is absent. */
+    private String buildCostReply() {
+        if (tokenUsageService == null) return "Cost tracking isn't wired — check app logs.";
+        com.minsbot.cost.TokenUsageService.SessionSummary s = tokenUsageService.currentSession();
+        if (s.calls() == 0) {
+            return "No LLM calls yet this session. Nothing spent.";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("💸 This session: **$").append(String.format("%.4f", s.totalUsd())).append("**");
+        sb.append(" across ").append(s.calls()).append(" call").append(s.calls() == 1 ? "" : "s");
+        long totalTok = s.promptTokens() + s.completionTokens();
+        sb.append(" · ").append(fmtTokens(totalTok)).append(" tokens");
+        sb.append("  \n");
+        sb.append("If you'd run it all on local Ollama: **$0.00** (savings $")
+                .append(String.format("%.4f", s.savingsIfLocalUsd())).append(")");
+        if (!s.byModel().isEmpty()) {
+            sb.append("  \nBy model: ");
+            boolean first = true;
+            for (com.minsbot.cost.TokenUsageService.ModelBucket b : s.byModel()) {
+                if (!first) sb.append(", ");
+                first = false;
+                sb.append(b.model()).append(" (").append(b.calls()).append("×, $")
+                        .append(String.format("%.4f", b.usd())).append(")");
+            }
+        }
+        return sb.toString();
+    }
+
+    private static String fmtTokens(long n) {
+        if (n < 1000) return String.valueOf(n);
+        if (n < 1_000_000) return String.format("%.1fK", n / 1000.0);
+        return String.format("%.2fM", n / 1_000_000.0);
+    }
+
+    /**
+     * Heuristic: does this model id point to a cloud provider whose endpoint offline
+     * mode must refuse? Covers the three vendors whose chat models Spring AI wires
+     * in this project. Local Ollama tags ({@code llama3.1:8b}, {@code mistral:7b},
+     * {@code qwen2.5:7b}, etc.) return false and are allowed through offline-mode.
+     */
+    private static boolean isCloudModel(String modelId) {
+        if (modelId == null || modelId.isBlank()) return false;
+        String s = modelId.toLowerCase(java.util.Locale.ROOT);
+        if (s.contains("gpt") || s.contains("o1") || s.contains("o3") || s.contains("o4")) return true;
+        if (s.contains("claude")) return true;
+        if (s.contains("gemini")) return true;
+        return false;
+    }
+
+    private static String cloudProviderLabel(String modelId) {
+        if (modelId == null) return "the cloud provider";
+        String s = modelId.toLowerCase(java.util.Locale.ROOT);
+        if (s.contains("gpt") || s.contains("o1") || s.contains("o3") || s.contains("o4")) return "OpenAI";
+        if (s.contains("claude")) return "Anthropic";
+        if (s.contains("gemini")) return "Google";
+        return "the cloud provider";
+    }
+
+    /**
+     * Handle {@code /bypass}, {@code /bypass on}, {@code /bypass off}, and natural-language variants.
+     * Returns the reply string to short-circuit the chat flow, or {@code null} if the message isn't a
+     * bypass command. Needed because the FX webview hides the title-bar toggle.
+     */
+    private String tryHandleBypassCommand(String trimmed) {
+        if (trimmed == null || approvalService == null) return null;
+        String m = trimmed.toLowerCase().trim();
+        while (!m.isEmpty() && ".?!".indexOf(m.charAt(m.length() - 1)) >= 0) m = m.substring(0, m.length() - 1);
+
+        boolean wantsStatus = m.equals("/bypass") || m.equals("bypass") || m.equals("bypass?")
+                || m.equals("bypass status") || m.equals("is bypass on");
+        boolean wantsOn = m.equals("/bypass on") || m.equals("bypass on") || m.equals("enable bypass")
+                || m.equals("turn on bypass") || m.equals("turn bypass on")
+                || m.equals("bypass permissions") || m.equals("bypass permissions on");
+        boolean wantsOff = m.equals("/bypass off") || m.equals("bypass off") || m.equals("disable bypass")
+                || m.equals("turn off bypass") || m.equals("turn bypass off")
+                || m.equals("bypass permissions off");
+
+        if (!wantsStatus && !wantsOn && !wantsOff) return null;
+
+        if (wantsOn) {
+            approvalService.setBypassMode(true);
+            return "⚡ Bypass permissions: **ON**. Every destructive tool call is auto-approved until you restart the app or say \"/bypass off\".";
+        }
+        if (wantsOff) {
+            approvalService.setBypassMode(false);
+            return "🛡️ Bypass permissions: **OFF**. Destructive tools will prompt again.";
+        }
+        // status
+        return approvalService.isBypassMode()
+                ? "⚡ Bypass permissions: **ON** (auto-approves every destructive tool). Say \"/bypass off\" to turn off."
+                : "🛡️ Bypass permissions: **OFF**. Say \"/bypass on\" to auto-approve destructive tools for this session.";
+    }
+
     private static boolean isQuitCommand(String trimmed) {
         if (trimmed == null || trimmed.isEmpty()) return false;
         String lower = trimmed.toLowerCase();
@@ -998,8 +1210,43 @@ public class ChatService {
         if (isSimpleSystemSettingCommand(message)) return false;
         if (isImageGenerationCommand(message)) return false;
         if (isHelpCommand(message)) return false;
+        if (isSimpleFactualQuestion(message)) return false;
         if (SystemContextProvider.isMessageAboutMinsbotSelfConfig(message)) return false;
         return true;
+    }
+
+    /**
+     * Short factual lookups — "how much is X", "what is Y", "who is Z", "when was W" — should
+     * NOT trigger the 5-step planner. They're one-shot web-search / knowledge questions that
+     * the main agent can answer in one turn (or one tool call). Previously these fell through
+     * and produced absurd checklists like "1. Identify which app the user is referring to…"
+     * for a message as trivial as "how much is this app in $?".
+     */
+    private static boolean isSimpleFactualQuestion(String message) {
+        String m = message.trim().toLowerCase();
+        int wordCount = m.split("\\s+").length;
+        if (wordCount > 14) return false;
+        String[] starters = {
+                "how much ", "how many ",
+                "what is ", "what's ", "what are ", "what was ",
+                "who is ", "who's ", "who was ",
+                "when is ", "when's ", "when was ", "when will ",
+                "where is ", "where's ", "where was ",
+                "why is ", "why does ", "why was ",
+                "is this ", "is it ", "is that ", "is there ",
+                "are there ", "are these ", "are those ",
+                "does this ", "does it ", "does that ",
+                "did i ", "has it ", "have i ",
+                "price of ", "cost of ", "how expensive "
+        };
+        for (String s : starters) {
+            if (m.startsWith(s)) return true;
+        }
+        // Catch-all: short message ending in '?' without an imperative / ask.
+        if (m.endsWith("?") && wordCount <= 8) {
+            return !m.startsWith("can you ") && !m.startsWith("could you ") && !m.startsWith("will you ");
+        }
+        return false;
     }
 
     /**
@@ -1045,6 +1292,7 @@ public class ChatService {
         if (isSimpleSystemSettingCommand(message)) return false;
         if (isImageGenerationCommand(message)) return false;
         if (isHelpCommand(message)) return false;
+        if (isSimpleFactualQuestion(message)) return false;
         if (SystemContextProvider.isMessageAboutMinsbotSelfConfig(message)) return false;
         int wordCount = message.trim().split("\\s+").length;
         if (wordCount <= 2) return false;

@@ -25,6 +25,11 @@
             <path d="M8 1.5 3 3.5v4.5c0 3 2 5.5 5 6.5 3-1 5-3.5 5-6.5V3.5L8 1.5Z"/>
           </svg>
         </button>
+        <button type="button" id="title-bar-bypass" class="title-bar-btn" data-tip="Bypass permissions — every destructive action auto-approved (until restart)" data-tip-dir="down" aria-label="Toggle bypass mode">
+          <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9.5 2L3 9.5h4L6.5 14 13 6.5H9L9.5 2Z"/>
+          </svg>
+        </button>
         <button type="button" id="title-bar-new-chat" class="title-bar-btn" data-tip="New chat (archives current)" data-tip-dir="down" aria-label="New chat">
           <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
             <path d="M13 3.5h-8a1.5 1.5 0 0 0-1.5 1.5v5.5a1.5 1.5 0 0 0 1.5 1.5h2.5l2 2.5 2-2.5H13a1.5 1.5 0 0 0 1.5-1.5V5a1.5 1.5 0 0 0-1.5-1.5Z"/>
@@ -130,7 +135,9 @@
         <button class="tab tab-extra" data-tab="marketplace" data-desc="Browse and install community plugins.">Marketplace</button>
         <button class="tab tab-extra" data-tab="dashboard" data-desc="Usage analytics: calls, tokens, cost, response time.">Dashboard</button>
         <button class="tab tab-extra" data-tab="diagnostics" data-desc="Health checks: Java, disk, GPU, Ollama, ComfyUI, API keys.">Diagnostics</button>
+        <button class="tab tab-extra" data-tab="costs" data-desc="Live LLM spend this session + daily history + savings if you'd gone local.">Costs</button>
         <button class="tab tab-extra" data-tab="models" data-desc="Install local AI models — LLM, vision, code, embeddings.">Models</button>
+        <button class="tab tab-extra" data-tab="skillpacks" data-desc="Skill packs (SKILL.md) — import, check prereqs, install binaries.">Skill Packs</button>
         <button class="tab tab-extra" data-tab="multiagent" data-desc="Multi-persona conversations with Analyst / Creative / Mediator." hidden>Multi-Agent</button>
         <button class="tab tab-extra" data-tab="automations" data-desc="If-this-then-that rules that fire on message patterns." hidden>Automations</button>
       </div>
@@ -1120,6 +1127,83 @@
         </div>
       </div>
 
+      <!-- Costs tab — live LLM spend tracker with local-LLM savings comparison. -->
+      <div id="tab-costs" class="tab-content">
+        <div class="tab-page-title">Costs</div>
+        <div class="costs-page">
+          <div class="costs-header">
+            <div>
+              <div class="costs-title" id="costs-title">Loading…</div>
+              <div class="costs-sub" id="costs-sub">—</div>
+            </div>
+            <div class="costs-actions">
+              <button type="button" id="costs-reset" class="action-btn">Reset session</button>
+            </div>
+          </div>
+
+          <div class="costs-bigs">
+            <div class="costs-card hero">
+              <div class="costs-lbl">This session</div>
+              <div class="costs-big" id="costs-session-usd">$0.00</div>
+              <div class="costs-hint" id="costs-session-hint">0 calls · 0 tokens</div>
+            </div>
+            <div class="costs-card savings">
+              <div class="costs-lbl">Savings if local-only</div>
+              <div class="costs-big" id="costs-savings-usd">$0.00</div>
+              <div class="costs-hint">Ollama runs free on your machine — this is what cloud cost instead.</div>
+            </div>
+            <div class="costs-card">
+              <div class="costs-lbl">Session length</div>
+              <div class="costs-big" id="costs-session-elapsed">0 min</div>
+              <div class="costs-hint" id="costs-rate-hint">—</div>
+            </div>
+          </div>
+
+          <div class="costs-section">
+            <div class="costs-section-title">By model — this session</div>
+            <div id="costs-by-model" class="costs-bymodel">
+              <div class="costs-loading">No LLM calls yet this session.</div>
+            </div>
+          </div>
+
+          <div class="costs-section">
+            <div class="costs-section-title">Daily history (last 30 days)</div>
+            <div id="costs-daily" class="costs-daily">
+              <div class="costs-loading">Loading…</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Skill Packs tab — SKILL.md-format skill ecosystem. Reuses the
+           Diagnostics layout shape (sidebar + filter chips + card grid). -->
+      <div id="tab-skillpacks" class="tab-content">
+        <div class="tab-page-title">Skill Packs</div>
+        <div class="skp-page">
+          <div class="skp-header">
+            <div>
+              <div class="skp-title" id="skp-overall-title">Loading skill packs…</div>
+              <div class="skp-sub" id="skp-overall-sub">—</div>
+            </div>
+            <div class="skp-actions">
+              <input type="search" id="skp-search" class="skp-search" placeholder="Search (name, description, bin)…" autocomplete="off">
+              <button type="button" id="skp-import" class="action-btn">Import…</button>
+              <button type="button" id="skp-rescan" class="action-btn">Rescan</button>
+            </div>
+          </div>
+          <div class="skp-layout">
+            <aside id="skp-sidebar" class="skp-sidebar" aria-label="Filters"></aside>
+            <div class="skp-main">
+              <div id="skp-filters" class="skp-filters" style="display:none;"></div>
+              <div id="skp-list" class="skp-list">
+                <div class="skp-loading">Scanning ~/mins_bot_data/skill_packs/ …</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="skp-modal-slot"></div>
+      </div>
+
       <!-- Models tab — native, shares shared stylesheets with the rest of the
            app. Standalone page at /models.html reuses the same CSS + JS. -->
       <div id="tab-models" class="tab-content">
@@ -1310,5 +1394,8 @@
   <script src="js/first-run-wizard.js?v={{v}}"></script>
   <script src="js/models.js?v={{v}}"></script>
   <script src="js/diagnostics.js?v={{v}}"></script>
+  <script src="js/skillpacks.js?v={{v}}"></script>
+  <script src="js/approvals.js?v={{v}}"></script>
+  <script src="js/costs.js?v={{v}}"></script>
 </body>
 </html>

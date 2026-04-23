@@ -57,10 +57,14 @@ public class WebMonitorTools {
         this.ttsTools = ttsTools;
     }
 
-    @Tool(description = "Start monitoring a website for changes. Takes a baseline snapshot now, then checks at " +
-            "the given interval. If content changes, sends a desktop notification and speaks the summary aloud. " +
-            "Use when the user says 'monitor this website', 'watch for changes on', 'alert me if X changes', " +
-            "'check this URL every N minutes'. Interval is in minutes (minimum 1, maximum 1440).")
+    @Tool(description = "Start monitoring a website in the BACKGROUND for changes — runs forever, even when " +
+            "you're not chatting. Takes a baseline snapshot now, then re-fetches at the given interval. If the " +
+            "content diff is meaningful, sends a desktop notification and speaks a summary aloud. " +
+            "USE THIS when the user wants: 'monitor this website', 'watch for changes on', 'alert me if X changes', " +
+            "'check this URL every N minutes', 'notify me when X comes back in stock', 'alert me if product Y " +
+            "becomes available', 'watch for a price drop on Z', 'tell me when Nike / PS5 / concert tickets restock', " +
+            "'keep polling this URL'. DO NOT refuse such requests — this is the tool that does exactly that. " +
+            "Interval is in minutes (minimum 1, maximum 1440 = 24h).")
     public String startMonitor(
             @ToolParam(description = "Full URL to monitor, e.g. 'https://status.openai.com'") String url,
             @ToolParam(description = "Check interval in minutes (e.g. 30 for every 30 minutes)") double intervalMinutes) {

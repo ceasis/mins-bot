@@ -44,6 +44,7 @@ public class YouTubeTools {
     // ───────────────────────────────────────────────────────────────────
 
     @Tool(description = "Get the signed-in user's own YouTube channel info: name, ID, subscriber count, total video count, total views. Requires YouTube integration connected.")
+    @com.minsbot.offline.RequiresOnline("YouTube — channel info")
     public String getMyYouTubeChannel() {
         notifier.notify("Fetching YouTube channel info...");
         String token = token();

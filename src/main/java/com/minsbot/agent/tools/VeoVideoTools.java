@@ -56,6 +56,7 @@ public class VeoVideoTools {
             + "'create an AI video of a cat riding a skateboard', 'text to video'. "
             + "Returns an operation name — poll with getVeoVideoStatus to get the final MP4 URL. "
             + "Generation usually takes 60-180 seconds. No avatar, no voice — this is cinematic AI video.")
+    @com.minsbot.offline.RequiresOnline("Google Veo video generation")
     public String generateVeoVideo(
             @ToolParam(description = "Prompt describing the video. Be cinematic and specific (subject, action, setting, camera movement, lighting, style).") String prompt,
             @ToolParam(description = "Aspect ratio: '16:9' (landscape, default), '9:16' (portrait), or '1:1' (square)") String aspectRatio,

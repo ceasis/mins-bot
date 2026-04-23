@@ -55,6 +55,7 @@ public class ToolRouter {
     private final ImageTools imageTools;
     private final LocalImageTools localImageTools;
     private final CapabilitiesTool capabilitiesTool;
+    private final MissionTools missionTools;
     private final PdfTools pdfTools;
     private final TtsTools ttsTools;
 
@@ -159,6 +160,7 @@ public class ToolRouter {
     private final PdfPasswordCrackerTools pdfPasswordCrackerTools;
     private final WebToPdfTools webToPdfTools;
     private final YouTubeTranscriptTools youTubeTranscriptTools;
+    private final com.minsbot.skillpack.SkillPackTool skillPackTool;
 
     @Autowired(required = false)
     private ToolClassifierService classifier;
@@ -198,6 +200,7 @@ public class ToolRouter {
             ImageTools imageTools,
             LocalImageTools localImageTools,
             CapabilitiesTool capabilitiesTool,
+            MissionTools missionTools,
             PdfTools pdfTools,
             TtsTools ttsTools,
             LocalModelTools localModelTools,
@@ -294,7 +297,8 @@ public class ToolRouter {
             PdfAdvancedTools pdfAdvancedTools,
             PdfPasswordCrackerTools pdfPasswordCrackerTools,
             WebToPdfTools webToPdfTools,
-            YouTubeTranscriptTools youTubeTranscriptTools) {
+            YouTubeTranscriptTools youTubeTranscriptTools,
+            com.minsbot.skillpack.SkillPackTool skillPackTool) {
 
         this.directivesTools = directivesTools;
         this.directiveDataTools = directiveDataTools;
@@ -317,6 +321,7 @@ public class ToolRouter {
         this.imageTools = imageTools;
         this.localImageTools = localImageTools;
         this.capabilitiesTool = capabilitiesTool;
+        this.missionTools = missionTools;
         this.pdfTools = pdfTools;
         this.ttsTools = ttsTools;
         this.localModelTools = localModelTools;
@@ -414,6 +419,7 @@ public class ToolRouter {
         this.pdfPasswordCrackerTools = pdfPasswordCrackerTools;
         this.webToPdfTools = webToPdfTools;
         this.youTubeTranscriptTools = youTubeTranscriptTools;
+        this.skillPackTool = skillPackTool;
 
         // Count @Tool methods on every bean (once, via reflection)
         countToolsOnAllBeans();
@@ -572,7 +578,8 @@ public class ToolRouter {
                 windowsSettingsTools,
                 journalService, screenRegionWatcher, semanticFileSearch, meetingMode,
                 heyGenTools, veoVideoTools,
-                pdfAdvancedTools, pdfPasswordCrackerTools, webToPdfTools, youTubeTranscriptTools
+                pdfAdvancedTools, pdfPasswordCrackerTools, webToPdfTools, youTubeTranscriptTools,
+                skillPackTool
         };
         for (Object bean : allBeans) {
             if (bean != null && !toolCounts.containsKey(bean)) {
@@ -620,7 +627,9 @@ public class ToolRouter {
         return List.of(
                 directivesTools, directiveDataTools,
                 chatHistoryTool, taskStatusTool, clipboardTools, todoListTools,
-                personalConfigTools, lifeProfileTools, minsbotConfigTools, webSearchTools, sensoryToggleTools);
+                personalConfigTools, lifeProfileTools, minsbotConfigTools, webSearchTools, sensoryToggleTools,
+                // Skill-pack menu: always on so the LLM can discover SKILL.md packs on any turn.
+                skillPackTool);
     }
 
     private Map<String, List<Object>> buildCategories() {
@@ -716,6 +725,11 @@ public class ToolRouter {
         map.put("web_to_pdf",         List.of(webToPdfTools, playwrightTools));
         map.put("youtube_transcript", List.of(youTubeTranscriptTools, webScraperTools));
 
+        // SKILL.md-based external packs. Pulled in together with a shell runner + file
+        // tools so a skill's "run X" instruction actually has the means to execute in
+        // the same turn (skill body without shell = LLM reads docs and does nothing).
+        map.put("skill_packs", List.of(skillPackTool, codeRunnerTools, systemTools, fileTools, fileSystemTools));
+
         return Collections.unmodifiableMap(map);
     }
 
@@ -729,7 +743,9 @@ public class ToolRouter {
                 // regardless of whether the classifier routed to the media category this turn.
                 localImageTools,
                 // Self-description needs to be reliably callable for "what can you do?" etc.
-                capabilitiesTool);
+                capabilitiesTool,
+                // Mission orchestration — LLM can start/stop long-running jobs from chat.
+                missionTools);
     }
 
     // ─── Autonomous mode ───

@@ -37,6 +37,9 @@ public class CodeRunnerTools {
         return runViaInterpreter(code, ".js", "node", timeoutSeconds);
     }
 
+    @com.minsbot.approval.RequiresApproval(
+            value = com.minsbot.approval.RiskLevel.DESTRUCTIVE,
+            summary = "Run PowerShell script: {script}")
     @Tool(description = "Execute a PowerShell script and return the output.")
     public String runPowerShell(
             @ToolParam(description = "PowerShell script to execute") String script,
@@ -44,6 +47,9 @@ public class CodeRunnerTools {
         return runWithPrefix(script, ".ps1", timeoutSeconds, "powershell", "-ExecutionPolicy", "Bypass", "-File");
     }
 
+    @com.minsbot.approval.RequiresApproval(
+            value = com.minsbot.approval.RiskLevel.DESTRUCTIVE,
+            summary = "Run shell command: {script}")
     @Tool(description = "Execute a shell command or script (bash on Linux/macOS, cmd on Windows) and return the output.")
     public String runShell(
             @ToolParam(description = "Shell commands or script to execute") String script,

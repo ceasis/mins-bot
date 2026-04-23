@@ -101,8 +101,25 @@ public class SystemPromptService {
                 .replace(PH_HOME, safe(home))
                 .replace(PH_DATETIME, safe(datetime))
                 .replace(PH_BUILTIN_SKILLS, buildBuiltInSkillsListing(builtInSkillsByCategory))
-                .replace(PH_CUSTOM_SKILLS, loadCustomSkillsListing());
+                .replace(PH_CUSTOM_SKILLS, loadCustomSkillsListing())
+                + AGENT_LOOP_SUFFIX;
     }
+
+    /**
+     * Instruction block that teaches the model the opt-in multi-turn handshake.
+     * Normal single-reply behavior is preserved — the model ONLY emits the marker
+     * when it genuinely needs another turn (long research tasks, multi-file edits,
+     * etc.). Simple chats never see a loop, so no extra API cost.
+     */
+    private static final String AGENT_LOOP_SUFFIX = "\n\n---\n"
+            + "AGENT LOOP PROTOCOL\n"
+            + "If (and only if) you are in the middle of a multi-step task and need another turn\n"
+            + "to finish — e.g. you've gathered sources and now need to write the report, or you've\n"
+            + "drafted an outline and now need to expand each section — end your reply with the\n"
+            + "literal marker `[[CONTINUE]]` on its own line. The harness will immediately run\n"
+            + "another turn with the full context + the same tools, and concatenate the replies.\n"
+            + "Cap is 10 iterations. Do NOT use this for a normal reply; the default is single-shot.\n";
+
 
     /** Called by ConfigScanService when system-prompt.md changes. */
     public void reloadTemplate() {

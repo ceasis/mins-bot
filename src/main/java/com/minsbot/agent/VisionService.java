@@ -84,6 +84,7 @@ public class VisionService {
      * @param imagePath path to a PNG screenshot file
      * @return the AI description/text, or null on failure
      */
+    @com.minsbot.offline.RequiresOnline("OpenAI Vision screenshot analysis")
     public String analyzeScreenshot(Path imagePath) {
         if (!isAvailable()) return null;
         if (imagePath == null || !Files.exists(imagePath)) return null;

@@ -1613,6 +1613,12 @@
       if (tab.dataset.tab === 'diagnostics') {
         if (typeof window.MinsBotDiagnosticsInit === 'function') window.MinsBotDiagnosticsInit();
       }
+      if (tab.dataset.tab === 'skillpacks') {
+        if (typeof window.MinsBotSkillPacksInit === 'function') window.MinsBotSkillPacksInit();
+      }
+      if (tab.dataset.tab === 'costs') {
+        if (typeof window.MinsBotCostsInit === 'function') window.MinsBotCostsInit();
+      }
     });
   });
 

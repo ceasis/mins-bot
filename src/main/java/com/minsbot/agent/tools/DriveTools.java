@@ -42,6 +42,7 @@ public class DriveTools {
     @Tool(description = "List recent files from Google Drive. Returns the most recently modified files "
             + "with name, type, modified date, and file ID. Use when the user asks 'what's in my Drive', "
             + "'recent Google Drive files', or 'show my Drive'.")
+    @com.minsbot.offline.RequiresOnline("Google Drive — list files")
     public String listDriveFiles(
             @ToolParam(description = "Max files to return (1-50)") double maxResults) {
         int max = Math.max(1, Math.min(50, (int) Math.round(maxResults)));

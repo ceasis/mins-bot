@@ -58,6 +58,9 @@ public class EmailTools {
         this.notifier = notifier;
     }
 
+    @com.minsbot.approval.RequiresApproval(
+            value = com.minsbot.approval.RiskLevel.SIDE_EFFECT,
+            summary = "Send email to {to} — subject: {subject}")
     @Tool(description = "Send an email to a recipient. Tries SMTP first; if not configured, "
             + "opens Gmail compose in the browser with fields pre-filled and auto-sends via Ctrl+Enter. "
             + "Fully autonomous — no manual steps needed.")

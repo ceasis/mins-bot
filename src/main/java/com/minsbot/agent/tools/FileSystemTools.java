@@ -379,6 +379,9 @@ public class FileSystemTools {
         }
     }
 
+    @com.minsbot.approval.RequiresApproval(
+            value = com.minsbot.approval.RiskLevel.DESTRUCTIVE,
+            summary = "Move {source} → {destination}")
     @Tool(description = "Move a file or directory to a different location")
     public String movePath(
             @ToolParam(description = "Current full path of the file or directory") String source,
@@ -397,6 +400,9 @@ public class FileSystemTools {
         }
     }
 
+    @com.minsbot.approval.RequiresApproval(
+            value = com.minsbot.approval.RiskLevel.DESTRUCTIVE,
+            summary = "Move all {pattern} files from {sourceDir} to {destinationDir}")
     @Tool(description = "Move all files matching a glob pattern (e.g. *.txt, *.pdf, report*) from a source directory into a destination directory")
     public String moveByPattern(
             @ToolParam(description = "Source directory containing the files") String sourceDir,
@@ -488,6 +494,9 @@ public class FileSystemTools {
 
     // ─── Delete ──────────────────────────────────────────────────────────────
 
+    @com.minsbot.approval.RequiresApproval(
+            value = com.minsbot.approval.RiskLevel.DESTRUCTIVE,
+            summary = "Delete the file at {path}")
     @Tool(description = "Delete a single file by its full path")
     public String deleteFile(
             @ToolParam(description = "Full path to the file to delete") String path) {
@@ -504,6 +513,9 @@ public class FileSystemTools {
         }
     }
 
+    @com.minsbot.approval.RequiresApproval(
+            value = com.minsbot.approval.RiskLevel.DESTRUCTIVE,
+            summary = "Recursively delete the directory {path}")
     @Tool(description = "Delete a directory and all its contents recursively. Use with caution.")
     public String deleteDirectory(
             @ToolParam(description = "Full path to the directory to delete") String path) {
