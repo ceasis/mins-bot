@@ -303,6 +303,111 @@ public class LocalModelTools {
         }
     }
 
+    /**
+     * Picks the "strongest" installed local Ollama model for general chat.
+     * Ranking: largest parameter count wins, family tie-breaker favours modern
+     * reasoning/chat models (deepseek-r1 > qwen2.5 > llama3.x > mistral > gemma2 > phi3).
+     * Skips embedding models and vision-only models (LLaVA).
+     *
+     * @return model tag like {@code "llama3.1:8b"}, or {@code null} if Ollama isn't running
+     *         or no chat-capable model is installed.
+     */
+    public String pickBestInstalledLocalModel() {
+        if (!isOllamaRunning()) return null;
+        try {
+            HttpRequest req = HttpRequest.newBuilder(URI.create(OLLAMA_API + "/api/tags"))
+                    .timeout(Duration.ofSeconds(5)).GET().build();
+            HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+            if (resp.statusCode() != 200) return null;
+            // /api/tags returns {"models":[{"name":"llama3.1:8b","size":...}, ...]}
+            java.util.List<String> names = new java.util.ArrayList<>();
+            java.util.regex.Matcher m = java.util.regex.Pattern
+                    .compile("\"name\"\\s*:\\s*\"([^\"]+)\"").matcher(resp.body());
+            while (m.find()) names.add(m.group(1));
+            if (names.isEmpty()) return null;
+
+            return names.stream()
+                    .filter(LocalModelTools::isChatCapable)
+                    .max(java.util.Comparator.comparingInt(LocalModelTools::scoreModel))
+                    .orElse(null);
+        } catch (Exception e) {
+            log.debug("[LocalModel] pickBest failed: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /** Embeddings / pure-vision models shouldn't back general chat. */
+    private static boolean isChatCapable(String name) {
+        String s = name.toLowerCase();
+        if (s.contains("embed")) return false;          // nomic-embed-text, mxbai-embed-large
+        if (s.startsWith("moondream")) return false;    // tiny vision only
+        return true;
+    }
+
+    /** Higher score = better pick. Combines family preference + parameter size + quality suffixes. */
+    private static int scoreModel(String tag) {
+        String s = tag.toLowerCase();
+        int score = 0;
+        // Family weight — newer / stronger reasoners beat older
+        if (s.startsWith("deepseek-r1"))  score += 80;
+        else if (s.startsWith("qwen2.5")) score += 70;
+        else if (s.startsWith("llama3.1") || s.startsWith("llama3.2")) score += 65;
+        else if (s.startsWith("qwen2"))   score += 55;
+        else if (s.startsWith("llama3"))  score += 50;
+        else if (s.startsWith("gemma2"))  score += 45;
+        else if (s.startsWith("mistral")) score += 40;
+        else if (s.startsWith("phi3"))    score += 30;
+        else if (s.startsWith("llava") || s.startsWith("bakllava")) score += 25;
+        else                              score += 20;
+
+        // Param size (1b / 3b / 7b / 8b / 9b / 13b / 16b / 70b) — each B adds points
+        java.util.regex.Matcher mm = java.util.regex.Pattern.compile(":(\\d+(?:\\.\\d+)?)b").matcher(s);
+        if (mm.find()) {
+            try { score += (int) (Double.parseDouble(mm.group(1)) * 2); } catch (NumberFormatException ignored) {}
+        }
+        // Quality suffixes
+        if (s.contains("instruct")) score += 3;
+        if (s.contains("coder") || s.endsWith("-code")) score += 2;
+        return score;
+    }
+
+    /**
+     * Called by OfflineModeService when the user flips the shield ON. Picks the best
+     * installed local model and swaps the active chat client to Ollama. Returns the
+     * chosen model name, or {@code null} if no swap happened (no local model available).
+     */
+    public String autoSwitchToBestLocal() {
+        String best = pickBestInstalledLocalModel();
+        if (best == null) {
+            log.info("[LocalModel] autoSwitchToBestLocal: no installed model found; leaving active as {}", activeProvider);
+            return null;
+        }
+        // Save the current cloud client so we can restore on disable.
+        if (openAiClient == null && chatService.getChatClient() != null) {
+            openAiClient = chatService.getChatClient();
+        }
+        String result = switchToLocalModel(best);
+        log.info("[LocalModel] autoSwitchToBestLocal → {} ({})", best, result);
+        return best;
+    }
+
+    /**
+     * Called by OfflineModeService when the user flips the shield OFF. Restores the
+     * saved cloud client if we had one; returns the provider name (or {@code null} if
+     * no restore was possible, e.g. no cloud client was ever used).
+     */
+    public String autoRestoreCloud() {
+        if (openAiClient == null) {
+            log.debug("[LocalModel] autoRestoreCloud: no saved cloud client — leaving active as {}", activeProvider);
+            return null;
+        }
+        chatService.setChatClient(openAiClient);
+        activeProvider = "openai";
+        activeOllamaModel = "";
+        log.info("[LocalModel] autoRestoreCloud: switched back to OpenAI.");
+        return "openai";
+    }
+
     @Tool(description = "Switch back to using OpenAI (cloud) for AI chat. " +
             "Requires an API key to be configured.")
     public String switchToOpenAI() {

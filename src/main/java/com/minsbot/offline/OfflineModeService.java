@@ -46,6 +46,18 @@ public class OfflineModeService {
     private final AtomicBoolean enabled = new AtomicBoolean(false);
     private volatile Instant enabledAt;
 
+    /**
+     * Lazy-injected because {@link com.minsbot.agent.tools.LocalModelTools} transitively
+     * depends on {@code ChatService}, which injects {@link OfflineModeService} — hot
+     * Spring circular-dep without the {@code @Lazy} proxy.
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    @org.springframework.context.annotation.Lazy
+    private com.minsbot.agent.tools.LocalModelTools localModelTools;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.minsbot.agent.AsyncMessageService asyncMessages;
+
     public OfflineModeService() {
         load();
     }
@@ -74,6 +86,29 @@ public class OfflineModeService {
             enabledAt = Instant.now();
             persist("1");
             log.warn("[OfflineMode] ENABLED — all cloud APIs blocked. Local only.");
+
+            // Auto-switch the active chat client to the best installed local model so
+            // the user isn't stuck with a cloud-only model while the shield is on.
+            if (localModelTools != null) {
+                try {
+                    String picked = localModelTools.autoSwitchToBestLocal();
+                    if (picked != null) {
+                        log.info("[OfflineMode] auto-switched chat model → {}", picked);
+                        if (asyncMessages != null) {
+                            asyncMessages.push("🛡️ Offline mode ON — switched chat to local `" + picked + "`.");
+                        }
+                    } else {
+                        log.warn("[OfflineMode] no local model available to auto-switch to");
+                        if (asyncMessages != null) {
+                            asyncMessages.push("🛡️ Offline mode ON — but no local model is installed. "
+                                    + "Install one in the Models tab (e.g. llama3.1:8b), "
+                                    + "or chat will refuse until you do.");
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("[OfflineMode] auto-switch failed: {}", e.getMessage());
+                }
+            }
         }
     }
 
@@ -82,6 +117,22 @@ public class OfflineModeService {
             enabledAt = null;
             persist("0");
             log.info("[OfflineMode] DISABLED — cloud APIs re-enabled.");
+
+            // Restore the saved cloud client if we had one. If the user never had a
+            // cloud client to begin with (local-only setup), this is a no-op.
+            if (localModelTools != null) {
+                try {
+                    String restored = localModelTools.autoRestoreCloud();
+                    if (restored != null) {
+                        log.info("[OfflineMode] restored chat model → {}", restored);
+                        if (asyncMessages != null) {
+                            asyncMessages.push("☁️ Offline mode OFF — chat restored to cloud provider.");
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("[OfflineMode] restore failed: {}", e.getMessage());
+                }
+            }
         }
     }
 

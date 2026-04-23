@@ -562,20 +562,30 @@ public class ChatService {
                             if (tokenUsageService != null && resp != null) {
                                 int pt = 0, ct = 0;
                                 boolean haveUsage = false;
-                                if (resp.getMetadata() != null && resp.getMetadata().getUsage() != null) {
-                                    var u = resp.getMetadata().getUsage();
-                                    if (u.getPromptTokens() != null) pt = u.getPromptTokens().intValue();
-                                    if (u.getCompletionTokens() != null) ct = u.getCompletionTokens().intValue();
-                                    haveUsage = (pt > 0 || ct > 0);
+                                // Prefer the model id the provider itself reported — accurate across
+                                // runtime model swaps via ModelSwitchTools. Fall back to the boot-time
+                                // config value only when the provider doesn't populate it.
+                                String effectiveModel = chatModelName;
+                                if (resp.getMetadata() != null) {
+                                    try {
+                                        String reported = resp.getMetadata().getModel();
+                                        if (reported != null && !reported.isBlank()) effectiveModel = reported;
+                                    } catch (Throwable ignored) { /* some Spring AI versions don't expose getModel() */ }
+                                    if (resp.getMetadata().getUsage() != null) {
+                                        var u = resp.getMetadata().getUsage();
+                                        if (u.getPromptTokens() != null) pt = u.getPromptTokens().intValue();
+                                        if (u.getCompletionTokens() != null) ct = u.getCompletionTokens().intValue();
+                                        haveUsage = (pt > 0 || ct > 0);
+                                    }
                                 }
-                                tokenUsageService.record(chatModelName, pt, ct);
+                                tokenUsageService.record(effectiveModel, pt, ct);
                                 if (!haveUsage) {
                                     log.warn("[Cost] Provider returned null/zero usage for model '{}'. "
                                             + "Call is logged with 0 tokens ($0). Check the provider's "
                                             + "API response or upgrade Spring AI if this is unexpected.",
-                                            chatModelName);
+                                            effectiveModel);
                                 } else {
-                                    log.debug("[Cost] recorded {} (pt={}, ct={})", chatModelName, pt, ct);
+                                    log.debug("[Cost] recorded {} (pt={}, ct={})", effectiveModel, pt, ct);
                                 }
                             }
                         } catch (Exception costEx) {
@@ -882,6 +892,15 @@ public class ChatService {
             return bypassReply;
         }
 
+        // /help — concrete, canned list of slash commands + key phrases.
+        // The LLM's generic "I can help with many things!" answer isn't useful;
+        // this returns exact strings the user can copy-paste.
+        if (isSlashHelp(trimmed)) {
+            String reply = buildHelpReply();
+            transcriptService.save("BOT", reply);
+            return reply;
+        }
+
         // Open command center: reply synchronously
         if (isOpenCommandCenter(trimmed)) {
             String url = "http://localhost:" + serverPort;
@@ -1036,6 +1055,56 @@ public class ChatService {
         if (n < 1000) return String.valueOf(n);
         if (n < 1_000_000) return String.format("%.1fK", n / 1000.0);
         return String.format("%.2fM", n / 1_000_000.0);
+    }
+
+    /**
+     * Slash-style help: exact matches only so conversational questions like "can
+     * you help me with X" still flow to the LLM rather than getting this canned list.
+     */
+    private static boolean isSlashHelp(String trimmed) {
+        if (trimmed == null) return false;
+        String m = trimmed.toLowerCase().trim();
+        while (!m.isEmpty() && ".?!".indexOf(m.charAt(m.length() - 1)) >= 0) m = m.substring(0, m.length() - 1);
+        return m.equals("/help") || m.equals("/commands") || m.equals("/?")
+                || m.equals("what commands") || m.equals("what commands are there")
+                || m.equals("list commands") || m.equals("show commands")
+                || m.equals("show help") || m.equals("slash commands");
+    }
+
+    /** Concrete reply listing in-chat commands + key voice/natural-language phrases. */
+    private String buildHelpReply() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("**Chat commands**\n");
+        sb.append("- `/help` — this list\n");
+        sb.append("- `/cost` — this session's LLM spend + tokens + savings vs local\n");
+        sb.append("- `/bypass [on|off]` — auto-approve destructive tools for this session\n");
+        sb.append("- `quit` / `exit` — close Mins Bot\n");
+        sb.append("- `open command center` — open the full browser UI\n\n");
+
+        sb.append("**Natural-language things I understand**\n");
+        sb.append("- `install chrome` / `install gh` — winget install any app by name\n");
+        sb.append("- `switch to llama3.1:8b` — swap chat to a local Ollama model\n");
+        sb.append("- `switch back to openai` — restore the cloud provider\n");
+        sb.append("- `list my skill packs` — show installed SKILL.md packs\n");
+        sb.append("- `use the <name> skill to …` — invoke a skill pack\n");
+        sb.append("- `generate 2 images of a red car` — ComfyUI image gen (count works)\n");
+        sb.append("- `monitor <url> every 30 minutes` — background URL watcher\n");
+        sb.append("- `translate my clipboard to spanish` — local LLM translate\n\n");
+
+        sb.append("**Toggles (title bar, or via chat)**\n");
+        sb.append("- 🛡️ Offline mode — blocks cloud APIs + auto-switches to best local model\n");
+        sb.append("- ⚡ Bypass mode — all destructive tools auto-approved until restart (`/bypass on`)\n\n");
+
+        sb.append("**Tabs (browser view only)**\n");
+        sb.append("- Models — install Ollama / ComfyUI / Piper voice packs\n");
+        sb.append("- Diagnostics — system health, GPU, API keys\n");
+        sb.append("- Skill Packs — 50 SKILL.md-format skills, import from URL\n");
+        sb.append("- Costs — live $ spend, per-model, daily history\n");
+        sb.append("- Integrations — connect Gmail / GitHub / Notion / Spotify / …\n\n");
+
+        sb.append("**Multi-turn tasks**\n");
+        sb.append("End a reply with `[[CONTINUE]]` to auto-run another turn (I do this when I need more steps to finish).");
+        return sb.toString();
     }
 
     /**
