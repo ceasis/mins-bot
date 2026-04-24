@@ -22,6 +22,9 @@ import java.util.*;
 @Component
 public class ToolRouter {
 
+    @Autowired(required = false)
+    private com.minsbot.agent.plan.PlanTool planTool;
+
     private static final Logger log = LoggerFactory.getLogger(ToolRouter.class);
 
     /** OpenAI's maximum tools per API call. */
@@ -101,7 +104,6 @@ public class ToolRouter {
     private final CalendarTools calendarTools;
     private final GmailApiTools gmailApiTools;
     private final DriveTools driveTools;
-    private final WebMonitorTools webMonitorTools;
     private final CodeAuditTools codeAuditTools;
     private final BackupConfigTools backupConfigTools;
     private final MusicControlTools musicControlTools;
@@ -136,6 +138,7 @@ public class ToolRouter {
     private final OrchestratorTools orchestratorTools;
     private final YouTubeTools youTubeTools;
     private final RemindersTools remindersTools;
+    private final com.minsbot.skills.watcher.WatcherTools watcherTools;
 
     private final SkillDevTools skillDevTools;
     private final SkillProductivityTools skillProductivityTools;
@@ -240,7 +243,6 @@ public class ToolRouter {
             CalendarTools calendarTools,
             GmailApiTools gmailApiTools,
             DriveTools driveTools,
-            WebMonitorTools webMonitorTools,
             CodeAuditTools codeAuditTools,
             BackupConfigTools backupConfigTools,
             MusicControlTools musicControlTools,
@@ -275,6 +277,7 @@ public class ToolRouter {
             OrchestratorTools orchestratorTools,
             YouTubeTools youTubeTools,
             RemindersTools remindersTools,
+            com.minsbot.skills.watcher.WatcherTools watcherTools,
             SkillDevTools skillDevTools,
             SkillProductivityTools skillProductivityTools,
             SkillSeoMarketingTools skillSeoMarketingTools,
@@ -361,7 +364,6 @@ public class ToolRouter {
         this.calendarTools = calendarTools;
         this.gmailApiTools = gmailApiTools;
         this.driveTools = driveTools;
-        this.webMonitorTools = webMonitorTools;
         this.codeAuditTools = codeAuditTools;
         this.backupConfigTools = backupConfigTools;
         this.musicControlTools = musicControlTools;
@@ -396,6 +398,7 @@ public class ToolRouter {
         this.orchestratorTools = orchestratorTools;
         this.youTubeTools = youTubeTools;
         this.remindersTools = remindersTools;
+        this.watcherTools = watcherTools;
         this.skillDevTools = skillDevTools;
         this.skillProductivityTools = skillProductivityTools;
         this.skillSeoMarketingTools = skillSeoMarketingTools;
@@ -574,6 +577,7 @@ public class ToolRouter {
                 customSkillTools, bargeInTools, restartTools,
                 orchestratorTools, youTubeTools, mapsTools, upcomingTools, recurringTaskTools,
                 remindersTools,
+                watcherTools,
                 driveTools,
                 windowsSettingsTools,
                 journalService, screenRegionWatcher, semanticFileSearch, meetingMode,
@@ -624,12 +628,16 @@ public class ToolRouter {
     // ═══ Category definitions ═══
 
     private List<Object> buildCoreTools() {
-        return List.of(
+        List<Object> core = new ArrayList<>(List.of(
                 directivesTools, directiveDataTools,
                 chatHistoryTool, taskStatusTool, clipboardTools, todoListTools,
                 personalConfigTools, lifeProfileTools, minsbotConfigTools, webSearchTools, sensoryToggleTools,
                 // Skill-pack menu: always on so the LLM can discover SKILL.md packs on any turn.
-                skillPackTool);
+                skillPackTool));
+        // Plan tool: lets the model author/update its own multi-step plan. Optional
+        // bean (field-injected) so ToolRouter doesn't require it at construction.
+        if (planTool != null) core.add(planTool);
+        return core;
     }
 
     private Map<String, List<Object>> buildCategories() {
@@ -665,7 +673,6 @@ public class ToolRouter {
         map.put("calendar",      List.of(calendarTools));
         map.put("gmail",         List.of(gmailApiTools, emailTools));
         map.put("drive",         List.of(driveTools));
-        map.put("web_monitor",   List.of(webMonitorTools));
         map.put("code_audit",    List.of(codeAuditTools, fileSystemTools));
         map.put("backup",        List.of(backupConfigTools, fileSystemTools));
         map.put("music",         List.of(musicControlTools, playlistTools));
@@ -699,6 +706,7 @@ public class ToolRouter {
         map.put("restart",       List.of(restartTools));
         map.put("orchestrator",  List.of(orchestratorTools));
         map.put("reminders",     List.of(remindersTools));
+        map.put("watcher",       List.of(watcherTools, emailTools));
 
         // ─── Skill packs (wrappers around self-contained skills under com.minsbot.skills.*) ───
         map.put("dev_skills",         List.of(skillDevTools));
@@ -745,7 +753,11 @@ public class ToolRouter {
                 // Self-description needs to be reliably callable for "what can you do?" etc.
                 capabilitiesTool,
                 // Mission orchestration — LLM can start/stop long-running jobs from chat.
-                missionTools);
+                missionTools,
+                // Always in scope: episodic recall. Users ask personal questions ("my son's
+                // name?", "what do I like?") without using memory-flavored keywords, so the
+                // classifier can't reliably route here. Keep it available by default.
+                episodicMemoryTools);
     }
 
     // ─── Autonomous mode ───
@@ -778,7 +790,7 @@ public class ToolRouter {
         map.put("calendar",     List.of(calendarTools));
         map.put("gmail",        List.of(gmailApiTools, emailTools));
         map.put("drive",        List.of(driveTools));
-        map.put("web_monitor", List.of(webMonitorTools));
+        map.put("watcher",      List.of(watcherTools, emailTools));
         map.put("health_monitor", List.of(healthMonitorTools));
         map.put("health_tracker", List.of(healthTrackerTools));
         map.put("finance_tracker", List.of(financeTrackerTools));

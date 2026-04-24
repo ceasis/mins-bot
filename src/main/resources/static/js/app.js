@@ -1598,6 +1598,11 @@
       if (tab.dataset.tab === 'directives') loadDirectives();
       if (tab.dataset.tab === 'setup') loadSetupTab();
       if (tab.dataset.tab === 'voice') loadTtsSettings();
+      if (tab.dataset.tab === 'memories') { loadMemoriesTab(); startMemoriesPolling(); }
+      else stopMemoriesPolling();
+      if (tab.dataset.tab === 'proactive') loadProactiveTab();
+      if (tab.dataset.tab === 'screens') loadScreensTab();
+      if (tab.dataset.tab === 'preferences') loadPreferencesTab();
       if (tab.dataset.tab === 'personality') loadPersonality();
       if (tab.dataset.tab === 'knowledge') loadKnowledgeBase();
       if (tab.dataset.tab === 'integrations') refreshGoogleIntegrationsPanel();
@@ -1618,6 +1623,10 @@
       }
       if (tab.dataset.tab === 'costs') {
         if (typeof window.MinsBotCostsInit === 'function') window.MinsBotCostsInit();
+        loadCostBudget();
+      }
+      if (tab.dataset.tab === 'watcher') {
+        if (typeof window.MinsBotWatcherInit === 'function') window.MinsBotWatcherInit();
       }
     });
   });
@@ -3994,6 +4003,7 @@
   // ═══ TTS Settings Tab ═══
 
   var ttsDefs = [
+    { key: 'piper', label: 'Piper (local, offline)', color: '#f59e0b', icon: '🏠' },
     { key: 'fishaudio', label: 'Fish Audio', color: '#06b6d4', icon: '🐟' },
     { key: 'elevenlabs', label: 'ElevenLabs', color: '#8b5cf6', icon: '🔊' },
     { key: 'openai', label: 'OpenAI TTS', color: '#10b981', icon: '🤖' }
@@ -4292,13 +4302,49 @@
   function loadTtsSettings() {
     fetch('/api/tts/config').then(function (r) { return r.json(); }).then(function (data) {
       ttsConfig = data;
-      renderTtsPriority(data.priority || ['fishaudio', 'elevenlabs', 'openai']);
+      renderTtsPriority(data.priority || ['piper', 'fishaudio', 'elevenlabs', 'openai']);
       renderTtsVoicePanels(data);
 
       var cb = document.getElementById('tts-autospeak-cb');
       if (cb) cb.checked = data.autoSpeak !== false;
     }).catch(function () {
-      renderTtsPriority(['fishaudio', 'elevenlabs', 'openai']);
+      renderTtsPriority(['piper', 'fishaudio', 'elevenlabs', 'openai']);
+    });
+    loadLocalVoices();
+  }
+
+  function loadLocalVoices() {
+    var section = document.getElementById('tts-local-voices-section');
+    var list = document.getElementById('tts-local-voices-list');
+    if (!section || !list) return;
+    fetch('/api/tts/local-voices').then(function (r) { return r.json(); }).then(function (data) {
+      var voices = (data && data.voices) || [];
+      if (voices.length === 0) {
+        list.innerHTML = '<div class="tts-local-empty">No local voices installed. '
+          + 'Install one from the <strong>Models</strong> tab (filter: Voices TTS).</div>';
+        return;
+      }
+      var selected = data.selected || '';
+      list.innerHTML = voices.map(function (v) {
+        var checked = (v === selected) ? ' checked' : '';
+        var pretty = v.replace(/\.onnx$/, '').replace(/_/g, ' ');
+        return '<label class="tts-local-voice-item">'
+          + '<input type="radio" name="tts-local-voice" value="' + v + '"' + checked + '>'
+          + '<span class="tts-local-voice-name">' + pretty + '</span>'
+          + '<span class="tts-local-voice-file">' + v + '</span>'
+          + '</label>';
+      }).join('');
+      list.querySelectorAll('input[name="tts-local-voice"]').forEach(function (radio) {
+        radio.addEventListener('change', function () {
+          fetch('/api/tts/local-voices/select', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename: radio.value })
+          }).catch(function () {});
+        });
+      });
+    }).catch(function () {
+      list.innerHTML = '<div class="tts-local-empty">Could not load local voices.</div>';
     });
   }
 
@@ -5553,6 +5599,458 @@
     // Close on backdrop click
     paletteEl.querySelector('.cmd-palette-backdrop').addEventListener('click', closePalette);
   })();
+
+  // ═══ Memories tab ═══
+  var _memSearchTimer = null;
+  var _memPollTimer = null;
+  var _memLastSig = '';
+  function startMemoriesPolling() {
+    if (_memPollTimer) return;
+    _memPollTimer = setInterval(function () {
+      if (document.hidden) return;
+      var s = document.getElementById('mem-search');
+      renderMemoriesList(s ? s.value.trim() : '', /*silent*/ true);
+      // Also refresh the count/summary line on the status row.
+      fetch('/api/episodic-memory/status').then(function (r) { return r.json(); }).then(function (data) {
+        var summary = document.getElementById('mem-summary');
+        if (summary && data.summary) {
+          var sm = data.summary;
+          summary.textContent = (sm.totalEpisodes || 0) + ' memories stored'
+            + (sm.oldestDate ? ' · oldest ' + sm.oldestDate : '');
+        }
+      }).catch(function () {});
+    }, 5000);
+  }
+  function stopMemoriesPolling() {
+    if (_memPollTimer) { clearInterval(_memPollTimer); _memPollTimer = null; }
+  }
+  function loadMemoriesTab() {
+    fetch('/api/episodic-memory/status').then(function (r) { return r.json(); }).then(function (data) {
+      var cb = document.getElementById('mem-auto-cb');
+      if (cb) cb.checked = !!data.autoMemoryEnabled;
+      var summary = document.getElementById('mem-summary');
+      if (summary && data.summary) {
+        var s = data.summary;
+        summary.textContent = (s.totalEpisodes || 0) + ' memories stored'
+          + (s.oldestDate ? ' · oldest ' + s.oldestDate : '');
+      }
+    }).catch(function () {});
+    renderMemoriesList('');
+
+    var cb = document.getElementById('mem-auto-cb');
+    if (cb && !cb.__wired) {
+      cb.__wired = true;
+      cb.addEventListener('change', function () {
+        fetch('/api/episodic-memory/auto-enabled', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: cb.checked })
+        }).catch(function () {});
+      });
+    }
+    var s = document.getElementById('mem-search');
+    if (s && !s.__wired) {
+      s.__wired = true;
+      s.addEventListener('input', function () {
+        clearTimeout(_memSearchTimer);
+        _memSearchTimer = setTimeout(function () { renderMemoriesList(s.value.trim()); }, 200);
+      });
+    }
+  }
+  function renderMemoriesList(query, silent) {
+    var list = document.getElementById('mem-list');
+    if (!list) return;
+    if (!silent) list.innerHTML = '<div class="mem-empty">Loading…</div>';
+    var url = query
+      ? '/api/episodic-memory/search?q=' + encodeURIComponent(query) + '&limit=200'
+      : '/api/episodic-memory/recent?limit=200';
+    fetch(url).then(function (r) { return r.json(); }).then(function (items) {
+      if (!Array.isArray(items) || items.length === 0) {
+        var emptySig = 'empty:' + (query || '');
+        if (silent && _memLastSig === emptySig) return;
+        _memLastSig = emptySig;
+        list.innerHTML = '<div class="mem-empty">' + (query ? 'No matches.' : 'Nothing remembered yet.') + '</div>';
+        return;
+      }
+      // Signature = ids + timestamps. If unchanged, skip re-render to preserve scroll/selection.
+      var sig = items.map(function (m) { return (m.id || '') + ':' + (m.timestamp || ''); }).join('|');
+      if (silent && sig === _memLastSig) return;
+      _memLastSig = sig;
+      var prevScroll = silent ? list.scrollTop : 0;
+      list.innerHTML = items.map(function (m) {
+        var id = esc(m.id || '');
+        var type = esc(m.type || '');
+        var summary = renderMemMd(m.summary || '');
+        var details = renderMemMd(m.details || '');
+        var ts = esc(m.timestamp || '');
+        var tags = Array.isArray(m.tags) ? m.tags : [];
+        var tagsHtml = tags.map(function (t) { return '<span class="mem-tag">' + esc(t) + '</span>'; }).join('');
+        return '<div class="mem-item" data-id="' + id + '">'
+          + '<div class="mem-row1"><span class="mem-type">' + type + '</span><span class="mem-ts">' + ts + '</span>'
+          + '<button class="mem-del" data-del="' + id + '" title="Delete">×</button></div>'
+          + '<div class="mem-summary-line">' + summary + '</div>'
+          + (m.details ? '<div class="mem-details">' + details + '</div>' : '')
+          + (tagsHtml ? '<div class="mem-tags">' + tagsHtml + '</div>' : '')
+          + '</div>';
+      }).join('');
+      list.querySelectorAll('[data-del]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var id = btn.getAttribute('data-del');
+          fetch('/api/episodic-memory/' + encodeURIComponent(id), { method: 'DELETE' })
+            .then(function () { renderMemoriesList(document.getElementById('mem-search').value.trim()); })
+            .catch(function () {});
+        });
+      });
+      if (silent) list.scrollTop = prevScroll;
+    }).catch(function () {
+      if (!silent) list.innerHTML = '<div class="mem-empty">Failed to load.</div>';
+    });
+  }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+    });
+  }
+  // Small markdown renderer for memory entries: escape first to prevent XSS,
+  // then substitute a safe subset (bold, italics, inline code, bullets, line breaks, links).
+  function renderMemMd(s) {
+    if (s == null) return '';
+    var h = esc(s);
+    h = h.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+      '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    h = h.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+    h = h.replace(/(^|\W)_([^_\n]+)_/g, '$1<em>$2</em>');
+    h = h.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+    h = h.replace(/^\s*[-*]\s+(.+)$/gm, '<div class="mem-md-li">&bull; $1</div>');
+    h = h.replace(/\n/g, '<br>');
+    return h;
+  }
+
+  // ═══ Proactive tab ═══
+  function loadProactiveTab() {
+    fetch('/api/proactive/status').then(function (r) { return r.json(); }).then(function (data) {
+      var cb = document.getElementById('pro-enabled-cb');
+      if (cb) cb.checked = !!data.enabled;
+      var qs = document.getElementById('pro-qh-start');
+      var qe = document.getElementById('pro-qh-end');
+      if (qs) qs.value = data.quietHoursStart;
+      if (qe) qe.value = data.quietHoursEnd;
+      var stats = document.getElementById('pro-stats');
+      if (stats) {
+        stats.innerHTML = '<div class="pro-stat"><span class="pro-stat-label">Last check</span><span class="pro-stat-value">' + esc(data.lastCheckTime || '—') + '</span></div>'
+          + '<div class="pro-stat"><span class="pro-stat-label">Checks run</span><span class="pro-stat-value">' + (data.totalCheckCount || 0) + '</span></div>'
+          + '<div class="pro-stat"><span class="pro-stat-label">Notifications sent</span><span class="pro-stat-value">' + (data.totalNotificationsSent || 0) + '</span></div>';
+      }
+      renderProactiveRules(data.customRules || []);
+    }).catch(function () {});
+
+    wireProactiveOnce();
+  }
+  function wireProactiveOnce() {
+    var cb = document.getElementById('pro-enabled-cb');
+    if (cb && !cb.__wired) {
+      cb.__wired = true;
+      cb.addEventListener('change', function () {
+        fetch('/api/proactive/enabled', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: cb.checked })
+        }).catch(function () {});
+      });
+    }
+    var save = document.getElementById('pro-qh-save');
+    if (save && !save.__wired) {
+      save.__wired = true;
+      save.addEventListener('click', function () {
+        var start = parseInt(document.getElementById('pro-qh-start').value, 10);
+        var end = parseInt(document.getElementById('pro-qh-end').value, 10);
+        fetch('/api/proactive/quiet-hours', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ start: start, end: end })
+        }).catch(function () {});
+      });
+    }
+    var add = document.getElementById('pro-rule-add');
+    if (add && !add.__wired) {
+      add.__wired = true;
+      add.addEventListener('click', function () {
+        var desc = document.getElementById('pro-rule-desc').value.trim();
+        var min = parseInt(document.getElementById('pro-rule-min').value, 10) || 60;
+        if (!desc) return;
+        fetch('/api/proactive/rules', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ description: desc, intervalMinutes: min })
+        }).then(function () {
+          document.getElementById('pro-rule-desc').value = '';
+          loadProactiveTab();
+        }).catch(function () {});
+      });
+    }
+    var trig = document.getElementById('pro-trigger');
+    if (trig && !trig.__wired) {
+      trig.__wired = true;
+      trig.addEventListener('click', function () {
+        trig.disabled = true;
+        fetch('/api/proactive/trigger', { method: 'POST' })
+          .then(function () { setTimeout(loadProactiveTab, 500); })
+          .finally(function () { setTimeout(function () { trig.disabled = false; }, 1000); });
+      });
+    }
+  }
+  function renderProactiveRules(rules) {
+    var el = document.getElementById('pro-rules');
+    if (!el) return;
+    if (!rules.length) { el.innerHTML = '<div class="pro-empty">No custom rules yet.</div>'; return; }
+    el.innerHTML = rules.map(function (r) {
+      return '<div class="pro-rule">'
+        + '<div class="pro-rule-desc">' + esc(r.description) + '</div>'
+        + '<div class="pro-rule-meta">every ' + (r.intervalMinutes || 0) + ' min</div>'
+        + '<button class="pro-rule-del" data-rule-del="' + esc(r.id) + '">×</button>'
+        + '</div>';
+    }).join('');
+    el.querySelectorAll('[data-rule-del]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var id = btn.getAttribute('data-rule-del');
+        fetch('/api/proactive/rules/' + encodeURIComponent(id), { method: 'DELETE' })
+          .then(function () { loadProactiveTab(); }).catch(function () {});
+      });
+    });
+  }
+
+  // ═══ Screens tab ═══
+  function loadScreensTab() {
+    wireScreensOnce();
+    fetch('/api/screen-memory/settings').then(function (r) { return r.json(); }).then(function (s) {
+      var cb = document.getElementById('scr-enabled-cb');
+      var iv = document.getElementById('scr-interval');
+      var rt = document.getElementById('scr-retention');
+      if (cb) cb.checked = !!s.enabled;
+      if (iv) iv.value = s.intervalSeconds;
+      if (rt) rt.value = s.maxAgeDays;
+    }).catch(function () {});
+    fetch('/api/screen-memory/days').then(function (r) { return r.json(); }).then(function (days) {
+      var el = document.getElementById('scr-days');
+      if (!el) return;
+      if (!days.length) {
+        el.innerHTML = '<div class="scr-empty">No captures yet. Enable <code>app.screenshot.enabled</code> or click Capture now.</div>';
+        document.getElementById('scr-thumbs').innerHTML = '';
+        return;
+      }
+      el.innerHTML = days.map(function (d, i) {
+        var active = i === 0 ? ' active' : '';
+        var mb = (d.bytes / (1024 * 1024)).toFixed(1);
+        return '<button class="scr-day' + active + '" data-month="' + esc(d.month) + '" data-day="' + esc(d.day) + '">'
+          + '<div class="scr-day-date">' + esc(d.month) + ' / ' + esc(d.day) + '</div>'
+          + '<div class="scr-day-meta">' + d.count + ' · ' + mb + ' MB</div>'
+          + '</button>';
+      }).join('');
+      el.querySelectorAll('.scr-day').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          el.querySelectorAll('.scr-day').forEach(function (b) { b.classList.remove('active'); });
+          btn.classList.add('active');
+          loadScreenThumbs(btn.getAttribute('data-month'), btn.getAttribute('data-day'));
+        });
+      });
+      loadScreenThumbs(days[0].month, days[0].day);
+    }).catch(function () {});
+  }
+  function loadScreenThumbs(month, day) {
+    var el = document.getElementById('scr-thumbs');
+    if (!el) return;
+    el.innerHTML = '<div class="scr-empty">Loading…</div>';
+    fetch('/api/screen-memory/files?month=' + encodeURIComponent(month) + '&day=' + encodeURIComponent(day))
+      .then(function (r) { return r.json(); }).then(function (files) {
+        if (!files.length) { el.innerHTML = '<div class="scr-empty">Empty day.</div>'; return; }
+        el.innerHTML = files.map(function (f) {
+          var rel = month + '/' + day + '/' + f;
+          return '<div class="scr-thumb" data-src="/api/screenshot?file=' + encodeURIComponent(rel) + '">'
+            + '<img loading="lazy" src="/api/screenshot?file=' + encodeURIComponent(rel) + '" alt="' + esc(f) + '">'
+            + '<div class="scr-thumb-name">' + esc(f.replace(/\.png$/, '')) + '</div>'
+            + '</div>';
+        }).join('');
+        el.querySelectorAll('.scr-thumb').forEach(function (t) {
+          t.addEventListener('click', function () { openScreenViewer(t.getAttribute('data-src')); });
+        });
+      });
+  }
+  function openScreenViewer(src) {
+    var v = document.getElementById('scr-viewer');
+    var img = document.getElementById('scr-viewer-img');
+    if (!v || !img) return;
+    img.src = src;
+    v.hidden = false;
+  }
+  function wireScreensOnce() {
+    var close = document.getElementById('scr-viewer-close');
+    if (close && !close.__wired) {
+      close.__wired = true;
+      close.addEventListener('click', function () {
+        document.getElementById('scr-viewer').hidden = true;
+      });
+    }
+    var cap = document.getElementById('scr-capture-now');
+    if (cap && !cap.__wired) {
+      cap.__wired = true;
+      cap.addEventListener('click', function () {
+        cap.disabled = true;
+        fetch('/api/screen-memory/capture-now', { method: 'POST' })
+          .then(function () { setTimeout(loadScreensTab, 300); })
+          .finally(function () { setTimeout(function () { cap.disabled = false; }, 800); });
+      });
+    }
+    var save = document.getElementById('scr-settings-save');
+    if (save && !save.__wired) {
+      save.__wired = true;
+      save.addEventListener('click', function () {
+        var body = {
+          enabled: document.getElementById('scr-enabled-cb').checked,
+          intervalSeconds: parseInt(document.getElementById('scr-interval').value, 10) || 5,
+          maxAgeDays: parseInt(document.getElementById('scr-retention').value, 10) || 3
+        };
+        save.disabled = true;
+        fetch('/api/screen-memory/settings', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        }).then(function () { setTimeout(loadScreensTab, 300); })
+          .finally(function () { setTimeout(function () { save.disabled = false; }, 500); });
+      });
+    }
+  }
+
+  // ═══ Preferences tab ═══
+  function loadPreferencesTab() {
+    fetch('/api/prefs/all').then(function (r) { return r.json(); }).then(function (data) {
+      var a = data.autonomous || {};
+      setVal('pref-auto-enabled', a.enabled, 'checkbox');
+      setVal('pref-auto-idle', a.idleTimeoutSeconds);
+      setVal('pref-auto-pause', a.pauseBetweenStepsMs);
+
+      var bi = data.bargein || {};
+      setVal('pref-bi-enabled', bi.enabled, 'checkbox');
+      setVal('pref-bi-thresh', bi.thresholdMultiplier);
+      setVal('pref-bi-rms', bi.minRms);
+      setVal('pref-bi-frames', bi.consecutiveFrames);
+      setVal('pref-bi-warm', bi.warmupMs);
+
+      var w = data.window || {};
+      setVal('pref-win-aot', w.alwaysOnTop, 'checkbox');
+      setVal('pref-win-sound', w.soundEnabled, 'checkbox');
+      setVal('pref-win-volume', w.volume);
+      var vv = document.getElementById('pref-win-volume-val');
+      if (vv) vv.textContent = Math.round((w.volume || 0) * 100) + '%';
+
+      var m = data.misc || {};
+      setVal('pref-agent-max', m.agentMaxSteps);
+      setVal('pref-update-enabled', m.updateCheckEnabled, 'checkbox');
+      setVal('pref-classifier', m.toolClassifierModel);
+      setVal('pref-ollama-url', m.ollamaUrl);
+      setVal('pref-comfy-url', m.comfyUrl);
+    }).catch(function () {});
+    wirePreferencesOnce();
+  }
+  function setVal(id, v, type) {
+    var el = document.getElementById(id); if (!el) return;
+    if (type === 'checkbox') el.checked = !!v;
+    else el.value = v == null ? '' : v;
+  }
+  function wirePreferencesOnce() {
+    // Autonomous save
+    bind('pref-auto-save', 'click', function () {
+      postPrefs('/api/prefs/autonomous', {
+        enabled: document.getElementById('pref-auto-enabled').checked,
+        idleTimeoutSeconds: intVal('pref-auto-idle'),
+        pauseBetweenStepsMs: intVal('pref-auto-pause')
+      });
+    });
+    bind('pref-auto-enabled', 'change', function (e) {
+      postPrefs('/api/prefs/autonomous', { enabled: e.target.checked });
+    });
+    // Barge-in
+    bind('pref-bi-save', 'click', function () {
+      postPrefs('/api/prefs/bargein', {
+        enabled: document.getElementById('pref-bi-enabled').checked,
+        thresholdMultiplier: floatVal('pref-bi-thresh'),
+        minRms: floatVal('pref-bi-rms'),
+        consecutiveFrames: intVal('pref-bi-frames'),
+        warmupMs: intVal('pref-bi-warm')
+      });
+    });
+    bind('pref-bi-enabled', 'change', function (e) {
+      postPrefs('/api/prefs/bargein', { enabled: e.target.checked });
+    });
+    // Window: live changes
+    bind('pref-win-aot', 'change', function (e) {
+      postPrefs('/api/prefs/window', { alwaysOnTop: e.target.checked });
+    });
+    bind('pref-win-sound', 'change', function (e) {
+      postPrefs('/api/prefs/window', { soundEnabled: e.target.checked });
+    });
+    bind('pref-win-volume', 'input', function (e) {
+      var vv = document.getElementById('pref-win-volume-val');
+      if (vv) vv.textContent = Math.round(e.target.value * 100) + '%';
+    });
+    bind('pref-win-volume', 'change', function (e) {
+      postPrefs('/api/prefs/window', { volume: parseFloat(e.target.value) });
+    });
+    // Advanced + servers (single save)
+    bind('pref-save-all', 'click', function () {
+      postPrefs('/api/prefs/misc', {
+        agentMaxSteps: intVal('pref-agent-max'),
+        updateCheckEnabled: document.getElementById('pref-update-enabled').checked,
+        toolClassifierModel: (document.getElementById('pref-classifier').value || '').trim(),
+        ollamaUrl: (document.getElementById('pref-ollama-url').value || '').trim(),
+        comfyUrl: (document.getElementById('pref-comfy-url').value || '').trim()
+      }, 'pref-save-note', 'Saved.');
+    });
+  }
+  function bind(id, ev, fn) {
+    var el = document.getElementById(id);
+    if (!el || el.__wired_ + ev) return;
+    el.__wired_ = (el.__wired_ || '') + ev;
+    el.addEventListener(ev, fn);
+  }
+  function intVal(id) { var el = document.getElementById(id); return el ? parseInt(el.value, 10) : 0; }
+  function floatVal(id) { var el = document.getElementById(id); return el ? parseFloat(el.value) : 0; }
+  function postPrefs(url, body, noteId, noteText) {
+    return fetch(url, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }).then(function () {
+      if (noteId) {
+        var n = document.getElementById(noteId);
+        if (n) { n.textContent = noteText || 'Saved.'; setTimeout(function () { n.textContent = ''; }, 2500); }
+      }
+    }).catch(function () {});
+  }
+
+  // ═══ Cost budget (in Costs tab) ═══
+  function loadCostBudget() {
+    fetch('/api/prefs/all').then(function (r) { return r.json(); }).then(function (data) {
+      var c = data.cost || {};
+      setVal('cost-budget', c.dailyBudgetUsd || 0);
+      setVal('cost-threshold', Math.round((c.alertThresholdFraction || 0.8) * 100));
+      var sel = document.getElementById('cost-capmode');
+      if (sel) sel.value = c.capMode || 'warn';
+      var s = document.getElementById('cost-budget-status');
+      if (s) {
+        var spent = c.spentToday || 0;
+        var budget = c.dailyBudgetUsd || 0;
+        if (budget <= 0) { s.textContent = 'No budget set — no alerts will fire.'; s.className = 'costs-budget-status'; }
+        else {
+          var pct = Math.round((spent / budget) * 100);
+          var modeLabel = { warn: 'warn', throttle: 'throttle → local', hardcap: 'hard cap' }[c.capMode || 'warn'];
+          s.textContent = 'Today: $' + spent.toFixed(2) + ' / $' + budget.toFixed(2) + ' (' + pct + '%) · mode: ' + modeLabel;
+          s.className = 'costs-budget-status' + (pct >= 100 ? ' over' : (pct >= Math.round((c.alertThresholdFraction || 0.8) * 100) ? ' warn' : ''));
+        }
+      }
+    }).catch(function () {});
+    bind('cost-budget-save', 'click', function () {
+      var sel = document.getElementById('cost-capmode');
+      postPrefs('/api/prefs/cost', {
+        dailyBudgetUsd: floatVal('cost-budget'),
+        alertThresholdFraction: intVal('cost-threshold') / 100,
+        capMode: sel ? sel.value : 'warn'
+      }).then(loadCostBudget);
+    });
+  }
 
   // ═══ Keyboard Shortcuts Overlay (Ctrl+/) ═══
   (function () {

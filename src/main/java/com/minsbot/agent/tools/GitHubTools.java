@@ -187,6 +187,38 @@ public class GitHubTools {
         }
     }
 
+    @Tool(description = "Create a new GitHub repository under the authenticated user's account. "
+            + "Requires a GitHub token with 'repo' scope. Returns the new repo's URL on success.")
+    @com.minsbot.offline.RequiresOnline("GitHub — create repo")
+    public String createRepo(
+            @ToolParam(description = "Repository name (e.g. 'my-new-repo')") String name,
+            @ToolParam(description = "Short description (optional, pass empty string if none)") String description,
+            @ToolParam(description = "True for private repo, false for public") boolean isPrivate,
+            @ToolParam(description = "True to initialize with an empty README") boolean autoInit) {
+        notifier.notify("Creating GitHub repository: " + name + "...");
+        try {
+            if (!hasToken()) return TOKEN_MISSING_MSG;
+            if (name == null || name.isBlank()) return "Error: repository name is required.";
+
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("name", name.trim());
+            if (description != null && !description.isBlank()) payload.put("description", description);
+            payload.put("private", isPrivate);
+            payload.put("auto_init", autoInit);
+
+            HttpResponse<String> resp = apiPost("/user/repos", jsonMapper.writeValueAsString(payload));
+            if (resp.statusCode() != 201) return apiError(resp);
+
+            JsonNode repo = jsonMapper.readTree(resp.body());
+            return "Repository created: " + text(repo, "full_name")
+                    + (isPrivate ? " [private]" : " [public]")
+                    + "\nURL: " + text(repo, "html_url")
+                    + "\nClone: " + text(repo, "clone_url");
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
     // ═════════════════════════════════════════════════════════════════════════
     // Issue & PR Tools
     // ═════════════════════════════════════════════════════════════════════════

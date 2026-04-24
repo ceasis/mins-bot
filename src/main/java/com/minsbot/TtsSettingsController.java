@@ -21,19 +21,42 @@ public class TtsSettingsController {
     private final FishAudioVoiceService fishAudio;
     private final ElevenLabsVoiceService elevenLabs;
     private final OpenAiTtsService openAiTts;
+    private final LocalTtsService localTts;
 
     public TtsSettingsController(TtsTools ttsTools,
                                   FishAudioConfig.FishAudioProperties fishProps,
                                   ElevenLabsConfig.ElevenLabsProperties elevenProps,
                                   FishAudioVoiceService fishAudio,
                                   ElevenLabsVoiceService elevenLabs,
-                                  OpenAiTtsService openAiTts) {
+                                  OpenAiTtsService openAiTts,
+                                  LocalTtsService localTts) {
         this.ttsTools = ttsTools;
         this.fishProps = fishProps;
         this.elevenProps = elevenProps;
         this.fishAudio = fishAudio;
         this.elevenLabs = elevenLabs;
         this.openAiTts = openAiTts;
+        this.localTts = localTts;
+    }
+
+    /** Installed local (Piper) voices + currently selected one. */
+    @GetMapping(value = "/local-voices", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> localVoices() {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("voices", localTts.listInstalledVoices());
+        out.put("selected", localTts.getSelectedVoice());
+        return out;
+    }
+
+    /** Pick which Piper voice to use. Body: {"filename":"en_US-amy-medium.onnx"}. */
+    @PostMapping(value = "/local-voices/select", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> selectLocalVoice(@RequestBody Map<String, Object> body) {
+        String filename = body == null ? null : (String) body.get("filename");
+        if (filename == null || filename.isBlank()) {
+            return Map.of("success", false, "message", "Missing filename");
+        }
+        boolean ok = localTts.setSelectedVoice(filename);
+        return Map.of("success", ok, "selected", localTts.getSelectedVoice());
     }
 
     /** Return full TTS configuration for the settings UI. */
@@ -46,13 +69,15 @@ public class TtsSettingsController {
 
         // Enabled state per engine
         Map<String, Boolean> enabled = new LinkedHashMap<>();
+        enabled.put("piper", ttsTools.isEngineEnabled("piper"));
         enabled.put("fishaudio", ttsTools.isEngineEnabled("fishaudio"));
         enabled.put("elevenlabs", ttsTools.isEngineEnabled("elevenlabs"));
         enabled.put("openai", ttsTools.isEngineEnabled("openai"));
         cfg.put("enabled", enabled);
 
-        // Availability (has API key configured)
+        // Availability — Piper is ready when the binary is installed and a voice is selected.
         Map<String, Boolean> available = new LinkedHashMap<>();
+        available.put("piper", localTts.isEnabled());
         available.put("fishaudio", fishAudio.isEnabled());
         available.put("elevenlabs", elevenLabs.isEnabled());
         available.put("openai", openAiTts.isAvailable());

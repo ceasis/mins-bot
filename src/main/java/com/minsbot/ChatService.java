@@ -254,6 +254,10 @@ public class ChatService {
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.minsbot.offline.OfflineModeService offlineModeService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    @org.springframework.context.annotation.Lazy
+    private com.minsbot.agent.tools.LocalModelTools localModelTools;
     private final TtsTools ttsTools;
     private final ScreenStateService screenStateService;
     private final com.minsbot.agent.tools.ScreenWatchingTools screenWatchingTools;
@@ -528,16 +532,77 @@ public class ChatService {
                     // when the user has swapped via ModelSwitchTools). Spring AI routes
                     // cloud calls to api.openai.com / api.anthropic.com etc. — those need
                     // to be blocked when the user has flipped the offline shield.
-                    if (offlineModeService != null && offlineModeService.isOffline()
-                            && isCloudModel(chatModelName)) {
-                        String msg = "🛡️ Offline mode is ON and the active chat model is `"
-                                + chatModelName + "` (cloud). I won't call out to "
-                                + cloudProviderLabel(chatModelName) + ". "
-                                + "Switch to a local Ollama model (e.g. say 'switch to llama3.1:8b') "
-                                + "or toggle offline mode off.";
-                        workingSound.stop();
-                        transcriptService.save("BOT", msg);
-                        return;
+                    if (offlineModeService != null && offlineModeService.isOffline()) {
+                        // Prefer the runtime-swapped provider over the boot-time config:
+                        // `chatModelName` is bound from application.properties at startup and
+                        // doesn't update when tools swap the ChatClient to Ollama.
+                        boolean activeIsCloud;
+                        if (localModelTools != null
+                                && "ollama".equalsIgnoreCase(localModelTools.getActiveProviderName())) {
+                            activeIsCloud = false;
+                        } else {
+                            activeIsCloud = isCloudModel(chatModelName);
+                        }
+                        if (activeIsCloud) {
+                            // Try to auto-switch first — user's "offline on" intent means
+                            // "use whatever local model I have" rather than "refuse to reply".
+                            String picked = null;
+                            if (localModelTools != null) {
+                                try { picked = localModelTools.autoSwitchToBestLocal(); }
+                                catch (Exception ignored) {}
+                            }
+                            if (picked == null) {
+                                String msg = "🛡️ Offline mode is ON and the active chat model is `"
+                                        + chatModelName + "` (cloud), but no local Ollama model is "
+                                        + "installed to fall back to. Install one in the Models tab "
+                                        + "(e.g. llama3.2:3b) or toggle offline mode off.";
+                                workingSound.stop();
+                                transcriptService.save("BOT", msg);
+                                return;
+                            }
+                            asyncMessages.push("🛡️ Offline mode ON — switched chat to local `" + picked + "`.");
+                        }
+                    }
+
+                    // Cost-budget gate: honors user-chosen cap mode from the Costs tab.
+                    //   warn     → no gate, alerts already fired in TokenUsageService.record()
+                    //   throttle → auto-swap to a local Ollama model (free) for the rest of today
+                    //   hardcap  → refuse cloud chat with a message until tomorrow / budget raised
+                    if (tokenUsageService != null && tokenUsageService.isOverBudget()) {
+                        boolean activeIsCloudNow = !(localModelTools != null
+                                && "ollama".equalsIgnoreCase(localModelTools.getActiveProviderName()));
+                        if (activeIsCloudNow) {
+                            String mode = tokenUsageService.getCapMode();
+                            if ("hardcap".equals(mode)) {
+                                String msg = String.format(
+                                        "🚫 Daily cost cap hit — $%.2f spent ≥ $%.2f budget. Cloud chat refused. "
+                                                + "Raise the budget in the Costs tab, switch to Throttle mode to auto-use "
+                                                + "local Ollama, or wait until tomorrow.",
+                                        tokenUsageService.spentToday(),
+                                        tokenUsageService.getDailyBudgetUsd());
+                                workingSound.stop();
+                                transcriptService.save("BOT", msg);
+                                return;
+                            }
+                            if ("throttle".equals(mode) && localModelTools != null) {
+                                String picked = null;
+                                try { picked = localModelTools.autoSwitchToBestLocal(); }
+                                catch (Exception ignored) {}
+                                if (picked != null) {
+                                    asyncMessages.push("💸 Over daily budget — throttled to local `" + picked + "`.");
+                                } else {
+                                    String msg = String.format(
+                                            "💸 Over daily budget ($%.2f / $%.2f) and Throttle mode is on, but no "
+                                                    + "local model is installed to fall back to. Install one in Models, "
+                                                    + "or switch cap mode to Warn/Hardcap.",
+                                            tokenUsageService.spentToday(),
+                                            tokenUsageService.getDailyBudgetUsd());
+                                    workingSound.stop();
+                                    transcriptService.save("BOT", msg);
+                                    return;
+                                }
+                            }
+                        }
                     }
 
                     // Agent-loop wrapper: the LLM can request additional turns by emitting
@@ -549,10 +614,20 @@ public class ChatService {
                         String um = turnUserMsg[0];
                         turnUserMsg[0] = "Continue the task. Use tools as needed. "
                                 + "If still incomplete after this turn, end with [[CONTINUE]] again.";
-                        org.springframework.ai.chat.model.ChatResponse resp = chatClient.prompt()
+                        // Small local Ollama models emit tool-call JSON as plain text instead
+                        // of using the native tool_calls field — the result is raw
+                        // {"name":"...","arguments":{...}} strings shown as chat replies.
+                        // Skip tools on Ollama to keep chat coherent; users who want tool
+                        // execution can switch to a cloud provider.
+                        boolean onOllama = localModelTools != null
+                                && "ollama".equalsIgnoreCase(localModelTools.getActiveProviderName());
+                        var promptSpec = chatClient.prompt()
                                 .system(finalSystemMessage)
-                                .user(um)
-                                .tools(toolRouter.selectTools(trimmed))
+                                .user(um);
+                        if (!onOllama) {
+                            promptSpec = promptSpec.tools(toolRouter.selectTools(trimmed));
+                        }
+                        org.springframework.ai.chat.model.ChatResponse resp = promptSpec
                                 .call()
                                 .chatResponse();
                         // Record every call for the Costs tab, even if usage metadata is absent.
@@ -605,6 +680,13 @@ public class ChatService {
 
                     workingSound.stop();
                     if (moduleStats != null) moduleStats.recordChatCall(chatModelName);
+                    // Safety net: the model occasionally echoes the extractor-style "NONE" token
+                    // as its main reply. Intercept and return a helpful message instead of a blank.
+                    if (reply != null && reply.trim().matches("(?i)^(none|n/?a|unknown|idk|i don'?t know\\.?)$")) {
+                        log.warn("[MainLoop] Model returned lazy '{}' — substituting fallback", reply.trim());
+                        reply = "I don't have that on hand yet. Tell me and I'll remember it for next time — "
+                                + "you can also check the Memories tab to see what I've already saved.";
+                    }
                     if (reply != null && !reply.isBlank()) {
                         reply = appendToolsFootnote(reply);
                         transcriptService.save("BOT", reply); // SSE delivers to UI; no asyncMessages push (would double-render)
@@ -779,11 +861,61 @@ public class ChatService {
 
     // ═══ Autonomous mode ═══
     @Value("${app.autonomous.enabled:false}")
-    private boolean autonomousEnabled;
+    private volatile boolean autonomousEnabled;
     @Value("${app.autonomous.idle-timeout-seconds:60}")
-    private int autonomousIdleTimeoutSeconds;
+    private volatile int autonomousIdleTimeoutSeconds;
     @Value("${app.autonomous.pause-between-steps-ms:30000}")
-    private int autonomousPauseBetweenStepsMs;
+    private volatile int autonomousPauseBetweenStepsMs;
+
+    private static final java.nio.file.Path AUTONOMOUS_SETTINGS_PATH =
+            java.nio.file.Paths.get(System.getProperty("user.home"), "mins_bot_data", "autonomous_settings.txt");
+
+    public boolean isAutonomousEnabled() { return autonomousEnabled; }
+    public int getAutonomousIdleTimeoutSeconds() { return autonomousIdleTimeoutSeconds; }
+    public int getAutonomousPauseBetweenStepsMs() { return autonomousPauseBetweenStepsMs; }
+
+    public synchronized void setAutonomousEnabled(boolean v) {
+        this.autonomousEnabled = v;
+        saveAutonomousSettings();
+    }
+    public synchronized void setAutonomousIdleTimeoutSeconds(int v) {
+        this.autonomousIdleTimeoutSeconds = Math.max(5, Math.min(3600, v));
+        saveAutonomousSettings();
+    }
+    public synchronized void setAutonomousPauseBetweenStepsMs(int v) {
+        this.autonomousPauseBetweenStepsMs = Math.max(1000, Math.min(600000, v));
+        saveAutonomousSettings();
+    }
+
+    @jakarta.annotation.PostConstruct
+    void loadAutonomousSettings() {
+        try {
+            if (!java.nio.file.Files.exists(AUTONOMOUS_SETTINGS_PATH)) return;
+            for (String line : java.nio.file.Files.readAllLines(AUTONOMOUS_SETTINGS_PATH)) {
+                line = line.trim();
+                if (line.isEmpty() || line.startsWith("#")) continue;
+                int eq = line.indexOf('=');
+                if (eq <= 0) continue;
+                String k = line.substring(0, eq).trim();
+                String v = line.substring(eq + 1).trim();
+                switch (k) {
+                    case "enabled" -> this.autonomousEnabled = Boolean.parseBoolean(v);
+                    case "idleTimeoutSeconds" -> { try { this.autonomousIdleTimeoutSeconds = Integer.parseInt(v); } catch (NumberFormatException ignored) {} }
+                    case "pauseBetweenStepsMs" -> { try { this.autonomousPauseBetweenStepsMs = Integer.parseInt(v); } catch (NumberFormatException ignored) {} }
+                }
+            }
+        } catch (Exception ignored) {}
+    }
+    private void saveAutonomousSettings() {
+        try {
+            java.nio.file.Files.createDirectories(AUTONOMOUS_SETTINGS_PATH.getParent());
+            String body = "# Autonomous mode settings (edited via UI)\n"
+                    + "enabled=" + autonomousEnabled + "\n"
+                    + "idleTimeoutSeconds=" + autonomousIdleTimeoutSeconds + "\n"
+                    + "pauseBetweenStepsMs=" + autonomousPauseBetweenStepsMs + "\n";
+            java.nio.file.Files.writeString(AUTONOMOUS_SETTINGS_PATH, body);
+        } catch (Exception ignored) {}
+    }
 
     private volatile long lastActivityTime = System.currentTimeMillis();
     private volatile boolean autonomousRunning = false;
@@ -897,6 +1029,13 @@ public class ChatService {
         // this returns exact strings the user can copy-paste.
         if (isSlashHelp(trimmed)) {
             String reply = buildHelpReply();
+            transcriptService.save("BOT", reply);
+            return reply;
+        }
+
+        // /model — show the actual runtime chat model, provider, pricing, offline state.
+        if (isSlashModel(trimmed)) {
+            String reply = buildModelReply();
             transcriptService.save("BOT", reply);
             return reply;
         }
@@ -1058,6 +1197,108 @@ public class ChatService {
     }
 
     /**
+     * Slash-style model query: exact matches only. Questions like "what model would
+     * be best" still flow to the LLM.
+     */
+    private static boolean isSlashModel(String trimmed) {
+        if (trimmed == null) return false;
+        String m = trimmed.toLowerCase().trim();
+        while (!m.isEmpty() && ".?!".indexOf(m.charAt(m.length() - 1)) >= 0) m = m.substring(0, m.length() - 1);
+        return m.equals("/model") || m.equals("/models") || m.equals("/whoami")
+                || m.equals("what model") || m.equals("what model are you")
+                || m.equals("which model") || m.equals("current model")
+                || m.equals("active model") || m.equals("show model");
+    }
+
+    /** Concrete reply with live runtime model details. */
+    private String buildModelReply() {
+        String activeProvider = (localModelTools == null) ? "unknown" : localModelTools.getActiveProviderName();
+        String activeOllama = (localModelTools == null) ? "" : localModelTools.getActiveOllamaModelName();
+        boolean isLocal = "ollama".equalsIgnoreCase(activeProvider);
+        String effectiveModel = isLocal && activeOllama != null && !activeOllama.isBlank()
+                ? activeOllama : chatModelName;
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("**Model:** `").append(effectiveModel).append("`  \n");
+        sb.append("**Provider:** ").append(providerLabelFor(effectiveModel, isLocal)).append("  \n");
+        sb.append("**Endpoint:** ").append(endpointLabelFor(effectiveModel, isLocal)).append("  \n");
+        sb.append("**Pricing (per 1M tokens):** ").append(pricingLabelFor(effectiveModel, isLocal)).append("  \n");
+
+        if (offlineModeService != null) {
+            sb.append("**Offline mode:** ").append(offlineModeService.isOffline() ? "🛡️ ON" : "OFF").append("  \n");
+        }
+        if (approvalService != null) {
+            sb.append("**Bypass permissions:** ").append(approvalService.isBypassMode() ? "⚡ ON" : "OFF").append("  \n");
+        }
+
+        if (tokenUsageService != null) {
+            com.minsbot.cost.TokenUsageService.SessionSummary s = tokenUsageService.currentSession();
+            if (s.calls() > 0) {
+                sb.append("\n**This session:** ").append(s.calls()).append(" call")
+                        .append(s.calls() == 1 ? "" : "s")
+                        .append(" · ").append(fmtTokens(s.promptTokens() + s.completionTokens()))
+                        .append(" tokens · $").append(String.format("%.4f", s.totalUsd()));
+            }
+        }
+
+        sb.append("\n\n_Say `switch to llama3.1:8b` to change model, or `/help` for everything else._");
+        return sb.toString();
+    }
+
+    private static String providerLabelFor(String model, boolean isLocal) {
+        if (isLocal) return "Ollama (local)";
+        if (model == null) return "unknown";
+        String s = model.toLowerCase(java.util.Locale.ROOT);
+        if (s.contains("gpt") || s.contains("o1") || s.contains("o3") || s.contains("o4")) return "OpenAI (cloud)";
+        if (s.contains("claude")) return "Anthropic (cloud)";
+        if (s.contains("gemini")) return "Google (cloud)";
+        return "cloud";
+    }
+
+    private static String endpointLabelFor(String model, boolean isLocal) {
+        if (isLocal) return "`http://localhost:11434`";
+        if (model == null) return "unknown";
+        String s = model.toLowerCase(java.util.Locale.ROOT);
+        if (s.contains("gpt") || s.contains("o1") || s.contains("o3") || s.contains("o4")) return "`api.openai.com`";
+        if (s.contains("claude")) return "`api.anthropic.com`";
+        if (s.contains("gemini")) return "`generativelanguage.googleapis.com`";
+        return "cloud";
+    }
+
+    private static String pricingLabelFor(String model, boolean isLocal) {
+        if (isLocal) return "**$0** (local — free)";
+        if (model == null) return "unknown";
+        String s = model.toLowerCase(java.util.Locale.ROOT).replaceAll("-\\d{4}-\\d{2}-\\d{2}$", "");
+        java.util.Map<String, double[]> table = java.util.Map.ofEntries(
+                java.util.Map.entry("gpt-5",            new double[]{1.25, 10.00}),
+                java.util.Map.entry("gpt-5-mini",       new double[]{0.25,  2.00}),
+                java.util.Map.entry("gpt-5.1",          new double[]{1.25, 10.00}),
+                java.util.Map.entry("gpt-5.1-mini",     new double[]{0.25,  2.00}),
+                java.util.Map.entry("gpt-5.2",          new double[]{1.25, 10.00}),
+                java.util.Map.entry("gpt-5.2-mini",     new double[]{0.25,  2.00}),
+                java.util.Map.entry("gpt-5.2-codex",    new double[]{1.25, 10.00}),
+                java.util.Map.entry("gpt-4.1",          new double[]{2.00,  8.00}),
+                java.util.Map.entry("gpt-4.1-mini",     new double[]{0.40,  1.60}),
+                java.util.Map.entry("gpt-4o",           new double[]{5.00, 20.00}),
+                java.util.Map.entry("gpt-4o-mini",      new double[]{0.15,  0.60}),
+                java.util.Map.entry("gpt-4",            new double[]{30.00, 60.00}),
+                java.util.Map.entry("gpt-4-turbo",      new double[]{10.00, 30.00}),
+                java.util.Map.entry("gpt-3.5-turbo",    new double[]{0.50,  1.50}),
+                java.util.Map.entry("o3",               new double[]{2.00,  8.00}),
+                java.util.Map.entry("o3-mini",          new double[]{1.10,  4.40}),
+                java.util.Map.entry("o4-mini",          new double[]{1.10,  4.40}),
+                java.util.Map.entry("claude-opus-4",    new double[]{15.00, 75.00}),
+                java.util.Map.entry("claude-sonnet-4-6",new double[]{3.00, 15.00}),
+                java.util.Map.entry("claude-haiku-4-5", new double[]{1.00,  5.00}),
+                java.util.Map.entry("gemini-2.5-pro",   new double[]{1.25, 10.00}),
+                java.util.Map.entry("gemini-2.5-flash", new double[]{0.075, 0.30})
+        );
+        double[] p = table.get(s);
+        if (p == null) return "_not in table — cost estimate uses fallback $1/$4_";
+        return String.format("$%.2f in / $%.2f out", p[0], p[1]);
+    }
+
+    /**
      * Slash-style help: exact matches only so conversational questions like "can
      * you help me with X" still flow to the LLM rather than getting this canned list.
      */
@@ -1120,15 +1361,6 @@ public class ChatService {
         if (s.contains("claude")) return true;
         if (s.contains("gemini")) return true;
         return false;
-    }
-
-    private static String cloudProviderLabel(String modelId) {
-        if (modelId == null) return "the cloud provider";
-        String s = modelId.toLowerCase(java.util.Locale.ROOT);
-        if (s.contains("gpt") || s.contains("o1") || s.contains("o3") || s.contains("o4")) return "OpenAI";
-        if (s.contains("claude")) return "Anthropic";
-        if (s.contains("gemini")) return "Google";
-        return "the cloud provider";
     }
 
     /**

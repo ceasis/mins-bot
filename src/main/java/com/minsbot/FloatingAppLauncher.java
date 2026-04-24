@@ -15,6 +15,7 @@ import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 import netscape.javascript.JSObject;
 import com.minsbot.agent.SystemContextProvider;
+import com.minsbot.release.CrashReporter;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -140,6 +141,7 @@ public class FloatingAppLauncher extends Application {
             """;
 
     public static void main(String[] args) {
+        CrashReporter.install();
         // Prism render-order — D3D first, then ES2 (ANGLE), then software fallback.
         // The bare "d3d" default occasionally loses a texture resource mid-resize
         // on Windows with transparent stages (D3DTextureResource.getResource() returns
@@ -785,6 +787,16 @@ public class FloatingAppLauncher extends Application {
             primaryStageRef.setWidth(width);
             primaryStageRef.setHeight(height);
         });
+    }
+
+    /** Toggle always-on-top at runtime (Preferences tab). */
+    public static void setAlwaysOnTop(boolean on) {
+        if (primaryStageRef == null) return;
+        Platform.runLater(() -> primaryStageRef.setAlwaysOnTop(on));
+    }
+
+    public static boolean isAlwaysOnTop() {
+        return primaryStageRef != null && primaryStageRef.isAlwaysOnTop();
     }
 
     /** Minimize (iconify) the bot window. */

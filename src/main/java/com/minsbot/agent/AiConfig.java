@@ -69,4 +69,20 @@ public class AiConfig {
                         .build())
                 .build();
     }
+
+    /**
+     * Stateless ChatClient — no memory advisor. Inject this into background services
+     * (auto-memory extractor, proactive engine sub-prompts, tool classifier, etc.) so
+     * their scratch LLM calls do NOT pollute the user's chat memory. Without this,
+     * extractor-style outputs (e.g. {@code type|summary|details|tags|people|importance})
+     * ended up in the shared conversation history and the main chat mirrored them
+     * on subsequent turns.
+     */
+    @Bean(name = "statelessChatClient")
+    public ChatClient statelessChatClient(ObjectProvider<ChatClient.Builder> builderProvider) {
+        ChatClient.Builder builder = builderProvider.getIfAvailable();
+        if (builder == null) return null;
+        log.info("[AiConfig] Creating stateless ChatClient bean (no memory advisor)");
+        return builder.build();
+    }
 }

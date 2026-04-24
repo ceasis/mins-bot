@@ -30,6 +30,9 @@ public class SystemContextProvider {
     private final SystemPromptService systemPromptService;
     private final ToolRouter toolRouter;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private EpisodicMemoryService episodicMemory;
+
     public SystemContextProvider(PersonalityController personalityController,
                                  SystemPromptService systemPromptService,
                                  @Lazy ToolRouter toolRouter) {
@@ -172,6 +175,33 @@ public class SystemContextProvider {
         return buildSystemMessage(null);
     }
 
+    /** Compact bullet list of the user's most-recent auto-extracted life facts. Empty if none. */
+    private String buildEpisodicMemorySnapshot(int limit) {
+        if (episodicMemory == null) return "";
+        try {
+            java.util.List<java.util.Map<String, Object>> eps = episodicMemory.getRecentEpisodes(limit);
+            if (eps == null || eps.isEmpty()) return "";
+            StringBuilder out = new StringBuilder();
+            for (java.util.Map<String, Object> ep : eps) {
+                Object summary = ep.get("summary");
+                if (summary == null || summary.toString().isBlank()) continue;
+                Object type = ep.get("type");
+                out.append("- ");
+                if (type != null) out.append("[").append(type).append("] ");
+                out.append(summary.toString().trim());
+                Object details = ep.get("details");
+                if (details != null && !details.toString().isBlank()
+                        && !details.toString().equalsIgnoreCase(summary.toString())) {
+                    out.append(" — ").append(details.toString().trim());
+                }
+                out.append("\n");
+            }
+            return out.toString();
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
     /**
      * @param userMessageForConfigHint when non-null and {@link #isMessageAboutMinsbotSelfConfig(String)} matches,
      *                                   appends a short reminder to answer from BOT CONFIG / minsbot_config.txt.
@@ -229,6 +259,27 @@ public class SystemContextProvider {
             sb.append(personalConfig);
             if (!personalConfig.endsWith("\n")) sb.append("\n");
         }
+
+        // Compact episodic-memory snapshot — top-N recent auto-extracted life facts.
+        // Inlining here means the model can answer personal questions (family, preferences,
+        // past events) without needing a tool call. For deeper search the model still has
+        // recallByPerson / recallByTopic available via EpisodicMemoryTools.
+        String memorySnapshot = buildEpisodicMemorySnapshot(30);
+        if (!memorySnapshot.isBlank()) {
+            sb.append("\nWHAT YOU KNOW ABOUT THE USER (from prior conversations — cite these when relevant, "
+                    + "and use recallMemories / recallByPerson tools for deeper search):\n");
+            sb.append(memorySnapshot);
+            if (!memorySnapshot.endsWith("\n")) sb.append("\n");
+        }
+
+        // Hard rule — prevent one-word "NONE" / "unknown" / "idk" replies. If the user asks
+        // a personal question (family, preferences, past events, work), the PERSONAL CONTEXT
+        // and WHAT YOU KNOW ABOUT THE USER sections above have the answer, or the
+        // recallMemories / recallByPerson tools do. Refuse the lazy non-answer.
+        sb.append("\nANSWER STYLE — HARD RULES:\n")
+          .append("- NEVER reply with just \"NONE\", \"N/A\", \"unknown\", or \"I don't know\" to a personal question.\n")
+          .append("- For family / relationships / preferences / past events: first scan PERSONAL CONTEXT and WHAT YOU KNOW ABOUT THE USER above, then call recallByPerson / recallMemories if still unsure.\n")
+          .append("- If after all that you genuinely have no data, say so in a full sentence and ask the user to tell you.\n");
 
         // System config from ~/mins_bot_data/system_config.txt (created with template if missing)
         String systemConfig = loadSystemConfig();

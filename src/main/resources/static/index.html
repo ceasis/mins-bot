@@ -124,11 +124,16 @@
         <button class="tab tab-extra" data-tab="setup" data-desc="API keys, models, and first-time configuration.">Setup</button>
         <button class="tab tab-extra" data-tab="skills" data-desc="Teach the bot new named recipes it can follow.">Skills</button>
         <button class="tab tab-extra" data-tab="schedules" data-desc="Daily / weekly reminders and recurring checks.">Schedules</button>
+        <button class="tab tab-extra" data-tab="watcher" data-desc="Watch product pages and email when in stock.">Watcher</button>
         <button class="tab tab-extra" data-tab="todos" data-desc="Pending tasks with step-by-step plans.">Todo</button>
         <button class="tab tab-extra" data-tab="directives" data-desc="Standing instructions the bot follows always.">Directives</button>
         <button class="tab tab-extra" data-tab="personality" data-desc="Shape the bot's identity, tone, and voice.">Personality</button>
         <button class="tab tab-extra" data-tab="knowledge" data-desc="Upload documents the bot can reference.">Knowledge</button>
         <button class="tab tab-extra" data-tab="voice" data-desc="Text-to-speech providers and voice selection.">Voice</button>
+        <button class="tab tab-extra" data-tab="memories" data-desc="What the bot has auto-remembered about you. Review, search, delete.">Memories</button>
+        <button class="tab tab-extra" data-tab="proactive" data-desc="Proactive engine — morning briefings, break reminders, quiet hours, custom rules.">Proactive</button>
+        <button class="tab tab-extra" data-tab="screens" data-desc="Screen capture history — browse what the bot saw, by day.">Screens</button>
+        <button class="tab tab-extra" data-tab="preferences" data-desc="Autonomous mode, barge-in tuning, window, local model URLs, agent loop, update check.">Preferences</button>
         <button class="tab tab-extra" data-tab="calibration" data-desc="Tune vision-engine priority for screenClick accuracy.">Calibration</button>
         <button class="tab tab-extra" data-tab="workflows" data-desc="Chain tools together into reusable pipelines." hidden>Workflows</button>
         <button class="tab tab-extra" data-tab="templates" data-desc="Save reusable prompts with fill-in variables." hidden>Templates</button>
@@ -707,6 +712,43 @@
           </div>
         </div>
       </div>
+      <div id="tab-watcher" class="tab-content">
+        <div class="tab-page-title">Watcher</div>
+        <div class="watcher-layout">
+          <div class="watcher-form">
+            <div class="section-title">New watcher</div>
+            <input type="text" id="watcher-label" class="tab-input" placeholder="Label (e.g. Jordan 11 Gamma size 9.5)">
+            <input type="text" id="watcher-url" class="tab-input" placeholder="Product URL (e.g. https://www.nike.com/ph/t/...)">
+            <div class="watcher-row">
+              <select id="watcher-adapter" class="tab-input">
+                <option value="nike-ph">nike-ph (Nike Philippines)</option>
+                <option value="generic-http">generic-http (regex match)</option>
+              </select>
+              <input type="text" id="watcher-target" class="tab-input" placeholder="Target (shoe size like '9.5', or regex)">
+            </div>
+            <div class="watcher-row">
+              <input type="email" id="watcher-email" class="tab-input" placeholder="Notify email">
+              <input type="number" id="watcher-interval" class="tab-input" placeholder="Interval (seconds)" min="60" value="900">
+            </div>
+            <div class="watcher-row">
+              <input type="number" id="watcher-maxprice" class="tab-input" placeholder="Max price (0 = ignore, only fire when price ≤ this)" min="0" step="0.01">
+            </div>
+            <div class="watcher-row">
+              <input type="url" id="watcher-webhook" class="tab-input" placeholder="Optional webhook URL — Discord, ntfy.sh, or Pushover (instant phone push)">
+            </div>
+            <div class="watcher-actions">
+              <button id="watcher-create-btn" class="action-btn publish">Create watcher</button>
+              <span id="watcher-status-msg" class="watcher-status-msg"></span>
+            </div>
+          </div>
+          <div class="watcher-list-wrap">
+            <div class="section-title">Active watchers <button id="watcher-refresh-btn" class="action-btn" style="margin-left:12px;">Refresh</button></div>
+            <div id="watcher-list" class="watcher-list">
+              <div class="tab-empty">Loading...</div>
+            </div>
+          </div>
+        </div>
+      </div>
       <div id="tab-todos" class="tab-content">
         <div class="tab-page-title">Todo</div>
         <div class="todos-toolbar">
@@ -901,6 +943,12 @@
           <!-- Per-engine voice config -->
           <div id="tts-voice-panels" class="tts-voice-panels"></div>
 
+          <!-- Installed local voices (Piper) -->
+          <div class="tts-section" id="tts-local-voices-section">
+            <div class="tts-section-title">Local voices <span class="tts-hint">(offline &mdash; Piper)</span></div>
+            <div id="tts-local-voices-list" class="tts-local-voices-list"></div>
+          </div>
+
           <!-- Test button -->
           <div class="tts-section tts-test-section">
             <input type="text" id="tts-test-text" class="tab-input" placeholder="Test text..." value="Hello, this is a voice test.">
@@ -908,6 +956,154 @@
           </div>
         </div>
       </div>
+
+      <div id="tab-memories" class="tab-content">
+        <div class="tab-page-title">Memories</div>
+        <div class="tab-scroll-container mem-container">
+          <div class="mem-header">
+            <label class="mem-toggle">
+              <input type="checkbox" id="mem-auto-cb">
+              <span>Auto-remember life facts from chat</span>
+            </label>
+            <div id="mem-summary" class="mem-summary"></div>
+          </div>
+          <input type="search" id="mem-search" class="tab-input mem-search" placeholder="Search memories…">
+          <div id="mem-list" class="mem-list">
+            <div class="mem-empty">Loading…</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-proactive" class="tab-content">
+        <div class="tab-page-title">Proactive</div>
+        <div class="tab-scroll-container pro-container">
+          <div class="pro-section">
+            <label class="pro-toggle">
+              <input type="checkbox" id="pro-enabled-cb">
+              <span>Enable proactive engine</span>
+            </label>
+            <div class="pro-hint">Morning briefings, break / hydration reminders, bill alerts, weather, and custom rules.</div>
+          </div>
+          <div class="pro-section pro-stats" id="pro-stats"></div>
+          <div class="pro-section">
+            <div class="pro-section-title">Quiet hours <span class="pro-hint">(24h clock — no notifications between these)</span></div>
+            <div class="pro-quiet-row">
+              <label>Start <input type="number" min="0" max="23" id="pro-qh-start" class="pro-num"></label>
+              <label>End <input type="number" min="0" max="23" id="pro-qh-end" class="pro-num"></label>
+              <button id="pro-qh-save" class="action-btn">Save</button>
+            </div>
+          </div>
+          <div class="pro-section">
+            <div class="pro-section-title">Custom rules</div>
+            <div class="pro-hint">Describe a nudge the bot should send you on a schedule.</div>
+            <div class="pro-add-row">
+              <input type="text" id="pro-rule-desc" class="tab-input" placeholder="e.g. Remind me to post on LinkedIn">
+              <input type="number" min="1" id="pro-rule-min" class="pro-num" placeholder="mins" value="60">
+              <button id="pro-rule-add" class="action-btn">Add rule</button>
+            </div>
+            <div id="pro-rules" class="pro-rules"></div>
+          </div>
+          <div class="pro-section">
+            <button id="pro-trigger" class="action-btn">Run a check right now</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-screens" class="tab-content">
+        <div class="tab-page-title">Screens</div>
+        <div class="tab-scroll-container scr-container">
+          <div class="scr-header">
+            <div class="scr-hint">Captures stored in <code>~/mins_bot_data/screenshots</code>. Auto-deleted after the retention window.</div>
+            <button id="scr-capture-now" class="action-btn">Capture now</button>
+          </div>
+          <div class="scr-settings">
+            <label class="scr-setting">
+              <input type="checkbox" id="scr-enabled-cb">
+              <span>Capture in background</span>
+            </label>
+            <label class="scr-setting">
+              <span>Every</span>
+              <input type="number" min="1" max="3600" id="scr-interval" class="pro-num">
+              <span>seconds</span>
+            </label>
+            <label class="scr-setting">
+              <span>Keep for</span>
+              <input type="number" min="1" max="365" id="scr-retention" class="pro-num">
+              <span>days</span>
+            </label>
+            <button id="scr-settings-save" class="action-btn">Save</button>
+          </div>
+          <div id="scr-days" class="scr-days"></div>
+          <div id="scr-thumbs" class="scr-thumbs"></div>
+          <div id="scr-viewer" class="scr-viewer" hidden>
+            <button id="scr-viewer-close" class="scr-viewer-close">×</button>
+            <img id="scr-viewer-img" alt="">
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-preferences" class="tab-content">
+        <div class="tab-page-title">Preferences</div>
+        <div class="tab-scroll-container prefs-container">
+
+          <section class="prefs-section">
+            <div class="prefs-section-title">Autonomous mode</div>
+            <div class="prefs-hint">Bot acts on its own when idle. Checks screen, follows directives, pauses between steps.</div>
+            <label class="prefs-toggle"><input type="checkbox" id="pref-auto-enabled"><span>Enable autonomous mode</span></label>
+            <div class="prefs-row">
+              <label>Idle before trigger <input type="number" min="5" max="3600" id="pref-auto-idle" class="pro-num"> seconds</label>
+              <label>Pause between steps <input type="number" min="1000" max="600000" step="1000" id="pref-auto-pause" class="pro-num"> ms</label>
+              <button id="pref-auto-save" class="action-btn">Save</button>
+            </div>
+          </section>
+
+          <section class="prefs-section">
+            <div class="prefs-section-title">Barge-in (interrupt while bot speaks)</div>
+            <div class="prefs-hint">Higher threshold = harder to trigger. Raise if the bot stops on background noise.</div>
+            <label class="prefs-toggle"><input type="checkbox" id="pref-bi-enabled"><span>Enable barge-in</span></label>
+            <div class="prefs-row">
+              <label>Threshold × noise floor <input type="number" min="1" max="50" step="0.5" id="pref-bi-thresh" class="pro-num"></label>
+              <label>Min RMS <input type="number" min="0" max="20000" id="pref-bi-rms" class="pro-num"></label>
+              <label>Consecutive frames <input type="number" min="1" max="50" id="pref-bi-frames" class="pro-num"></label>
+              <label>Warmup ms <input type="number" min="0" max="10000" id="pref-bi-warm" class="pro-num"></label>
+              <button id="pref-bi-save" class="action-btn">Save</button>
+            </div>
+          </section>
+
+          <section class="prefs-section">
+            <div class="prefs-section-title">Window</div>
+            <label class="prefs-toggle"><input type="checkbox" id="pref-win-aot"><span>Always on top</span></label>
+            <label class="prefs-toggle"><input type="checkbox" id="pref-win-sound"><span>Working sound</span></label>
+            <div class="prefs-row">
+              <label>Volume <input type="range" min="0" max="1" step="0.01" id="pref-win-volume"> <span id="pref-win-volume-val"></span></label>
+            </div>
+          </section>
+
+          <section class="prefs-section">
+            <div class="prefs-section-title">Local model servers</div>
+            <div class="prefs-hint">Point Mins Bot at a remote GPU box. Leave as localhost for on-device use. Takes effect immediately.</div>
+            <div class="prefs-row">
+              <label>Ollama URL <input type="text" id="pref-ollama-url" class="tab-input" style="min-width:280px"></label>
+              <label>ComfyUI URL <input type="text" id="pref-comfy-url" class="tab-input" style="min-width:280px"></label>
+            </div>
+          </section>
+
+          <section class="prefs-section">
+            <div class="prefs-section-title">Advanced</div>
+            <div class="prefs-row">
+              <label>Agent loop max steps <input type="number" min="1" max="100" id="pref-agent-max" class="pro-num"></label>
+              <label>Tool classifier model <input type="text" id="pref-classifier" class="tab-input" style="min-width:200px"></label>
+            </div>
+            <label class="prefs-toggle"><input type="checkbox" id="pref-update-enabled"><span>Check for updates daily</span></label>
+          </section>
+
+          <div class="prefs-save-row">
+            <button id="pref-save-all" class="action-btn prefs-save-btn">Save advanced + servers</button>
+            <span id="pref-save-note" class="prefs-save-note"></span>
+          </div>
+        </div>
+      </div>
+
       <div id="tab-calibration" class="tab-content">
         <div class="tab-page-title">Calibration</div>
         <div class="tab-scroll-container calibration-container">
@@ -1139,6 +1335,23 @@
             <div class="costs-actions">
               <button type="button" id="costs-reset" class="action-btn">Reset session</button>
             </div>
+          </div>
+
+          <div class="costs-budget">
+            <div class="costs-budget-title">Daily budget <span class="prefs-hint">(alerts + optional hard cap)</span></div>
+            <div class="costs-budget-row">
+              <label>Budget <span class="costs-budget-sign">$</span><input type="number" min="0" step="0.5" id="cost-budget" class="pro-num"></label>
+              <label>Alert at <input type="number" min="10" max="100" step="5" id="cost-threshold" class="pro-num"> %</label>
+              <label>When over budget
+                <select id="cost-capmode" class="tab-input" style="min-width:180px;">
+                  <option value="warn">Warn only</option>
+                  <option value="throttle">Throttle — auto-switch to local</option>
+                  <option value="hardcap">Hard cap — refuse cloud chat</option>
+                </select>
+              </label>
+              <button id="cost-budget-save" class="action-btn">Save budget</button>
+            </div>
+            <div class="costs-budget-status" id="cost-budget-status"></div>
           </div>
 
           <div class="costs-bigs">
@@ -1396,6 +1609,8 @@
   <script src="js/diagnostics.js?v={{v}}"></script>
   <script src="js/skillpacks.js?v={{v}}"></script>
   <script src="js/approvals.js?v={{v}}"></script>
+  <script src="js/release-notifier.js?v={{v}}"></script>
   <script src="js/costs.js?v={{v}}"></script>
+  <script src="js/watcher.js?v={{v}}"></script>
 </body>
 </html>

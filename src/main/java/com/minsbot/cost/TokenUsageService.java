@@ -38,6 +38,26 @@ public class TokenUsageService {
 
     private static final Logger log = LoggerFactory.getLogger(TokenUsageService.class);
     private static final Path HISTORY = Paths.get("memory", "cost_history.json").toAbsolutePath();
+    private static final Path BUDGET_PATH = Paths.get(System.getProperty("user.home"), "mins_bot_data", "cost_budget.txt");
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.minsbot.agent.AsyncMessageService asyncMessages;
+
+    /** Daily budget in USD. 0 = disabled. Persisted. */
+    private volatile double dailyBudgetUsd = 0.0;
+    /** Alert threshold fraction of budget (0-1). e.g. 0.8 = 80%. */
+    private volatile double alertThresholdFraction = 0.8;
+    /** What to do when today's spend exceeds the daily budget. One of:
+     *  <ul>
+     *    <li>{@code warn}     — just alert via AsyncMessageService (default)</li>
+     *    <li>{@code throttle} — auto-switch the active chat client to a local Ollama model</li>
+     *    <li>{@code hardcap}  — refuse cloud chat calls with a message until next day or budget raised</li>
+     *  </ul>
+     */
+    private volatile String capMode = "warn";
+    /** Per-day: which alerts have already fired so we don't spam. */
+    private final java.util.Set<String> firedAlertsToday = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private volatile String alertsDate = "";
 
     /** One event per LLM call. Kept in memory for the current session + persisted daily. */
     public record UsageEvent(
@@ -101,6 +121,101 @@ public class TokenUsageService {
     @PostConstruct
     void init() {
         loadHistory();
+        loadBudget();
+    }
+
+    // ═══ Budget API ══════════════════════════════════════════════════
+
+    public double getDailyBudgetUsd() { return dailyBudgetUsd; }
+    public double getAlertThresholdFraction() { return alertThresholdFraction; }
+    public String getCapMode() { return capMode; }
+
+    public synchronized void setDailyBudgetUsd(double v) {
+        this.dailyBudgetUsd = Math.max(0, v);
+        saveBudget();
+    }
+    public synchronized void setAlertThresholdFraction(double v) {
+        this.alertThresholdFraction = Math.max(0.1, Math.min(1.0, v));
+        saveBudget();
+    }
+    public synchronized void setCapMode(String v) {
+        if (v == null) return;
+        String norm = v.trim().toLowerCase();
+        if (!norm.equals("warn") && !norm.equals("throttle") && !norm.equals("hardcap")) return;
+        this.capMode = norm;
+        saveBudget();
+    }
+
+    /** True when today's spend has passed the configured daily budget (and budget > 0). */
+    public boolean isOverBudget() {
+        if (dailyBudgetUsd <= 0) return false;
+        return spentToday() >= dailyBudgetUsd;
+    }
+
+    public double spentToday() {
+        String date = LocalDate.now(ZoneId.systemDefault()).toString();
+        DailyTotal t = history.get(date);
+        return t == null ? 0.0 : t.usd();
+    }
+
+    private void saveBudget() {
+        try {
+            Files.createDirectories(BUDGET_PATH.getParent());
+            String body = "# Cost budget (edited via UI)\n"
+                    + "dailyBudgetUsd=" + dailyBudgetUsd + "\n"
+                    + "alertThresholdFraction=" + alertThresholdFraction + "\n"
+                    + "capMode=" + capMode + "\n";
+            Files.writeString(BUDGET_PATH, body);
+        } catch (IOException ignored) {}
+    }
+
+    private void loadBudget() {
+        try {
+            if (!Files.exists(BUDGET_PATH)) return;
+            for (String line : Files.readAllLines(BUDGET_PATH)) {
+                line = line.trim();
+                if (line.isEmpty() || line.startsWith("#")) continue;
+                int eq = line.indexOf('=');
+                if (eq <= 0) continue;
+                String k = line.substring(0, eq).trim();
+                String v = line.substring(eq + 1).trim();
+                try {
+                    switch (k) {
+                        case "dailyBudgetUsd" -> this.dailyBudgetUsd = Double.parseDouble(v);
+                        case "alertThresholdFraction" -> this.alertThresholdFraction = Double.parseDouble(v);
+                        case "capMode" -> setCapMode(v);
+                        // Back-compat: old persisted file used a boolean `hardCap`.
+                        case "hardCap" -> this.capMode = Boolean.parseBoolean(v) ? "hardcap" : "warn";
+                    }
+                } catch (NumberFormatException ignored) {}
+            }
+        } catch (IOException ignored) {}
+    }
+
+    /** Fire alerts if crossing threshold or budget. Resets daily. Called after each record(). */
+    private void checkBudgetAlerts() {
+        if (dailyBudgetUsd <= 0 || asyncMessages == null) return;
+        String today = LocalDate.now(ZoneId.systemDefault()).toString();
+        if (!today.equals(alertsDate)) {
+            alertsDate = today;
+            firedAlertsToday.clear();
+        }
+        double spent = spentToday();
+        double threshold = dailyBudgetUsd * alertThresholdFraction;
+        if (spent >= dailyBudgetUsd && firedAlertsToday.add("over")) {
+            String suffix = switch (capMode) {
+                case "hardcap"  -> " — hard cap ON, cloud chat refused until tomorrow or budget raised";
+                case "throttle" -> " — throttling to local Ollama for the rest of today";
+                default         -> "";
+            };
+            asyncMessages.push(String.format(
+                    "🚫 Daily cost budget reached: $%.2f / $%.2f%s.",
+                    spent, dailyBudgetUsd, suffix));
+        } else if (spent >= threshold && firedAlertsToday.add("threshold")) {
+            asyncMessages.push(String.format(
+                    "⚠️ Cost alert: spent $%.2f today (%.0f%% of $%.2f budget).",
+                    spent, (spent / dailyBudgetUsd) * 100, dailyBudgetUsd));
+        }
     }
 
     // ═══ Recording ═══════════════════════════════════════════════════
@@ -127,6 +242,7 @@ public class TokenUsageService {
                 promptTokens, completionTokens, cost, localEquiv);
         sessionEvents.add(ev);
         updateHistory(ev);
+        checkBudgetAlerts();
     }
 
     // ═══ Queries ═════════════════════════════════════════════════════

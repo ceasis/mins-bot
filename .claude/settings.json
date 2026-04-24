@@ -15,7 +15,8 @@
       "Bash(grep -oP '\\(?<=integration-card-planned[^<]*?\\)<h3[^>]*>\\\\K[^<]+|\\(?<=integration-card-planned\\)[^$]{0,500}' src/main/resources/static/index.html)",
       "Bash(javap -p target/classes/com/minsbot/agent/tools/FileSystemTools.class)",
       "Bash(mvn -o compiler:compile -DskipTests)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(grep -n -i \"buy\\\\|purchase\\\\|\\\\$49\\\\|pricing\\\\|price\" docs/index.html marketing/landing/index.html)"
     ]
   }
 }

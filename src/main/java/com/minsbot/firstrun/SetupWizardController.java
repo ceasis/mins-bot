@@ -180,9 +180,23 @@ public class SetupWizardController {
         }
     }
 
-    /** Delete a locally installed model via Ollama /api/delete. */
+    /** Delete a locally installed model. Routes Piper voices to the Piper installer;
+     *  everything else goes to Ollama /api/delete. */
     @PostMapping(value = "/remove-model", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> removeModel(@RequestParam String model) {
+        Map<String, Object> piperVoice = ModelCatalog.findPiperVoice(model);
+        if (piperVoice != null) {
+            String filename = (String) piperVoice.get("piperFilename");
+            try {
+                java.nio.file.Path onnx = piperInstaller.voices().resolve(filename);
+                java.nio.file.Path json = piperInstaller.voices().resolve(filename + ".json");
+                java.nio.file.Files.deleteIfExists(onnx);
+                java.nio.file.Files.deleteIfExists(json);
+                return ResponseEntity.ok(Map.of("removed", model));
+            } catch (Exception e) {
+                return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
+            }
+        }
         try {
             String body = "{\"name\":\"" + model.replace("\"", "") + "\"}";
             HttpRequest req = HttpRequest.newBuilder(URI.create(OLLAMA_API + "/api/delete"))
@@ -214,12 +228,17 @@ public class SetupWizardController {
                 List<Map<String, Object>> models = (List<Map<String, Object>>) c.get("models");
                 if (models == null) continue;
                 for (Map<String, Object> m : models) {
-                    if (!"comfyui".equals(m.get("backend"))) continue;
-                    String folder = (String) m.get("comfyFolder");
-                    String filename = (String) m.get("comfyFilename");
-                    if (folder == null || filename == null) continue;
-                    java.nio.file.Path f = comfyRoot.resolve("models").resolve(folder).resolve(filename);
-                    m.put("installed", java.nio.file.Files.exists(f) && fileSize(f) > 1024 * 1024);
+                    String backend = (String) m.get("backend");
+                    if ("comfyui".equals(backend)) {
+                        String folder = (String) m.get("comfyFolder");
+                        String filename = (String) m.get("comfyFilename");
+                        if (folder == null || filename == null) continue;
+                        java.nio.file.Path f = comfyRoot.resolve("models").resolve(folder).resolve(filename);
+                        m.put("installed", java.nio.file.Files.exists(f) && fileSize(f) > 1024 * 1024);
+                    } else if ("piper".equals(backend)) {
+                        String filename = (String) m.get("piperFilename");
+                        m.put("installed", piperInstaller.hasVoice(filename));
+                    }
                 }
             }
         }

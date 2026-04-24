@@ -28,7 +28,14 @@ public class AgentLoopService {
 
     private static final Pattern CONTINUE_MARKER =
             Pattern.compile("\\[\\[\\s*CONTINUE\\s*]]\\s*$", Pattern.CASE_INSENSITIVE);
-    private static final int DEFAULT_MAX_STEPS = 10;
+
+    @org.springframework.beans.factory.annotation.Value("${app.agent.max-steps:10}")
+    private volatile int configuredMaxSteps;
+
+    public int getMaxSteps() { return configuredMaxSteps; }
+    public synchronized void setMaxSteps(int v) {
+        this.configuredMaxSteps = Math.max(1, Math.min(100, v));
+    }
 
     /**
      * Runs the provided single-shot chat call (the {@code shotCall} supplier) repeatedly
@@ -44,7 +51,7 @@ public class AgentLoopService {
      * @param maxSteps hard cap to avoid runaway loops. Pass {@code <= 0} for the default (10).
      */
     public String runUntilDone(Supplier<String> shotCall, int maxSteps) {
-        int cap = (maxSteps <= 0) ? DEFAULT_MAX_STEPS : maxSteps;
+        int cap = (maxSteps <= 0) ? configuredMaxSteps : maxSteps;
         StringBuilder combined = new StringBuilder();
         int step = 0;
         while (step < cap) {

@@ -37,6 +37,8 @@ public class ProactiveEngineService {
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final Path RULES_PATH =
             Paths.get(System.getProperty("user.home"), "mins_bot_data", "proactive_rules.txt");
+    private static final Path SETTINGS_PATH =
+            Paths.get(System.getProperty("user.home"), "mins_bot_data", "proactive_settings.txt");
     private static final Path LIFE_PROFILE_PATH =
             Paths.get(System.getProperty("user.home"), "mins_bot_data", "life_profile.txt");
     private static final Path PERSONAL_CONFIG_PATH =
@@ -66,7 +68,10 @@ public class ProactiveEngineService {
 
     private final AsyncMessageService asyncMessages;
 
+    /** Stateless — sub-prompts (morning briefing, nudge generation, etc.) must NOT pollute
+     *  the main chat memory. See AiConfig#statelessChatClient. */
     @Autowired(required = false)
+    @org.springframework.beans.factory.annotation.Qualifier("statelessChatClient")
     private ChatClient chatClient;
 
     // ─── State ──────────────────────────────────────────────────────────────────
@@ -95,6 +100,45 @@ public class ProactiveEngineService {
     public ProactiveEngineService(AsyncMessageService asyncMessages) {
         this.asyncMessages = asyncMessages;
         loadCustomRules();
+    }
+
+    @jakarta.annotation.PostConstruct
+    void loadPersistedSettings() {
+        // Runs after @Value injection — the file values override the application.properties
+        // defaults so the user's last UI changes survive restart.
+        try {
+            if (!Files.exists(SETTINGS_PATH)) return;
+            for (String line : Files.readAllLines(SETTINGS_PATH, StandardCharsets.UTF_8)) {
+                line = line.trim();
+                if (line.isEmpty() || line.startsWith("#")) continue;
+                int eq = line.indexOf('=');
+                if (eq <= 0) continue;
+                String k = line.substring(0, eq).trim();
+                String v = line.substring(eq + 1).trim();
+                switch (k) {
+                    case "enabled" -> this.enabled = Boolean.parseBoolean(v);
+                    case "quietHoursStart" -> { try { this.quietHoursStart = Integer.parseInt(v); } catch (NumberFormatException ignored) {} }
+                    case "quietHoursEnd" -> { try { this.quietHoursEnd = Integer.parseInt(v); } catch (NumberFormatException ignored) {} }
+                }
+            }
+            log.info("[ProactiveEngine] Loaded persisted settings: enabled={}, quietHours={}-{}",
+                    enabled, quietHoursStart, quietHoursEnd);
+        } catch (IOException e) {
+            log.warn("[ProactiveEngine] Failed to load settings: {}", e.getMessage());
+        }
+    }
+
+    private void saveSettings() {
+        try {
+            Files.createDirectories(SETTINGS_PATH.getParent());
+            String body = "# Proactive engine settings\n"
+                    + "enabled=" + enabled + "\n"
+                    + "quietHoursStart=" + quietHoursStart + "\n"
+                    + "quietHoursEnd=" + quietHoursEnd + "\n";
+            Files.writeString(SETTINGS_PATH, body, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            log.warn("[ProactiveEngine] Failed to save settings: {}", e.getMessage());
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -369,6 +413,7 @@ public class ProactiveEngineService {
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
         log.info("[ProactiveEngine] {} proactive engine", enabled ? "Enabled" : "Disabled");
+        saveSettings();
     }
 
     public int getQuietHoursStart() {
@@ -383,6 +428,7 @@ public class ProactiveEngineService {
         this.quietHoursStart = start;
         this.quietHoursEnd = end;
         log.info("[ProactiveEngine] Quiet hours set: {}:00 - {}:00", start, end);
+        saveSettings();
     }
 
     public LocalDateTime getLastCheckTime() {

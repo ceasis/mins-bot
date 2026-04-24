@@ -49,23 +49,26 @@ public class BargeInService {
     private final ToolExecutionNotifier notifier;
 
     @Value("${app.bargein.enabled:true}")
-    private boolean enabled;
+    private volatile boolean enabled;
 
     /** Multiplier applied to the calibrated noise floor. Higher = harder to trigger. */
     @Value("${app.bargein.threshold-multiplier:5.0}")
-    private double thresholdMultiplier;
+    private volatile double thresholdMultiplier;
 
     /** Absolute minimum RMS to ever trigger, regardless of noise floor. Avoids false positives in dead-silent rooms. */
     @Value("${app.bargein.min-rms:450}")
-    private double minRms;
+    private volatile double minRms;
 
     /** How many consecutive frames must exceed threshold to trigger (each ~50 ms). */
     @Value("${app.bargein.consecutive-frames:3}")
-    private int consecutiveFrames;
+    private volatile int consecutiveFrames;
 
     /** Warmup period after TTS starts before we'll consider interrupting (noise-floor calibration). */
     @Value("${app.bargein.warmup-ms:300}")
-    private int warmupMs;
+    private volatile int warmupMs;
+
+    private static final java.nio.file.Path BARGEIN_SETTINGS_PATH =
+            java.nio.file.Paths.get(System.getProperty("user.home"), "mins_bot_data", "bargein_settings.txt");
 
     private volatile Thread watcherThread;
     private volatile boolean running = false;
@@ -207,9 +210,67 @@ public class BargeInService {
     // ─── Runtime controls (can be wired to a sensory toggle later) ──────────
 
     public boolean isEnabled() { return enabled; }
+    public double getThresholdMultiplier() { return thresholdMultiplier; }
+    public double getMinRms() { return minRms; }
+    public int getConsecutiveFrames() { return consecutiveFrames; }
+    public int getWarmupMs() { return warmupMs; }
 
-    public void setEnabled(boolean enabled) {
+    public synchronized void setEnabled(boolean enabled) {
         this.enabled = enabled;
         log.info("[BargeIn] Runtime enabled={}", enabled);
+        saveSettings();
+    }
+    public synchronized void setThresholdMultiplier(double v) {
+        this.thresholdMultiplier = Math.max(1.0, Math.min(50.0, v));
+        saveSettings();
+    }
+    public synchronized void setMinRms(double v) {
+        this.minRms = Math.max(0, Math.min(20000, v));
+        saveSettings();
+    }
+    public synchronized void setConsecutiveFrames(int v) {
+        this.consecutiveFrames = Math.max(1, Math.min(50, v));
+        saveSettings();
+    }
+    public synchronized void setWarmupMs(int v) {
+        this.warmupMs = Math.max(0, Math.min(10000, v));
+        saveSettings();
+    }
+
+    @jakarta.annotation.PostConstruct
+    void loadPersistedSettings() {
+        try {
+            if (!java.nio.file.Files.exists(BARGEIN_SETTINGS_PATH)) return;
+            for (String line : java.nio.file.Files.readAllLines(BARGEIN_SETTINGS_PATH)) {
+                line = line.trim();
+                if (line.isEmpty() || line.startsWith("#")) continue;
+                int eq = line.indexOf('=');
+                if (eq <= 0) continue;
+                String k = line.substring(0, eq).trim();
+                String v = line.substring(eq + 1).trim();
+                try {
+                    switch (k) {
+                        case "enabled" -> this.enabled = Boolean.parseBoolean(v);
+                        case "thresholdMultiplier" -> this.thresholdMultiplier = Double.parseDouble(v);
+                        case "minRms" -> this.minRms = Double.parseDouble(v);
+                        case "consecutiveFrames" -> this.consecutiveFrames = Integer.parseInt(v);
+                        case "warmupMs" -> this.warmupMs = Integer.parseInt(v);
+                    }
+                } catch (NumberFormatException ignored) {}
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private void saveSettings() {
+        try {
+            java.nio.file.Files.createDirectories(BARGEIN_SETTINGS_PATH.getParent());
+            String body = "# BargeIn tuning (edited via UI)\n"
+                    + "enabled=" + enabled + "\n"
+                    + "thresholdMultiplier=" + thresholdMultiplier + "\n"
+                    + "minRms=" + minRms + "\n"
+                    + "consecutiveFrames=" + consecutiveFrames + "\n"
+                    + "warmupMs=" + warmupMs + "\n";
+            java.nio.file.Files.writeString(BARGEIN_SETTINGS_PATH, body);
+        } catch (Exception ignored) {}
     }
 }

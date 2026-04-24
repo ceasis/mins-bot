@@ -62,6 +62,32 @@ public class OfflineModeService {
         load();
     }
 
+    /**
+     * If the persisted flag restored offline mode ON at startup, we still need to
+     * auto-switch the active chat client to a local model — otherwise a user with
+     * no cloud API key has {@code chatClient == null} and the main loop silently
+     * drops every message. Runs once the Spring context is fully built so the
+     * {@code @Lazy} LocalModelTools proxy is wired.
+     */
+    @org.springframework.context.event.EventListener(org.springframework.boot.context.event.ApplicationReadyEvent.class)
+    public void onAppReady() {
+        if (!enabled.get() || localModelTools == null) return;
+        try {
+            String picked = localModelTools.autoSwitchToBestLocal();
+            if (picked != null) {
+                log.info("[OfflineMode] startup auto-switch → {}", picked);
+            } else {
+                log.warn("[OfflineMode] startup: offline ON but no local model to auto-switch to");
+                if (asyncMessages != null) {
+                    asyncMessages.push("🛡️ Offline mode is ON but no local model is installed. "
+                            + "Install one in the Models tab or toggle offline mode off.");
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[OfflineMode] startup auto-switch failed: {}", e.getMessage());
+        }
+    }
+
     private void load() {
         try {
             if (Files.exists(FLAG)) {

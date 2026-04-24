@@ -1,0 +1,15 @@
+{
+  "id" : "1776987332323-bffa",
+  "label" : "Jordan 11 Gamma size 9.5",
+  "url" : "https://www.nike.com/ph/t/air-jordan-11-retro-gamma-blue",
+  "adapter" : "nike-ph",
+  "target" : "9.5",
+  "notifyEmail" : "choloville@gmail.com",
+  "notifyWebhook" : "",
+  "intervalSeconds" : 300,
+  "maxPrice" : 15000.0,
+  "lastStatus" : "unknown",
+  "lastCheckedAt" : "2026-04-24T06:15:37.119831500Z",
+  "lastNotifiedAt" : "",
+  "createdAt" : "2026-04-23T23:35:32.323840400Z"
+}

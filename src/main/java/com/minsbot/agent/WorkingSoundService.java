@@ -45,9 +45,55 @@ public class WorkingSoundService {
             Paths.get(System.getProperty("user.home"), "mins_bot_data", "minsbot_config.txt");
 
     // Defaults — overridden by minsbot_config.txt on startup
-    private boolean soundEnabled = true;
-    private float volume = 0.01f;
-    private long minSwitchMs = 1500;
+    private volatile boolean soundEnabled = true;
+    private volatile float volume = 0.01f;
+    private volatile long minSwitchMs = 1500;
+
+    public boolean isSoundEnabled() { return soundEnabled; }
+    public float getVolume() { return volume; }
+    public synchronized void setSoundEnabled(boolean v) {
+        this.soundEnabled = v;
+        persistPrefs();
+        if (!v && playing && clip != null) { try { clip.stop(); } catch (Exception ignored) {} }
+    }
+    public synchronized void setVolume(float v) {
+        this.volume = Math.max(0f, Math.min(1f, v));
+        persistPrefs();
+        if (clip != null) { try { setVolume(clip); } catch (Exception ignored) {} }
+    }
+    private static final java.nio.file.Path SOUND_PREFS_PATH =
+            java.nio.file.Paths.get(System.getProperty("user.home"), "mins_bot_data", "sound_prefs.txt");
+
+    private void persistPrefs() {
+        // Write a sidecar file rather than touching minsbot_config.txt (which may hold
+        // other sections). loadConfigFromFile() continues to read the shared config;
+        // we layer our runtime overrides after that.
+        try {
+            java.nio.file.Files.createDirectories(SOUND_PREFS_PATH.getParent());
+            String body = "enabled=" + soundEnabled + "\nvolume=" + volume + "\n";
+            java.nio.file.Files.writeString(SOUND_PREFS_PATH, body);
+        } catch (Exception ignored) {}
+    }
+
+    @jakarta.annotation.PostConstruct
+    void loadSoundPrefs() {
+        try {
+            if (!java.nio.file.Files.exists(SOUND_PREFS_PATH)) return;
+            for (String line : java.nio.file.Files.readAllLines(SOUND_PREFS_PATH)) {
+                line = line.trim();
+                int eq = line.indexOf('=');
+                if (eq <= 0) continue;
+                String k = line.substring(0, eq).trim();
+                String v = line.substring(eq + 1).trim();
+                try {
+                    switch (k) {
+                        case "enabled" -> this.soundEnabled = Boolean.parseBoolean(v);
+                        case "volume" -> this.volume = Float.parseFloat(v);
+                    }
+                } catch (NumberFormatException ignored) {}
+            }
+        } catch (Exception ignored) {}
+    }
 
     private volatile Clip clip;
     private volatile boolean playing = false;

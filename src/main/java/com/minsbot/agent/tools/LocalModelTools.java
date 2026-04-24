@@ -34,7 +34,11 @@ import java.util.concurrent.TimeUnit;
 public class LocalModelTools {
 
     private static final Logger log = LoggerFactory.getLogger(LocalModelTools.class);
-    private static final String OLLAMA_API = "http://localhost:11434";
+    @Value("${app.ollama.url:http://localhost:11434}")
+    private volatile String ollamaApiUrl;
+
+    public String getOllamaApiUrl() { return ollamaApiUrl; }
+    public void setOllamaApiUrl(String u) { if (u != null && !u.isBlank()) this.ollamaApiUrl = u.trim().replaceAll("/+$", ""); }
     private static final Path DOWNLOAD_DIR =
             Paths.get(System.getProperty("user.home"), "mins_bot_data", "downloads");
 
@@ -270,7 +274,7 @@ public class LocalModelTools {
 
             // Create Ollama ChatClient
             OllamaApi ollamaApi = new OllamaApi.Builder()
-                    .baseUrl(OLLAMA_API)
+                    .baseUrl(ollamaApiUrl)
                     .build();
             OllamaChatModel chatModel = OllamaChatModel.builder()
                     .ollamaApi(ollamaApi)
@@ -315,7 +319,7 @@ public class LocalModelTools {
     public String pickBestInstalledLocalModel() {
         if (!isOllamaRunning()) return null;
         try {
-            HttpRequest req = HttpRequest.newBuilder(URI.create(OLLAMA_API + "/api/tags"))
+            HttpRequest req = HttpRequest.newBuilder(URI.create(ollamaApiUrl + "/api/tags"))
                     .timeout(Duration.ofSeconds(5)).GET().build();
             HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
             if (resp.statusCode() != 200) return null;
@@ -431,6 +435,12 @@ public class LocalModelTools {
         }
     }
 
+    /** Non-tool runtime state — used by the {@code /model} chat command. */
+    public String getActiveProviderName() { return activeProvider; }
+
+    /** Non-tool runtime state — Ollama tag if local, empty string if cloud. */
+    public String getActiveOllamaModelName() { return activeOllamaModel; }
+
     @Tool(description = "Get info about the currently active AI provider and model.")
     public String getActiveProvider() {
         notifier.notify("Checking active provider");
@@ -438,7 +448,7 @@ public class LocalModelTools {
         sb.append("Active provider: ").append(activeProvider).append("\n");
         if ("ollama".equals(activeProvider)) {
             sb.append("Local model: ").append(activeOllamaModel).append("\n");
-            sb.append("Ollama API: ").append(OLLAMA_API).append("\n");
+            sb.append("Ollama API: ").append(ollamaApiUrl).append("\n");
         } else {
             sb.append("Using cloud API (OpenAI)\n");
         }
@@ -463,7 +473,7 @@ public class LocalModelTools {
     private boolean isOllamaRunning() {
         try {
             HttpRequest req = HttpRequest.newBuilder()
-                    .uri(URI.create(OLLAMA_API + "/api/version"))
+                    .uri(URI.create(ollamaApiUrl + "/api/version"))
                     .timeout(Duration.ofSeconds(3))
                     .GET()
                     .build();
@@ -484,7 +494,7 @@ public class LocalModelTools {
 
     private String ollamaApiGet(String path) throws Exception {
         HttpRequest req = HttpRequest.newBuilder()
-                .uri(URI.create(OLLAMA_API + path))
+                .uri(URI.create(ollamaApiUrl + path))
                 .timeout(Duration.ofSeconds(5))
                 .GET()
                 .build();
@@ -529,7 +539,7 @@ public class LocalModelTools {
 
         if (isOllamaRunning()) {
             log.info("[LocalModel] Ollama installed and running on Windows.");
-            return "Ollama installed successfully! It's running at " + OLLAMA_API + ".\n" +
+            return "Ollama installed successfully! It's running at " + ollamaApiUrl + ".\n" +
                     "Now use pullModel('llama3.2') to download a model.";
         } else {
             startOllama();

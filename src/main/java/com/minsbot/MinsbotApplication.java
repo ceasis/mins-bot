@@ -1,5 +1,6 @@
 package com.minsbot;
 
+import com.minsbot.release.CrashReporter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringApplication;
@@ -15,6 +16,7 @@ public class MinsbotApplication {
     private static final Logger log = LoggerFactory.getLogger(MinsbotApplication.class);
 
     public static void main(String[] args) {
+        CrashReporter.install();
         SpringApplication.run(MinsbotApplication.class, args);
     }
 

@@ -57,6 +57,9 @@ public class TtsTools {
     @Autowired(required = false)
     private OfflineModeService offlineMode;
 
+    @Autowired(required = false)
+    private com.minsbot.TranscriptService transcriptService;
+
     /** In-memory cache: sanitized text key → WAV bytes. */
     private final ConcurrentHashMap<String, byte[]> audioCache = new ConcurrentHashMap<>();
 
@@ -96,12 +99,12 @@ public class TtsTools {
     /** TTS engine preference: "elevenlabs", "openai", or "auto" (try both). */
     private volatile String ttsEngine = "auto";
 
-    /** Ordered TTS priority (first = try first). Default: fishaudio, elevenlabs, openai. */
+    /** Ordered TTS priority (first = try first). Default prefers local Piper when installed. */
     private final CopyOnWriteArrayList<String> ttsPriority =
-            new CopyOnWriteArrayList<>(List.of("fishaudio", "elevenlabs", "openai"));
+            new CopyOnWriteArrayList<>(List.of("piper", "fishaudio", "elevenlabs", "openai"));
     /** Per-engine enabled state (UI toggle). Default all true. */
     private final ConcurrentHashMap<String, Boolean> engineEnabled = new ConcurrentHashMap<>(Map.of(
-            "fishaudio", true, "elevenlabs", true, "openai", true));
+            "piper", true, "fishaudio", true, "elevenlabs", true, "openai", true));
 
     public TtsTools(ToolExecutionNotifier notifier, ElevenLabsVoiceService elevenLabs,
                     OpenAiTtsService openAiTts, ElevenLabsConfig.ElevenLabsProperties elevenLabsProps,
@@ -296,6 +299,7 @@ public class TtsTools {
                             ttsPriority.addAll(order);
                         }
                     }
+                    case "piper_enabled" -> engineEnabled.put("piper", val.equals("true"));
                     case "fishaudio_enabled" -> engineEnabled.put("fishaudio", val.equals("true"));
                     case "elevenlabs_enabled" -> engineEnabled.put("elevenlabs", val.equals("true"));
                     case "openai_enabled" -> engineEnabled.put("openai", val.equals("true"));
@@ -333,6 +337,13 @@ public class TtsTools {
             return "Music is playing — skipped speaking to keep audio quality.";
         }
         notifier.notify("Speaking: " + (text.length() > 30 ? text.substring(0, 30) + "..." : text));
+        // Mirror the spoken text into the chat transcript so users see what the bot said.
+        // Without this, the LLM can route an answer through speak() and the chat panel
+        // shows nothing while audio plays — user asks "what's my son's name?" hears the
+        // answer but the chat history is blank.
+        if (transcriptService != null) {
+            try { transcriptService.save("BOT", text); } catch (Exception ignored) {}
+        }
         return doSpeak(text);
     }
 
@@ -598,13 +609,18 @@ public class TtsTools {
                     + "Open the Models tab → TTS voices → install one (e.g. Amy or Ryan).";
         }
 
-        // Online: if Piper is available, prefer it anyway. Zero cloud latency,
-        // no API credit spend. User can still force cloud via engine= setting.
-        if ("auto".equals(engine) && localTts != null && localTts.isEnabled()) {
-            if (tryStreamLocalPiper(text, cacheKeyForProvider(text, "piper"))) return spokeMsg;
-        }
+        // Online: priority-list mode handles Piper via tryStreamByEngine below.
+        // For explicit single-engine modes ("elevenlabs", etc.) we skip Piper unless asked.
 
-        if ("elevenlabs".equals(engine)) {
+        if ("piper".equals(engine)) {
+            if (tryStreamLocalPiper(text, cacheKeyForProvider(text, "piper"))) return spokeMsg;
+            log.warn("[TTS] Piper engine selected but not available — falling back via priority list");
+            for (String eng : ttsPriority) {
+                if ("piper".equals(eng)) continue;
+                if (!engineEnabled.getOrDefault(eng, true)) continue;
+                if (tryStreamByEngine(eng, text)) return spokeMsg;
+            }
+        } else if ("elevenlabs".equals(engine)) {
             if (tryPlayCachedProvider(text, "elevenlabs")) return cachedMsg;
             if (tryStreamElevenLabs(text, cacheKeyForProvider(text, "elevenlabs"))) return spokeMsg;
             if (tryStreamFishAudio(text, cacheKeyForProvider(text, "fishaudio"))) return spokeMsg;
@@ -851,6 +867,7 @@ public class TtsTools {
     /** Try streaming from a specific engine by name. */
     private boolean tryStreamByEngine(String engine, String text) {
         return switch (engine) {
+            case "piper" -> tryStreamLocalPiper(text, cacheKeyForProvider(text, "piper"));
             case "fishaudio" -> tryStreamFishAudio(text, cacheKeyForProvider(text, "fishaudio"));
             case "elevenlabs" -> tryStreamElevenLabs(text, cacheKeyForProvider(text, "elevenlabs"));
             case "openai" -> tryStreamOpenAi(text, cacheKeyForProvider(text, "openai"));

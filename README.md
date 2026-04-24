@@ -199,11 +199,18 @@ All integrations are **disabled by default** and conditionally loaded — disabl
 
 ## Requirements
 
+### Minimum system requirements
+- **OS**: Windows 10 (build 1809+) or Windows 11. macOS / Linux supported for development builds but not officially packaged yet.
+- **RAM**: 8 GB (16 GB recommended if running local LLMs via Ollama)
+- **Disk**: 500 MB for the app, ~2 GB for a local model if you use one
+- **Display**: 1280×720 minimum; HiDPI supported
+- **Network**: Internet connection for cloud AI providers (OpenAI, Anthropic, Google). Fully offline usage is possible via Ollama.
+
+### Development requirements (building from source)
 - **Java 17** (JDK 17 or later)
 - **Maven 3.6+**
-- **Windows**, **macOS**, or **Linux**
 - **Node.js 18+** (optional — for Remotion video creation)
-- **API keys** for AI services you want to use (see [Configuration](#configuration))
+- **API keys** for the AI services you want to use (see [Configuration](#configuration))
 
 ---
 

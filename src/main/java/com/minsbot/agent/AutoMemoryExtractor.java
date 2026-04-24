@@ -30,11 +30,17 @@ public class AutoMemoryExtractor {
 
     private final EpisodicMemoryService episodicMemory;
 
+    /** Stateless client — MUST NOT share the main-chat memory advisor, otherwise
+     *  the pipe-delimited extractor format leaks into the user's conversation. */
     @Autowired(required = false)
+    @org.springframework.beans.factory.annotation.Qualifier("statelessChatClient")
     private volatile ChatClient chatClient;
 
     @Value("${app.auto-memory.enabled:true}")
-    private boolean enabled;
+    private volatile boolean enabled;
+
+    public boolean isEnabled() { return enabled; }
+    public void setEnabled(boolean enabled) { this.enabled = enabled; }
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "auto-memory-extractor");

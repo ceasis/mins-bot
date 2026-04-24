@@ -249,6 +249,7 @@
       { id: 'vision', label: 'Vision' },
       { id: 'code',   label: 'Coding' },
       { id: 'image',  label: 'Image gen' },
+      { id: 'tts',    label: 'Voices (TTS)' },
       { id: 'embed',  label: 'Embeddings' }
     ];
     var gpuFitsLabel = gpuInfo.available

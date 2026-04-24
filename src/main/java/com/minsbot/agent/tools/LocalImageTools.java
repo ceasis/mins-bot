@@ -36,7 +36,11 @@ import java.util.stream.Stream;
 public class LocalImageTools {
 
     private static final Logger log = LoggerFactory.getLogger(LocalImageTools.class);
-    private static final String COMFY_API = "http://localhost:8188";
+    @org.springframework.beans.factory.annotation.Value("${app.comfy.url:http://localhost:8188}")
+    private volatile String comfyApiUrl;
+
+    public String getComfyApiUrl() { return comfyApiUrl; }
+    public void setComfyApiUrl(String u) { if (u != null && !u.isBlank()) this.comfyApiUrl = u.trim().replaceAll("/+$", ""); }
     private static final Path OUTPUT_DIR =
             Paths.get(System.getProperty("user.home"), "mins_bot_data", "generated");
 
@@ -122,7 +126,7 @@ public class LocalImageTools {
                 final String promptId;
                 try {
                     String body = "{\"prompt\":" + workflow + ",\"client_id\":\"" + clientId + "\"}";
-                    HttpRequest submit = HttpRequest.newBuilder(URI.create(COMFY_API + "/prompt"))
+                    HttpRequest submit = HttpRequest.newBuilder(URI.create(comfyApiUrl + "/prompt"))
                             .header("Content-Type", "application/json")
                             .timeout(Duration.ofSeconds(30))
                             .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
@@ -183,7 +187,7 @@ public class LocalImageTools {
             Thread.sleep(1500);
             ticks++;
 
-            HttpRequest hReq = HttpRequest.newBuilder(URI.create(COMFY_API + "/history/" + promptId))
+            HttpRequest hReq = HttpRequest.newBuilder(URI.create(comfyApiUrl + "/history/" + promptId))
                     .timeout(Duration.ofSeconds(15)).GET().build();
             HttpResponse<String> hResp = http.send(hReq, HttpResponse.BodyHandlers.ofString());
             if (hResp.statusCode() == 200 && hResp.body().contains(promptId)) {
@@ -198,7 +202,7 @@ public class LocalImageTools {
 
             if (ticks % 4 == 0) {
                 try {
-                    HttpRequest qReq = HttpRequest.newBuilder(URI.create(COMFY_API + "/queue"))
+                    HttpRequest qReq = HttpRequest.newBuilder(URI.create(comfyApiUrl + "/queue"))
                             .timeout(Duration.ofSeconds(5)).GET().build();
                     HttpResponse<String> qResp = http.send(qReq, HttpResponse.BodyHandlers.ofString());
                     if (qResp.statusCode() == 200) {
@@ -223,7 +227,7 @@ public class LocalImageTools {
                         (lastHistoryBody.length() > 400 ? lastHistoryBody.substring(0, 400) + "…" : lastHistoryBody));
         }
 
-        String viewUrl = COMFY_API + "/view"
+        String viewUrl = comfyApiUrl + "/view"
                 + "?filename=" + URLEncoder.encode(filenamePath[0], StandardCharsets.UTF_8)
                 + "&subfolder=" + URLEncoder.encode(filenamePath[1], StandardCharsets.UTF_8)
                 + "&type=" + URLEncoder.encode(filenamePath[2], StandardCharsets.UTF_8);
