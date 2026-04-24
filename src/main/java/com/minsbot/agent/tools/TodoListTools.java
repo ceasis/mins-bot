@@ -64,8 +64,9 @@ public class TodoListTools {
         }
     }
 
-    @Tool(description = "Get all pending (incomplete) tasks from the todolist. "
-            + "Shows any [PENDING] steps that haven't been completed yet.")
+    @Tool(description = "Get ONLY the most recent task's pending (incomplete) steps from the todolist. "
+            + "Older task blocks are suppressed so this doesn't dump dozens of unrelated backlogs into "
+            + "the context. Total output is capped at ~3000 characters.")
     public String getPendingTasks() {
         try {
             if (!Files.exists(TODO_FILE)) {
@@ -77,31 +78,38 @@ public class TodoListTools {
                 return "No pending tasks. All steps are done.";
             }
 
-            // Extract the last task block with pending items
-            StringBuilder pending = new StringBuilder();
+            // Extract ONLY the most recent task block's pending items. Older task blocks
+            // are stale and ballooning the context with them burns tokens + latency.
             String[] lines = content.split("\n");
-            String currentTask = null;
-            List<String> currentPending = new ArrayList<>();
-
+            String lastTaskHeader = null;
+            List<String> lastPending = new ArrayList<>();
+            String runningTask = null;
+            List<String> runningPending = new ArrayList<>();
             for (String line : lines) {
-                if (line.trim().startsWith("--- Task:")) {
-                    if (!currentPending.isEmpty()) {
-                        pending.append(currentTask).append("\n");
-                        currentPending.forEach(p -> pending.append("  ").append(p).append("\n"));
+                String t = line.trim();
+                if (t.startsWith("--- Task:")) {
+                    if (!runningPending.isEmpty() && runningTask != null) {
+                        lastTaskHeader = runningTask;
+                        lastPending = new ArrayList<>(runningPending);
                     }
-                    currentTask = line.trim();
-                    currentPending.clear();
-                } else if (line.trim().startsWith("[PENDING]")) {
-                    currentPending.add(line.trim());
+                    runningTask = t;
+                    runningPending.clear();
+                } else if (t.startsWith("[PENDING]")) {
+                    runningPending.add(t);
                 }
             }
-            // Don't forget the last block
-            if (!currentPending.isEmpty() && currentTask != null) {
-                pending.append(currentTask).append("\n");
-                currentPending.forEach(p -> pending.append("  ").append(p).append("\n"));
+            if (!runningPending.isEmpty() && runningTask != null) {
+                lastTaskHeader = runningTask;
+                lastPending = runningPending;
             }
-
-            return pending.length() > 0 ? pending.toString().trim() : "No pending tasks.";
+            if (lastTaskHeader == null || lastPending.isEmpty()) return "No pending tasks.";
+            StringBuilder out = new StringBuilder();
+            out.append(lastTaskHeader).append('\n');
+            for (String p : lastPending) {
+                if (out.length() > 3000) { out.append("  ... (truncated)\n"); break; }
+                out.append("  ").append(p).append('\n');
+            }
+            return out.toString().trim();
         } catch (IOException e) {
             return "Failed to read todolist: " + e.getMessage();
         }

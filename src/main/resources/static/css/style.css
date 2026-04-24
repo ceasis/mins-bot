@@ -118,7 +118,9 @@ body.embedded-minsbot #root {
   align-items: center;
   justify-content: space-between;
   position: relative;
-  z-index: 50;
+  /* High enough that the downward tooltips from sense buttons render on top
+     of the chat-history area and other sibling tab-content panels below. */
+  z-index: 500;
 }
 
 /* ═══ Custom title bar (black, premium) ═══ */
@@ -5838,6 +5840,48 @@ select.tab-input option,
   0%, 100% { opacity: 1; }
   50% { opacity: 0.6; }
 }
+
+/* ═══ Inline choice buttons (yes/no prompts from the bot) ═══
+   Bot writes trailing `[Label]` / `[Label - Enter]` lines; app.js extracts
+   them and renders this block. One button per line, full width, the default
+   choice tinted accent. */
+.choice-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(255,255,255,0.08);
+}
+.choice-btn {
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  background: rgba(255,255,255,0.04);
+  color: var(--text, #e6e8ef);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px;
+  font: 500 13px "Segoe UI", system-ui, -apple-system, sans-serif;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, transform 0.1s ease;
+}
+.choice-btn:hover:not(:disabled) {
+  background: rgba(124, 92, 255, 0.12);
+  border-color: rgba(124, 92, 255, 0.55);
+}
+.choice-btn:active:not(:disabled) { transform: translateY(1px); }
+.choice-btn.default-choice {
+  background: linear-gradient(180deg, rgba(124,92,255,0.22), rgba(124,92,255,0.08));
+  border-color: rgba(124,92,255,0.6);
+  color: #fff;
+  font-weight: 600;
+}
+.choice-btn.default-choice:hover:not(:disabled) {
+  background: linear-gradient(180deg, rgba(124,92,255,0.32), rgba(124,92,255,0.14));
+}
+.choice-btn:disabled { opacity: 0.55; cursor: default; }
+.choice-btn.chosen { outline: 2px solid rgba(124,92,255,0.6); outline-offset: 2px; }
+.choice-group.answered { opacity: 0.75; }
 
 /* ═══ Universal tooltip system ═══
    Usage: add data-tip="Label" to any element.

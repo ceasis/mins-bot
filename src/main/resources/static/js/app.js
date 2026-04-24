@@ -373,6 +373,71 @@
     return wrap;
   }
 
+  // ─── Inline choice buttons ──────────────────────────────────────────────
+  // The bot can end a message with lines like `[Yes - Enter]` / `[No]` to
+  // offer one-click replies. Strip those lines from the rendered text and
+  // return a list of choices, marking any trailing "- Enter" label as default.
+  function extractChoices(text) {
+    if (!text || text.indexOf('[') === -1) return { text: text, choices: [] };
+    var lines = text.split(/\r?\n/);
+    var choices = [];
+    while (lines.length > 0) {
+      var last = lines[lines.length - 1];
+      var m = last.match(/^\s*\[\s*([^\]]+?)\s*\]\s*$/);
+      if (!m) break;
+      var label = m[1].trim();
+      var isDefault = /\s+-\s+enter$/i.test(label);
+      if (isDefault) label = label.replace(/\s+-\s+enter$/i, '').trim();
+      choices.unshift({ label: label, isDefault: isDefault });
+      lines.pop();
+    }
+    if (choices.length === 0) return { text: text, choices: [] };
+    // Trim trailing blank lines left by the stripped choices.
+    while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop();
+    return { text: lines.join('\n'), choices: choices };
+  }
+
+  // Install a single document-level Enter handler that clicks the latest
+  // unanswered default-choice button when the input field is empty.
+  (function installChoiceEnterBinding() {
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter' || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
+      var input = document.getElementById('input');
+      if (input && input.value.trim().length > 0) return; // don't steal input submit
+      if (document.activeElement === input) return;
+      var btn = document.querySelector('.choice-group.active .choice-btn.default-choice');
+      if (!btn) return;
+      e.preventDefault();
+      btn.click();
+    });
+  })();
+
+  function renderChoices(msgEl, choices) {
+    if (!choices || choices.length === 0) return;
+    // Deactivate any older choice groups so only the latest responds to Enter.
+    document.querySelectorAll('.choice-group.active').forEach(function (g) {
+      g.classList.remove('active');
+    });
+    var group = document.createElement('div');
+    group.className = 'choice-group active';
+    choices.forEach(function (c) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'choice-btn' + (c.isDefault ? ' default-choice' : '');
+      btn.textContent = c.label + (c.isDefault ? '  ⏎' : '');
+      btn.addEventListener('click', function () {
+        // Lock this group so subsequent clicks don't retrigger.
+        group.classList.remove('active');
+        group.classList.add('answered');
+        Array.prototype.forEach.call(group.children, function (b) { b.disabled = true; });
+        btn.classList.add('chosen');
+        if (typeof sendMessage === 'function') sendMessage(c.label);
+      });
+      group.appendChild(btn);
+    });
+    msgEl.appendChild(group);
+  }
+
   function buildMessageContent(el, text) {
     // Translation format: <small>original</small>\ntranslation — render as HTML
     if (text.indexOf('<small>') !== -1 && text.indexOf('</small>') !== -1) {
@@ -583,13 +648,22 @@
     // Only auto-scroll if user was already near the bottom; preserves manual scroll-up
     var wasAtBottom = isAtBottom(messagesEl);
 
-    if (typewriter && !isUser && text) {
+    // For bot messages, extract trailing [Option] lines as choice buttons.
+    var choices = [];
+    var displayText = text;
+    if (!isUser && text) {
+      var parsed = extractChoices(text);
+      displayText = parsed.text;
+      choices = parsed.choices;
+    }
+
+    if (typewriter && !isUser && displayText) {
       // Typewriter animation: reveal character by character
       var i = 0;
       msg.textContent = '';
       var timer = setInterval(function () {
-        if (i < text.length) {
-          msg.textContent += text.charAt(i);
+        if (i < displayText.length) {
+          msg.textContent += displayText.charAt(i);
           i++;
           if (wasAtBottom && isAtBottom(messagesEl, 40)) {
             messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -598,13 +672,15 @@
           clearInterval(timer);
           // Rebuild with proper formatting after animation completes
           msg.textContent = '';
-          buildMessageContent(msg, text);
+          buildMessageContent(msg, displayText);
           addCopyListener(msg);
+          renderChoices(msg, choices);
         }
       }, 25);
     } else {
-      buildMessageContent(msg, text);
+      buildMessageContent(msg, displayText);
       addCopyListener(msg);
+      if (!isUser) renderChoices(msg, choices);
     }
 
     if (wasAtBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -931,8 +1007,17 @@
         body: JSON.stringify({ message: msg })
       });
       const data = await res.json();
-      stopStatusPolling();
-      hideThinking();
+      // Keep status polling ALIVE — stopping it here was the cause of "no
+      // updates during long tool runs" because the real reply arrives much
+      // later via /api/chat/async. Polling /api/chat/status every 500ms is
+      // cheap (empty responses when nothing's happening) and correctly handles
+      // back-to-back messages without losing state.
+      var repliedInline = !!(data.reply && data.reply.length > 0);
+      var looksLikePrepAck = repliedInline && /^One moment/i.test(data.reply);
+      if (repliedInline && !looksLikePrepAck) {
+        // Full inline reply — no more work pending for THIS message.
+        hideThinking();
+      }
       if (data.reply) appendMessage(data.reply, false, false, { persist: true });
       if (data.reply && window._minsSound) window._minsSound.received();
       // After the first bot reply, check if TTS had a Fish Audio fallback (once)
@@ -1253,6 +1338,10 @@
       var res = await fetch('/api/chat/async');
       var data = await res.json();
       if (data.hasResult && data.reply) {
+        // Real reply arrived for a queued message. Clear the thinking indicator
+        // but DON'T stop status polling \u2014 more messages may be pending, and
+        // the poll is cheap when idle.
+        hideThinking();
         appendMessage(data.reply, false, true, { persist: true });
         // Add watch-comment styling for Jarvis watch mode messages (eye emoji prefix)
         if (data.reply.startsWith('\ud83d\udc41')) {

@@ -93,6 +93,43 @@
       color: #d9dce3;
     }
     .result.err pre { color: #ffb4b4; }
+    .result.ok  h3 .badge-status { color: var(--ok); }
+    .result.err h3 .badge-status { color: var(--err); }
+
+    .live-grid { display: grid; grid-template-columns: 1fr 1.3fr; gap: 14px; margin-top: 8px; }
+    @media (max-width: 780px) { .live-grid { grid-template-columns: 1fr; } }
+    .live-col { min-width: 0; }
+    .live-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 6px; }
+    .file-list {
+      list-style: none; padding: 10px; margin: 0;
+      background: var(--panel-2); border-radius: 6px;
+      max-height: 360px; overflow-y: auto;
+      font: 12.5px/1.5 "JetBrains Mono", "Consolas", monospace;
+    }
+    .file-list li { padding: 2px 0; color: #d9dce3; border-bottom: 1px solid rgba(255,255,255,0.04); }
+    .file-list li:last-child { border-bottom: 0; }
+    .file-list:empty::after { content: "(none yet)"; color: var(--muted); font-style: italic; }
+    .log-pane {
+      margin: 0; padding: 10px; max-height: 360px; overflow-y: auto;
+      background: var(--panel-2); border-radius: 6px;
+      white-space: pre-wrap; word-break: break-word;
+      font: 12px/1.5 "JetBrains Mono", "Consolas", monospace;
+      color: #c6cad4;
+    }
+    .final-result {
+      margin: 0; padding: 10px; max-height: 300px; overflow: auto;
+      background: var(--panel-2); border-radius: 6px;
+      white-space: pre-wrap; word-break: break-word;
+      font: 12px/1.5 "JetBrains Mono", "Consolas", monospace;
+      color: #c6cad4;
+    }
+    button.cancel {
+      background: transparent; color: var(--err);
+      border: 1px solid var(--err); border-radius: 8px;
+      padding: 10px 14px; font-size: 13px; cursor: pointer;
+    }
+    button.cancel:hover { background: rgba(239, 91, 91, 0.1); }
+    button.cancel:disabled { opacity: 0.5; cursor: wait; }
 
     .hint {
       color: var(--muted); font-size: 12px; margin-top: 10px;
@@ -121,6 +158,10 @@
         <label>Working directory</label>
         <input id="workingDir" type="text" value="C:\Users\cholo\code-gen\cool-site">
       </div>
+      <div>
+        <label>Local model <span style="opacity:0.6">(only used in Local mode)</span></label>
+        <input id="localModel" type="text" placeholder="qwen2.5-coder:7b">
+      </div>
     </div>
 
     <div>
@@ -134,27 +175,62 @@
           Special
           <span class="tag">Anthropic SDK · single call, JSON manifest</span>
         </button>
-        <button class="mode-btn" data-mode="both">
-          Both
-          <span class="tag">Run each into its own subfolder &amp; compare</span>
+        <button class="mode-btn" data-mode="local">
+          Local
+          <span class="tag">Ollama · offline, uses locally installed model</span>
+        </button>
+        <button class="mode-btn" data-mode="all">
+          All
+          <span class="tag">Run all three into separate subfolders</span>
         </button>
       </div>
     </div>
 
     <div class="actions">
       <button class="go" id="go">Generate</button>
+      <button class="cancel" id="cancel" style="display:none">Cancel</button>
+      <label style="display:flex;align-items:center;gap:6px;color:var(--muted);font-size:13px;cursor:pointer">
+        <input type="checkbox" id="createGithub" checked> Also create a GitHub repo and push
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;color:var(--muted);font-size:13px;cursor:pointer">
+        <input type="checkbox" id="isPrivate"> Private
+      </label>
       <span class="status" id="status"></span>
     </div>
 
     <div class="hint">
       Primary shells out to <code>claude -p "&lt;task&gt;" --dangerously-skip-permissions</code> in the working dir.
-      Special calls the Anthropic API directly and writes the returned file manifest. Both requires an API key and also uses the CLI.
+      Special calls the Anthropic API directly and writes the returned file manifest.
+      Local uses Ollama (offline) with a locally-installed coder model (default <code>qwen2.5-coder:7b</code>).
+      All runs every generator into its own subfolder so you can compare outputs side-by-side.
     </div>
   </div>
 
   <div class="results" id="results"></div>
+
+  <!-- QA screenshots — populated on demand. -->
+  <section class="form" id="shotsSection" style="margin-top:18px;">
+    <label style="display:flex;justify-content:space-between;align-items:center">
+      QA screenshots
+      <span style="display:flex;gap:6px">
+        <input id="shotsProject" type="text" placeholder="project name" style="padding:4px 8px;font-size:12px;width:180px;background:var(--panel-2);color:var(--text);border:1px solid var(--border);border-radius:6px">
+        <button class="mode-btn" id="loadShots" style="flex:0 0 auto;min-width:0;padding:4px 10px;font-size:12px">Load</button>
+      </span>
+    </label>
+    <div id="shotsList" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px;margin-top:6px"></div>
+  </section>
+
+  <!-- Recent projects — populated by /api/code/history on load. -->
+  <section class="form" id="recent" style="margin-top:18px;">
+    <label style="display:flex;justify-content:space-between;align-items:center">
+      Recent projects
+      <button class="mode-btn" id="refreshRecent" style="flex:0 0 auto;min-width:0;padding:4px 10px;font-size:12px">Refresh</button>
+    </label>
+    <div id="recentList" style="display:grid;gap:8px;margin-top:6px"></div>
+  </section>
 </div>
 
-<script src="js/code.js?v=1"></script>
+<script src="js/tooltips.js?v=1"></script>
+<script src="js/code.js?v=2"></script>
 </body>
 </html>

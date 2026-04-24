@@ -555,8 +555,27 @@ public class FileSystemTools {
             + "(backend-first behavior — no Explorer window). "
             + "To explicitly open a folder in File Explorer, use openFolderInExplorer instead.")
     public String openPath(
-            @ToolParam(description = "Full path to a specific file") String path) {
+            @ToolParam(description = "Full path to a specific file (NOT a URL — use openUrl for web pages)") String path) {
         try {
+            if (path == null || path.isBlank()) return "Error: path is required.";
+            // Detect URLs and delegate to the browser — a common LLM mistake is passing
+            // 'https://arxiv.org/' here, which crashes Paths.get with 'Illegal char <:>'.
+            String trimmed = path.trim();
+            if (trimmed.matches("(?i)^(https?|ftp)://.*") || trimmed.startsWith("www.")) {
+                try {
+                    String url = trimmed.startsWith("www.") ? "https://" + trimmed : trimmed;
+                    notifier.notify("Opening URL in browser: " + url + "...");
+                    if (Desktop.isDesktopSupported()) {
+                        Desktop.getDesktop().browse(java.net.URI.create(url));
+                    } else {
+                        new ProcessBuilder("cmd", "/c", "start", "", url).start();
+                    }
+                    return "Opened URL in default browser: " + url
+                            + "\n(NOTE: openPath is for local files; use openUrl for web pages next time.)";
+                } catch (Exception urlErr) {
+                    return "Failed to open URL: " + urlErr.getMessage();
+                }
+            }
             Path p = Paths.get(path).toAbsolutePath();
             if (!Files.exists(p)) return "Path not found: " + p;
 

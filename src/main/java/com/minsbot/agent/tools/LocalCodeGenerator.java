@@ -17,68 +17,60 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Secondary "special" code generator. Unlike ClaudeCodeTools which shells out
- * to the Claude Code CLI (an agentic tool-calling loop), this one makes a
- * single direct call to the Anthropic Messages API, asks for a structured
- * JSON file manifest, and writes the files itself in Java. Intended as a
- * lightweight alternative for simple scaffolding.
+ * Tertiary code generator. Same "ask for a JSON file manifest, then write the
+ * files in Java" shape as {@link SpecialCodeGenerator}, but driven by a locally
+ * installed model via Ollama's /api/chat endpoint. Runs fully offline once a
+ * coder-capable model is pulled (e.g. qwen2.5-coder:7b, deepseek-coder:6.7b).
  */
 @Component
-public class SpecialCodeGenerator {
+public class LocalCodeGenerator {
 
-    private static final Logger log = LoggerFactory.getLogger(SpecialCodeGenerator.class);
-    private static final String API_URL = "https://api.anthropic.com/v1/messages";
+    private static final Logger log = LoggerFactory.getLogger(LocalCodeGenerator.class);
 
     private final ToolExecutionNotifier notifier;
     private final ProjectBootstrapService bootstrap;
     private final ObjectMapper mapper = new ObjectMapper();
     private final HttpClient http = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(15))
+            .connectTimeout(Duration.ofSeconds(5))
             .build();
 
-    @Value("${app.claude.api-key:}")
-    private String apiKey;
+    @Value("${app.ollama.url:http://localhost:11434}")
+    private String ollamaUrl;
 
-    @Value("${app.claude.model:claude-opus-4-6}")
-    private String model;
+    @Value("${app.local-code.model:qwen2.5-coder:7b}")
+    private String defaultModel;
 
-    public SpecialCodeGenerator(ToolExecutionNotifier notifier, ProjectBootstrapService bootstrap) {
+    public LocalCodeGenerator(ToolExecutionNotifier notifier, ProjectBootstrapService bootstrap) {
         this.notifier = notifier;
         this.bootstrap = bootstrap;
     }
 
-    @Tool(description = "SECONDARY 'special' code generator. Only use when the user says "
-            + "'special' (e.g. 'create me special java project for X'). "
-            + "Makes a single Anthropic API call asking for a JSON file manifest, then writes "
-            + "those files into the working directory. Simpler and faster than ClaudeCodeTools "
-            + "but not agentic — no shell commands, no iteration. Prefer ClaudeCodeTools by default.")
-    public String createCodeSpecial(
+    @Tool(description = "LOCAL code generator. Use when the user says 'local' (e.g. 'create me a local "
+            + "java project for X') or explicitly asks to scaffold offline / with a local model. "
+            + "Calls a locally installed Ollama model (default: qwen2.5-coder:7b) to produce a JSON file "
+            + "manifest, then writes the files into the working directory. No API key, no internet.")
+    public String createCodeLocal(
             @ToolParam(description = "Plain-English coding task") String task,
-            @ToolParam(description = "Absolute working directory, e.g. 'C:\\Users\\cholo\\code-gen\\foo'. "
-                    + "Created if missing. Files are written relative to this folder.") String workingDir) {
-        return run(task, workingDir, true, false);
+            @ToolParam(description = "Absolute working directory, created if missing") String workingDir) {
+        return run(task, workingDir, null, true, false);
     }
 
-    /** Direct invocation path used by CodeController. */
-    public String run(String task, String workingDir, boolean createGithub, boolean isPrivate) {
-        return runWithSink(task, workingDir, createGithub, isPrivate, CodeGenSink.NOOP);
+    /** Direct invocation used by CodeController. If {@code model} is null, uses the configured default. */
+    public String run(String task, String workingDir, String model, boolean createGithub, boolean isPrivate) {
+        return runWithSink(task, workingDir, model, createGithub, isPrivate, CodeGenSink.NOOP);
     }
 
     /** Variant that emits progress into {@link CodeGenSink} for SSE streaming / job records. */
-    public String runWithSink(String task, String workingDir, boolean createGithub, boolean isPrivate,
-                              CodeGenSink sink) {
-        notifier.notify("Special generator: " + abbreviate(task, 60) + "...");
+    public String runWithSink(String task, String workingDir, String model,
+                              boolean createGithub, boolean isPrivate, CodeGenSink sink) {
+        String useModel = (model == null || model.isBlank()) ? defaultModel : model.trim();
+        notifier.notify("Local generator (" + useModel + "): " + abbreviate(task, 60) + "...");
         try {
             if (task == null || task.isBlank()) return "Error: task is required.";
             if (workingDir == null || workingDir.isBlank()) return "Error: workingDir is required.";
-            if (apiKey == null || apiKey.isBlank()) {
-                return "Anthropic API key not configured. Set ANTHROPIC_API_KEY env var "
-                        + "or app.anthropic.api-key in application-secrets.properties.";
-            }
 
             Path dir = Path.of(workingDir);
             Files.createDirectories(dir);
@@ -87,43 +79,59 @@ public class SpecialCodeGenerator {
                     "You are a code scaffolding assistant. The user will describe a project. " +
                     "Respond with a SINGLE JSON object and nothing else — no prose, no markdown fences. " +
                     "Schema: {\"files\":[{\"path\":\"relative/path.ext\",\"content\":\"full file contents\"}], " +
-                    "\"summary\":\"one-line description of what was generated\"}. " +
+                    "\"summary\":\"one-line description\"}. " +
                     "Keep paths relative. Include every file needed to run the project. " +
-                    "Do not include binary files. Keep the total under ~30 files.";
+                    "No binaries. Keep under ~20 files.";
 
             String body = mapper.writeValueAsString(Map.of(
-                    "model", model,
-                    "max_tokens", 8000,
-                    "system", systemPrompt,
-                    "messages", new Object[]{ Map.of("role", "user", "content", task) }
+                    "model", useModel,
+                    "stream", false,
+                    "format", "json",
+                    "messages", new Object[]{
+                            Map.of("role", "system", "content", systemPrompt),
+                            Map.of("role", "user", "content", task)
+                    }
             ));
 
             HttpRequest req = HttpRequest.newBuilder()
-                    .uri(URI.create(API_URL))
+                    .uri(URI.create(ollamaUrl.replaceAll("/+$", "") + "/api/chat"))
                     .header("content-type", "application/json")
-                    .header("x-api-key", apiKey)
-                    .header("anthropic-version", "2023-06-01")
-                    .timeout(Duration.ofMinutes(3))
+                    .timeout(Duration.ofMinutes(5))
                     .POST(HttpRequest.BodyPublishers.ofString(body))
                     .build();
 
-            notifier.notify("Calling Anthropic (" + model + ")...");
-            sink.log("Calling Anthropic API (" + model + ")...");
-            log.info("[SpecialCodeGen] Calling Anthropic model={} for task: {}", model, abbreviate(task, 100));
-            HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+            notifier.notify("Calling Ollama (" + useModel + ")...");
+            sink.log("Calling Ollama model=" + useModel + "...");
+            log.info("[LocalCodeGen] Calling Ollama model={} for task: {}", useModel, abbreviate(task, 100));
+            HttpResponse<String> resp;
+            try {
+                resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+            } catch (java.net.ConnectException e) {
+                return "Ollama is not running at " + ollamaUrl + ". Start it with: ollama serve";
+            }
             notifier.notify("Got response, parsing manifest...");
-            sink.log("Response received, parsing JSON manifest...");
             if (resp.statusCode() != 200) {
-                return "Anthropic API error " + resp.statusCode() + ": " + abbreviate(resp.body(), 500);
+                String b = abbreviate(resp.body(), 500);
+                if (resp.statusCode() == 404 && b.contains("not found")) {
+                    return "Model '" + useModel + "' is not installed. Pull it with: ollama pull " + useModel;
+                }
+                return "Ollama error " + resp.statusCode() + ": " + b;
             }
 
             JsonNode root = mapper.readTree(resp.body());
-            String text = root.path("content").path(0).path("text").asText("");
+            String text = root.path("message").path("content").asText("");
             if (text.isBlank()) return "Error: empty model response.";
 
-            JsonNode manifest = mapper.readTree(stripFences(text));
+            JsonNode manifest;
+            try {
+                manifest = mapper.readTree(stripFences(text));
+            } catch (Exception e) {
+                return "Error: model did not return valid JSON.\n\nRaw output:\n" + abbreviate(text, 1500);
+            }
             JsonNode files = manifest.path("files");
-            if (!files.isArray() || files.isEmpty()) return "Error: manifest contained no files.";
+            if (!files.isArray() || files.isEmpty()) {
+                return "Error: manifest contained no files.\n\nRaw output:\n" + abbreviate(text, 1500);
+            }
 
             notifier.notify("Manifest has " + files.size() + " files, writing...");
             int written = 0;
@@ -138,14 +146,14 @@ public class SpecialCodeGenerator {
                 notifier.notify("Generating " + tail(rel) + "...");
                 Files.writeString(target, content, StandardCharsets.UTF_8);
                 sink.file(rel);
-                log.info("[SpecialCodeGen] wrote {} ({} chars)", rel, content.length());
+                log.info("[LocalCodeGen] wrote {} ({} chars)", rel, content.length());
                 fileList.append("  • ").append(rel).append('\n');
                 written++;
             }
             notifier.notify("Wrote " + written + " files.");
 
             String summary = manifest.path("summary").asText("");
-            String result = "[Special] model=" + model + " dir=" + dir + "\n"
+            String result = "[Local] model=" + useModel + " dir=" + dir + "\n"
                     + "Wrote " + written + " file(s).\n"
                     + (summary.isBlank() ? "" : "Summary: " + summary + "\n")
                     + "\nFiles:\n" + fileList;
@@ -158,7 +166,7 @@ public class SpecialCodeGenerator {
             }
             return result;
         } catch (Exception e) {
-            log.warn("[SpecialCodeGen] failed", e);
+            log.warn("[LocalCodeGen] failed", e);
             return "Error: " + e.getMessage();
         }
     }

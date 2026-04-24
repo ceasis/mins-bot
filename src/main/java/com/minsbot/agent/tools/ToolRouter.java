@@ -166,6 +166,16 @@ public class ToolRouter {
     private final com.minsbot.skillpack.SkillPackTool skillPackTool;
     private final ClaudeCodeTools claudeCodeTools;
     private final SpecialCodeGenerator specialCodeGenerator;
+    private final LocalCodeGenerator localCodeGenerator;
+    private final ContinueProjectTools continueProjectTools;
+    private final DevServerTools devServerTools;
+    private final LogControlTools logControlTools;
+    private final ProjectFileTools projectFileTools;
+    private final ProjectVerifyService projectVerifyService;
+    private final ProjectTemplateTools projectTemplateTools;
+    private final ProjectAutoLaunchService projectAutoLaunchService;
+    private final ProjectManagementTools projectManagementTools;
+    private final ProjectTestService projectTestService;
 
     @Autowired(required = false)
     private ToolClassifierService classifier;
@@ -305,7 +315,17 @@ public class ToolRouter {
             YouTubeTranscriptTools youTubeTranscriptTools,
             com.minsbot.skillpack.SkillPackTool skillPackTool,
             ClaudeCodeTools claudeCodeTools,
-            SpecialCodeGenerator specialCodeGenerator) {
+            SpecialCodeGenerator specialCodeGenerator,
+            LocalCodeGenerator localCodeGenerator,
+            ContinueProjectTools continueProjectTools,
+            DevServerTools devServerTools,
+            LogControlTools logControlTools,
+            ProjectFileTools projectFileTools,
+            ProjectVerifyService projectVerifyService,
+            ProjectTemplateTools projectTemplateTools,
+            ProjectAutoLaunchService projectAutoLaunchService,
+            ProjectManagementTools projectManagementTools,
+            ProjectTestService projectTestService) {
 
         this.directivesTools = directivesTools;
         this.directiveDataTools = directiveDataTools;
@@ -429,6 +449,16 @@ public class ToolRouter {
         this.skillPackTool = skillPackTool;
         this.claudeCodeTools = claudeCodeTools;
         this.specialCodeGenerator = specialCodeGenerator;
+        this.localCodeGenerator = localCodeGenerator;
+        this.continueProjectTools = continueProjectTools;
+        this.devServerTools = devServerTools;
+        this.logControlTools = logControlTools;
+        this.projectFileTools = projectFileTools;
+        this.projectVerifyService = projectVerifyService;
+        this.projectTemplateTools = projectTemplateTools;
+        this.projectAutoLaunchService = projectAutoLaunchService;
+        this.projectManagementTools = projectManagementTools;
+        this.projectTestService = projectTestService;
 
         // Count @Tool methods on every bean (once, via reflection)
         countToolsOnAllBeans();
@@ -702,7 +732,7 @@ public class ToolRouter {
         map.put("video_creation", List.of(remotionVideoTools));
         map.put("trend_scout",   List.of(trendScoutTools, webSearchTools));
         map.put("github",        List.of(gitHubTools));
-        map.put("code_gen",      List.of(claudeCodeTools, specialCodeGenerator));
+        map.put("code_gen",      List.of(claudeCodeTools, specialCodeGenerator, localCodeGenerator, continueProjectTools, devServerTools, projectFileTools, projectVerifyService, projectTemplateTools, projectAutoLaunchService, projectManagementTools, projectTestService));
         map.put("bot_window",    List.of(botWindowTools));
         map.put("code_runner",   List.of(codeRunnerTools));
         map.put("file_watcher",  List.of(fileWatcherTools, fileTools));
@@ -764,7 +794,10 @@ public class ToolRouter {
                 // Always in scope: episodic recall. Users ask personal questions ("my son's
                 // name?", "what do I like?") without using memory-flavored keywords, so the
                 // classifier can't reliably route here. Keep it available by default.
-                episodicMemoryTools);
+                episodicMemoryTools,
+                // Always in scope: runtime log-level control ("quiet recurring tasks",
+                // "mute watcher", "reset all logs"). Small (~5 tools), useful anywhere.
+                logControlTools);
     }
 
     // ─── Autonomous mode ───

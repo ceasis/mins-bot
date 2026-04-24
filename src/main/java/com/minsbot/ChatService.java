@@ -113,6 +113,20 @@ public class ChatService {
             - For simple questions, greetings, or tasks that need no tools, respond with just: SKIP
             - Max 10 steps. Combine related actions into one step if needed.
 
+            CODE GENERATION — ALWAYS SKIP for any request that creates, modifies, rewrites, ports, converts, \
+            migrates, refactors, continues, loads, or runs a codebase/project. Those route to ClaudeCodeTools \
+            / ContinueProjectTools which do the whole job in a single delegated call. A 10-step shell plan \
+            picks wrong stacks, hallucinates progress, and falsely marks steps done. Respond with SKIP for:
+            - "create me a <lang> project / app / codebase / spring boot / react / python ..."
+            - "scaffold / generate / build me a ..."
+            - "rewrite it using <stack>" / "convert <name> to <stack>" / "port <name> to <lang>"
+            - "migrate / reimplement / redo <name> in ..."
+            - "continue / resume / work on <name>" / "add <feature> to <name>" / "modify <name>"
+            - "load / open / run / test / start <name> project"
+            - "list my projects" / "where is my <name>"
+            Even if the user specifies the folder, port, or stack — STILL SKIP. Those details ride along in \
+            the single tool call.
+
             CONNECTED SERVICES — NEVER plan manual browser logins for these; API tools are wired up:
             - Gmail is connected via OAuth → use getUnreadEmails / searchEmails / getEmailDetails / sendEmail.
               DO NOT plan "open browser → go to mail.google.com → enter password" — that's wrong.
@@ -184,6 +198,57 @@ public class ChatService {
             SKIP
 
             User: "find the quarterly report in my drive"
+            SKIP
+
+            User: "create me a java project for foo"
+            SKIP
+
+            User: "scaffold a spring boot app called bar with tailwind"
+            SKIP
+
+            User: "rewrite it using java, tailwind css"
+            SKIP
+
+            User: "convert rich-app to java17 springboot tailwind css, and run it localhost:8080"
+            SKIP
+
+            User: "continue rich-app project"
+            SKIP
+
+            User: "load rich-app and run it"
+            SKIP
+
+            User: "add a login page to house-shopping"
+            SKIP
+
+            User: "where is my rich-app project"
+            SKIP
+
+            User: "generate me an app"
+            SKIP
+
+            User: "make me a spring boot app called hello"
+            SKIP
+
+            User: "build me a react app"
+            SKIP
+
+            User: "scaffold a fastapi project and run it"
+            SKIP
+
+            User: "double check https://arxiv.org/, give me list of app ideas"
+            SKIP
+
+            User: "browse hackernews and summarize the top stories"
+            SKIP
+
+            User: "check this website and tell me what it's about: <url>"
+            SKIP
+
+            User: "go to techcrunch, find trending AI startups"
+            SKIP
+
+            User: "research <topic> and give me a summary"
             SKIP
 
             User: "prepare my morning briefing"
@@ -288,6 +353,10 @@ public class ChatService {
     }
 
     private final AsyncMessageService asyncMessages;
+
+    /** Short-circuits the main-loop queue for stateless messages (greetings, math, port kills, log tweaks). */
+    @org.springframework.beans.factory.annotation.Autowired
+    private FastLaneService fastLane;
 
     public ChatService(TranscriptService transcriptService,
                        PcAgentService pcAgent,
@@ -1022,6 +1091,18 @@ public class ChatService {
         if (bypassReply != null) {
             transcriptService.save("BOT", bypassReply);
             return bypassReply;
+        }
+
+        // Fast-lane: bypass the main-loop queue for stateless messages (greetings,
+        // math, port kills, log tweaks, project listings). Lets the user get
+        // answers even while a long tool call (e.g. 90s Claude Code run) is
+        // blocking the main loop.
+        if (fastLane != null) {
+            String fastReply = fastLane.tryHandle(trimmed);
+            if (fastReply != null) {
+                transcriptService.save("BOT", fastReply);
+                return fastReply;
+            }
         }
 
         // /help — concrete, canned list of slash commands + key phrases.

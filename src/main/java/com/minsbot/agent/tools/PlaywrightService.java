@@ -185,6 +185,372 @@ public class PlaywrightService {
         }
     }
 
+    /**
+     * Navigate to a URL and collect any browser console errors AND uncaught page errors
+     * during page load and the configured settle window. Used by the QA test pipeline
+     * to decide whether a freshly-launched app's UI is silently broken.
+     *
+     * @return a structured report: "CONSOLE ERRORS:" then each error line, "PAGE ERRORS:"
+     *         then each uncaught exception, plus a final summary like
+     *         "OK — no console or page errors." when clean.
+     */
+    public String probeConsoleErrors(String url, int waitSeconds) {
+        java.util.List<String> consoleErrors = new java.util.concurrent.CopyOnWriteArrayList<>();
+        java.util.List<String> pageErrors = new java.util.concurrent.CopyOnWriteArrayList<>();
+        int wait = Math.max(1, Math.min(30, waitSeconds));
+        try (Page page = newPage()) {
+            page.onConsoleMessage(msg -> {
+                if ("error".equalsIgnoreCase(msg.type())) {
+                    consoleErrors.add(msg.text());
+                }
+            });
+            page.onPageError(err -> pageErrors.add(err));
+            try {
+                page.navigate(url);
+            } catch (Exception navEx) {
+                return "NAVIGATION FAILED: " + navEx.getMessage();
+            }
+            try { page.waitForLoadState(LoadState.NETWORKIDLE); } catch (Exception ignored) {}
+            try { Thread.sleep(wait * 1000L); } catch (InterruptedException ignored) {}
+            page.context().close();
+        } catch (Exception e) {
+            return "PROBE ERROR: " + e.getMessage();
+        }
+        StringBuilder sb = new StringBuilder();
+        if (!consoleErrors.isEmpty()) {
+            sb.append("CONSOLE ERRORS (").append(consoleErrors.size()).append("):\n");
+            for (String m : consoleErrors) sb.append("  ").append(m).append('\n');
+        }
+        if (!pageErrors.isEmpty()) {
+            sb.append("PAGE ERRORS (").append(pageErrors.size()).append("):\n");
+            for (String m : pageErrors) sb.append("  ").append(m).append('\n');
+        }
+        if (sb.length() == 0) return "OK — no console or page errors.";
+        return sb.toString().stripTrailing();
+    }
+
+    /**
+     * Log in via a standard HTML form, then navigate a list of post-login URLs and
+     * capture any console/page errors from each one. Auto-detects common input
+     * selectors (username / email / user / login for the user field; password /
+     * pass for the password field) and submits via the first submit button.
+     *
+     * @return a multi-line report: per-URL status + any errors found, plus a final
+     *         LOGIN OK / LOGIN FAILED line.
+     */
+    public String loginAndProbe(String loginUrl,
+                                String username,
+                                String password,
+                                java.util.List<String> postLoginUrls,
+                                int waitSecondsPerPage) {
+        java.util.List<String> allConsoleErrors = new java.util.concurrent.CopyOnWriteArrayList<>();
+        java.util.List<String> allPageErrors = new java.util.concurrent.CopyOnWriteArrayList<>();
+        int wait = Math.max(1, Math.min(30, waitSecondsPerPage));
+        StringBuilder report = new StringBuilder();
+
+        try (Page page = newPage()) {
+            page.onConsoleMessage(msg -> {
+                if ("error".equalsIgnoreCase(msg.type())) allConsoleErrors.add("[" + page.url() + "] " + msg.text());
+            });
+            page.onPageError(err -> allPageErrors.add("[" + page.url() + "] " + err));
+
+            // ─── Login ────────────────────────────────────────────────
+            report.append("── login flow @ ").append(loginUrl).append(" ──\n");
+            try { page.navigate(loginUrl); }
+            catch (Exception e) { return "NAVIGATE to login failed: " + e.getMessage(); }
+            try { page.waitForLoadState(LoadState.NETWORKIDLE); } catch (Exception ignored) {}
+
+            String userSelector = firstMatchingSelector(page, new String[]{
+                    "input[name=username]", "input[name=user]", "input[name=email]",
+                    "input[name=login]", "input[id=username]", "input[id=email]",
+                    "input[type=email]"
+            });
+            String passSelector = firstMatchingSelector(page, new String[]{
+                    "input[name=password]", "input[name=pass]",
+                    "input[id=password]", "input[type=password]"
+            });
+            String submitSelector = firstMatchingSelector(page, new String[]{
+                    "button[type=submit]", "input[type=submit]",
+                    "button:has-text(\"Log in\")", "button:has-text(\"Login\")",
+                    "button:has-text(\"Sign in\")"
+            });
+
+            if (userSelector == null || passSelector == null) {
+                report.append("  ✗ Could not find login form fields on ").append(loginUrl).append('\n');
+                report.append("    userSel=").append(userSelector).append(" passSel=").append(passSelector).append('\n');
+                return report.toString();
+            }
+            report.append("  username field: ").append(userSelector).append('\n');
+            report.append("  password field: ").append(passSelector).append('\n');
+            try {
+                page.fill(userSelector, username == null ? "" : username);
+                page.fill(passSelector, password == null ? "" : password);
+            } catch (Exception e) {
+                report.append("  ✗ fill failed: ").append(e.getMessage()).append('\n');
+                return report.toString();
+            }
+            try {
+                if (submitSelector != null) page.click(submitSelector);
+                else page.press(passSelector, "Enter");
+            } catch (Exception e) {
+                report.append("  ✗ submit failed: ").append(e.getMessage()).append('\n');
+                return report.toString();
+            }
+            try { page.waitForLoadState(LoadState.NETWORKIDLE); } catch (Exception ignored) {}
+            try { Thread.sleep(1500); } catch (InterruptedException ignored) {}
+
+            String finalUrl = page.url();
+            boolean stillOnLogin = finalUrl.toLowerCase().contains("login")
+                    || finalUrl.equalsIgnoreCase(loginUrl);
+            boolean loginError = page.locator("text=/invalid|incorrect|error|failed/i").count() > 0
+                    && stillOnLogin;
+            if (stillOnLogin || loginError) {
+                report.append("  ✗ LOGIN FAILED — still on login page at ").append(finalUrl).append('\n');
+                if (!allConsoleErrors.isEmpty()) {
+                    report.append("  console errors during login:\n");
+                    for (String m : allConsoleErrors) report.append("    ").append(m).append('\n');
+                }
+                return report.toString();
+            }
+            report.append("  ✓ LOGIN OK — landed at ").append(finalUrl).append('\n');
+
+            // ─── Post-login probes ──────────────────────────────────
+            if (postLoginUrls == null || postLoginUrls.isEmpty()) {
+                report.append("\n(no post-login URLs provided — only login was verified)");
+                return report.toString();
+            }
+
+            report.append("\n── post-login probes ──\n");
+            for (String url : postLoginUrls) {
+                int errsBefore = allConsoleErrors.size() + allPageErrors.size();
+                try {
+                    page.navigate(url);
+                    page.waitForLoadState(LoadState.NETWORKIDLE);
+                    Thread.sleep(wait * 1000L);
+                    int errsAfter = allConsoleErrors.size() + allPageErrors.size();
+                    int delta = errsAfter - errsBefore;
+                    String mark = delta == 0 ? "✓" : "✗";
+                    report.append("  ").append(mark).append(" ").append(url)
+                          .append(" → ").append(page.url()).append(" (")
+                          .append(delta).append(" new error(s))\n");
+                } catch (Exception e) {
+                    report.append("  ✗ ").append(url).append(" → navigate error: ").append(e.getMessage()).append('\n');
+                }
+            }
+
+            // ─── Summary ────────────────────────────────────────────
+            if (!allConsoleErrors.isEmpty() || !allPageErrors.isEmpty()) {
+                report.append("\nCONSOLE ERRORS (").append(allConsoleErrors.size()).append("):\n");
+                for (String m : allConsoleErrors) report.append("  ").append(m).append('\n');
+                if (!allPageErrors.isEmpty()) {
+                    report.append("PAGE ERRORS (").append(allPageErrors.size()).append("):\n");
+                    for (String m : allPageErrors) report.append("  ").append(m).append('\n');
+                }
+            } else {
+                report.append("\n✓ No console or page errors across all probed URLs.");
+            }
+            return report.toString();
+        } catch (Exception e) {
+            return "PROBE ERROR: " + e.getMessage();
+        }
+    }
+
+    private static String firstMatchingSelector(Page page, String[] candidates) {
+        for (String sel : candidates) {
+            try { if (page.locator(sel).count() > 0) return sel; } catch (Exception ignored) {}
+        }
+        return null;
+    }
+
+    /** Known device viewports for responsive testing. */
+    public static final java.util.Map<String, int[]> DEVICE_VIEWPORTS = java.util.Map.ofEntries(
+            java.util.Map.entry("desktop-fhd",   new int[]{1920, 1080}),
+            java.util.Map.entry("desktop",       new int[]{1440,  900}),
+            java.util.Map.entry("laptop",        new int[]{1366,  768}),
+            java.util.Map.entry("tablet",        new int[]{ 768, 1024}),
+            java.util.Map.entry("tablet-lg",     new int[]{1024, 1366}),
+            java.util.Map.entry("mobile",        new int[]{ 390,  844}),
+            java.util.Map.entry("mobile-lg",     new int[]{ 414,  896}),
+            java.util.Map.entry("mobile-sm",     new int[]{ 360,  640})
+    );
+
+    /**
+     * Open {@code url} at a specific viewport, capture a screenshot, return the
+     * bytes. Creates a throwaway page with the given viewport size so responsive
+     * breakpoints render correctly. Returns null on failure.
+     */
+    public byte[] screenshotAtViewport(String url, int width, int height, int waitSeconds) {
+        int wait = Math.max(1, Math.min(20, waitSeconds));
+        try {
+            com.microsoft.playwright.BrowserContext ctx = getBrowser().newContext(
+                    new com.microsoft.playwright.Browser.NewContextOptions()
+                            .setViewportSize(width, height));
+            try (Page page = ctx.newPage()) {
+                page.navigate(url, new com.microsoft.playwright.Page.NavigateOptions()
+                        .setTimeout(15_000));
+                try { page.waitForLoadState(LoadState.NETWORKIDLE); } catch (Exception ignored) {}
+                try { Thread.sleep(wait * 1000L); } catch (InterruptedException ignored) {}
+                byte[] png = page.screenshot(new com.microsoft.playwright.Page.ScreenshotOptions()
+                        .setFullPage(true));
+                ctx.close();
+                return png;
+            }
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * Load a URL, record every network request made during load + settle, and
+     * return a summary with any 4xx/5xx responses flagged. Detects "page looks
+     * fine but a background XHR silently 500'd" bugs.
+     */
+    public String networkTrace(String url, int waitSeconds) {
+        int wait = Math.max(1, Math.min(20, waitSeconds));
+        java.util.List<String> reqs = new java.util.concurrent.CopyOnWriteArrayList<>();
+        java.util.List<String> failed = new java.util.concurrent.CopyOnWriteArrayList<>();
+        try (Page page = newPage()) {
+            page.onResponse(resp -> {
+                try {
+                    int code = resp.status();
+                    String line = code + " " + resp.request().method() + " " + resp.url();
+                    reqs.add(line);
+                    if (code >= 400) failed.add(line);
+                } catch (Exception ignored) {}
+            });
+            page.onRequestFailed(req -> failed.add("FAIL " + req.method() + " " + req.url()
+                    + " — " + req.failure()));
+            try { page.navigate(url); } catch (Exception e) { return "NAVIGATE failed: " + e.getMessage(); }
+            try { page.waitForLoadState(LoadState.NETWORKIDLE); } catch (Exception ignored) {}
+            try { Thread.sleep(wait * 1000L); } catch (InterruptedException ignored) {}
+            page.context().close();
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("requests: ").append(reqs.size())
+          .append(" | failing: ").append(failed.size()).append('\n');
+        if (!failed.isEmpty()) {
+            sb.append("FAILING REQUESTS:\n");
+            for (String l : failed) sb.append("  ").append(l).append('\n');
+        } else {
+            sb.append("✓ No failing requests.");
+        }
+        return sb.toString().stripTrailing();
+    }
+
+    /**
+     * Inject axe-core from the CDN and run an accessibility audit on the loaded
+     * page. Returns the violations grouped by impact. Best-effort — requires
+     * internet for the axe CDN fetch.
+     */
+    public String accessibilityAudit(String url, int waitSeconds) {
+        int wait = Math.max(1, Math.min(20, waitSeconds));
+        try (Page page = newPage()) {
+            try { page.navigate(url); } catch (Exception e) { return "NAVIGATE failed: " + e.getMessage(); }
+            try { page.waitForLoadState(LoadState.NETWORKIDLE); } catch (Exception ignored) {}
+            try { Thread.sleep(wait * 1000L); } catch (InterruptedException ignored) {}
+            // Inject axe-core.
+            try {
+                page.addScriptTag(new com.microsoft.playwright.Page.AddScriptTagOptions()
+                        .setUrl("https://cdnjs.cloudflare.com/ajax/libs/axe-core/4.9.1/axe.min.js"));
+            } catch (Exception e) {
+                return "axe-core inject failed: " + e.getMessage();
+            }
+            Object result = page.evaluate(
+                    "async () => { const r = await axe.run(); " +
+                    "return JSON.stringify(r.violations.map(v => ({ id: v.id, impact: v.impact, " +
+                    "help: v.help, nodes: v.nodes.length }))); }");
+            String json = String.valueOf(result);
+            page.context().close();
+            if (json == null || json.isBlank() || json.equals("[]")) return "✓ No accessibility violations.";
+            // Trivial count by impact.
+            int critical = countOccurrences(json, "\"impact\":\"critical\"");
+            int serious  = countOccurrences(json, "\"impact\":\"serious\"");
+            int moderate = countOccurrences(json, "\"impact\":\"moderate\"");
+            int minor    = countOccurrences(json, "\"impact\":\"minor\"");
+            return "a11y: critical=" + critical + " serious=" + serious
+                 + " moderate=" + moderate + " minor=" + minor + "\n" + json;
+        } catch (Exception e) {
+            return "accessibilityAudit error: " + e.getMessage();
+        }
+    }
+
+    private static int countOccurrences(String hay, String needle) {
+        if (hay == null) return 0; int c = 0, i = 0;
+        while ((i = hay.indexOf(needle, i)) >= 0) { c++; i += needle.length(); }
+        return c;
+    }
+
+    /**
+     * Find every {@code <form>} on the page, fill its inputs with reasonable dummy
+     * data, submit each, and record whether the post-submit page looks like an
+     * error (5xx, exception trace, "error" text). Smoke-only — doesn't try to
+     * satisfy complex validation.
+     */
+    public String smokeTestForms(String url, int waitSeconds) {
+        int wait = Math.max(1, Math.min(10, waitSeconds));
+        StringBuilder sb = new StringBuilder();
+        try (Page page = newPage()) {
+            try { page.navigate(url); } catch (Exception e) { return "NAVIGATE failed: " + e.getMessage(); }
+            try { page.waitForLoadState(LoadState.NETWORKIDLE); } catch (Exception ignored) {}
+            int formCount = page.locator("form").count();
+            sb.append("forms found: ").append(formCount).append('\n');
+            if (formCount == 0) return sb.append("(nothing to smoke)").toString().stripTrailing();
+
+            for (int i = 0; i < formCount; i++) {
+                try {
+                    var form = page.locator("form").nth(i);
+                    // Fill text-ish inputs.
+                    int inputs = form.locator("input[type=text], input[type=email], input[type=password], " +
+                            "input[type=number], input:not([type]), textarea").count();
+                    for (int j = 0; j < inputs; j++) {
+                        var in = form.locator("input[type=text], input[type=email], input[type=password], " +
+                                "input[type=number], input:not([type]), textarea").nth(j);
+                        String type = String.valueOf(in.getAttribute("type"));
+                        String val;
+                        if ("email".equalsIgnoreCase(type)) val = "qa@example.com";
+                        else if ("password".equalsIgnoreCase(type)) val = "TestPass123!";
+                        else if ("number".equalsIgnoreCase(type)) val = "42";
+                        else val = "QA test " + System.currentTimeMillis();
+                        try { in.fill(val); } catch (Exception ignored) {}
+                    }
+                    String before = page.url();
+                    try {
+                        form.locator("button[type=submit], input[type=submit]").first().click(
+                                new com.microsoft.playwright.Locator.ClickOptions().setTimeout(5000));
+                    } catch (Exception e) {
+                        sb.append("  form[").append(i).append("]: submit button not found — skipped\n");
+                        continue;
+                    }
+                    try { page.waitForLoadState(LoadState.NETWORKIDLE); } catch (Exception ignored) {}
+                    try { Thread.sleep(wait * 1000L); } catch (InterruptedException ignored) {}
+                    String after = page.url();
+                    String bodyText = "";
+                    try { bodyText = page.innerText("body"); } catch (Exception ignored) {}
+                    boolean looksBroken =
+                            bodyText.toLowerCase().contains("whitelabel") ||
+                            bodyText.toLowerCase().contains("exception") ||
+                            bodyText.toLowerCase().contains("stack trace") ||
+                            bodyText.toLowerCase().contains("internal server error") ||
+                            bodyText.contains(" 500 ") || bodyText.contains("status=500");
+                    sb.append("  form[").append(i).append("]: ")
+                      .append(looksBroken ? "✗" : "✓")
+                      .append(" ").append(before).append(" → ").append(after)
+                      .append(looksBroken ? " (error page detected)" : "")
+                      .append('\n');
+                    // Re-navigate back to the original URL for the next form.
+                    page.navigate(url);
+                    try { page.waitForLoadState(LoadState.NETWORKIDLE); } catch (Exception ignored) {}
+                } catch (Exception e) {
+                    sb.append("  form[").append(i).append("]: error — ").append(e.getMessage()).append('\n');
+                }
+            }
+            page.context().close();
+        } catch (Exception e) {
+            return "smokeTestForms error: " + e.getMessage();
+        }
+        return sb.toString().stripTrailing();
+    }
+
     /** Navigate to a URL, wait for content to load, and return the rendered text. */
     public String getPageText(String url) {
         try (Page page = newPage()) {
