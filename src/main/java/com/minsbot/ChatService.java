@@ -758,7 +758,13 @@ public class ChatService {
                     }
                     if (reply != null && !reply.isBlank()) {
                         reply = appendToolsFootnote(reply);
-                        transcriptService.save("BOT", reply); // SSE delivers to UI; no asyncMessages push (would double-render)
+                        log.info("[MainLoop] Bot reply ready ({} chars). Dispatching via SSE + async queue fallback.", reply.length());
+                        transcriptService.save("BOT", reply); // Primary: SSE.
+                        // Fallback: also push to the async queue so /api/chat/async polling can
+                        // deliver the reply if the SSE channel was dropped (Connection aborted
+                        // errors from the WebView have been observed). The frontend dedupes via
+                        // data-pending-match / data-hist-key so this does NOT double-render.
+                        asyncMessages.push(reply);
                         autoSpeak(reply);
                     } else {
                         // Empty LLM reply (e.g., tool call was self-sufficient). If tools fired,
@@ -766,7 +772,11 @@ public class ChatService {
                         java.util.List<String> used = toolNotifier.drainTurnLog();
                         if (!used.isEmpty()) {
                             String summary = "— used: " + String.join(" · ", used);
+                            log.info("[MainLoop] Empty reply; surfacing tool-usage summary instead.");
                             transcriptService.save("BOT", summary);
+                            asyncMessages.push(summary);
+                        } else {
+                            log.warn("[MainLoop] Empty reply and no tools fired — nothing to show user.");
                         }
                     }
                     return;
@@ -900,7 +910,12 @@ public class ChatService {
 
     /** Returns and removes the next async result, or null if none. */
     public String pollAsyncResult() {
-        return asyncMessages.poll();
+        String r = asyncMessages.poll();
+        if (r != null) {
+            log.info("[MainLoop] Async reply drained by /api/chat/async ({} chars).",
+                    r.length());
+        }
+        return r;
     }
 
     /** Returns and removes all pending tool execution status messages. */

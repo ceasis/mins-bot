@@ -731,6 +731,34 @@ body:not(.embedded-minsbot).on-tab-chat .panel-header {
   color: rgba(255, 255, 255, 0.45);
 }
 .tab-menu-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.tab-menu-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.55);
+  padding: 8px 2px 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  margin-top: 6px;
+}
+.tab-menu-section-title:first-child { margin-top: 0; }
+.tab-menu-section-experimental {
+  color: rgba(255, 170, 90, 0.6);
+  border-bottom-color: rgba(255, 170, 90, 0.15);
+}
+.tab-menu-section-experimental::after {
+  content: " — might not be needed";
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.35);
+  margin-left: 6px;
+}
+.tab-menu-section-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 14px;

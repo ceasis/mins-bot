@@ -47,7 +47,7 @@ public class FastLaneService {
         String lower = s.toLowerCase();
 
         // ── Greetings & small talk ──────────────────────────────────────
-        if (lower.matches("^(hi|hello|hey|howdy|sup|yo|morning|good morning|good evening|good afternoon)[!.?]*$")) {
+        if (lower.matches("^(hi|hello|hey|heya|hiya|howdy|sup|wassup|yo|ho|ey|ay|oi|morning|good morning|good evening|good afternoon|gm|ge)[!.?]*$")) {
             return "Hi! What can I help with?";
         }
         if (lower.matches("^(thanks|thank you|ty|thx|cheers|appreciate it)[!.?]*$")) {

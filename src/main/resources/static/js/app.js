@@ -1018,7 +1018,17 @@
         // Full inline reply — no more work pending for THIS message.
         hideThinking();
       }
-      if (data.reply) appendMessage(data.reply, false, false, { persist: true });
+      if (data.reply) {
+        // Dedup: fast-lane replies flow through BOTH the synchronous POST
+        // response AND the SSE transcript push. Skip the inline append if
+        // the last bot bubble already holds this exact text.
+        var botBubblesNow = messagesEl.querySelectorAll('.message.bot');
+        var lastBot = botBubblesNow.length > 0 ? botBubblesNow[botBubblesNow.length - 1] : null;
+        var lastBotText = lastBot ? (lastBot.textContent || '').trim() : '';
+        if (lastBotText !== String(data.reply).trim()) {
+          appendMessage(data.reply, false, false, { persist: true });
+        }
+      }
       if (data.reply && window._minsSound) window._minsSound.received();
       // After the first bot reply, check if TTS had a Fish Audio fallback (once)
       if (!window._ttsStartupChecked) {
@@ -1342,7 +1352,17 @@
         // but DON'T stop status polling \u2014 more messages may be pending, and
         // the poll is cheap when idle.
         hideThinking();
-        appendMessage(data.reply, false, true, { persist: true });
+        // Dedup: server now pushes the final reply via BOTH the SSE transcript
+        // channel AND this async queue (for resilience when SSE drops). Skip if
+        // the most recent bot bubble already has this exact text.
+        var botBubbles = messagesEl.querySelectorAll('.message.bot');
+        var last = botBubbles.length > 0 ? botBubbles[botBubbles.length - 1] : null;
+        var lastText = last ? (last.textContent || '').trim() : '';
+        if (lastText === String(data.reply).trim()) {
+          // Already rendered via SSE \u2014 nothing to do.
+        } else {
+          appendMessage(data.reply, false, true, { persist: true });
+        }
         // Add watch-comment styling for Jarvis watch mode messages (eye emoji prefix)
         if (data.reply.startsWith('\ud83d\udc41')) {
           var allMsgs = messagesEl.querySelectorAll('.message.bot');
@@ -1591,19 +1611,51 @@
   var tabBackBtnEl = document.getElementById('tab-back-btn');
   var isBrowserView = !document.body.classList.contains('embedded-minsbot');
 
+  // 3-group taxonomy. Anything not in Common or Experimental defaults to Advanced.
+  // Common       = daily use, most users
+  // Advanced     = pro users, config / tuning / telemetry
+  // Experimental = feature may not be needed, we're unsure
+  var CARD_GROUP_COMMON = {
+    'chat': 1, 'browser': 1, 'code': 1, 'agents': 1, 'skills': 1,
+    'schedules': 1, 'watcher': 1, 'todos': 1, 'knowledge': 1,
+    'memories': 1, 'proactive': 1, 'voice': 1
+  };
+  var CARD_GROUP_EXPERIMENTAL = {
+    'calibration': 1, 'marketplace': 1, 'workflows': 1, 'templates': 1,
+    'multiagent': 1, 'automations': 1, 'screens': 1
+  };
+
   function renderTabMenu() {
     if (!tabMenuGridEl) return;
-    var html = '';
+    var common = [];
+    var advanced = [];
+    var experimental = [];
     Array.prototype.forEach.call(tabs, function (btn) {
       if (btn.hasAttribute('hidden')) return;
       var id = btn.dataset.tab;
       var title = btn.textContent.trim();
       var desc = btn.getAttribute('data-desc') || '';
-      html += '<button type="button" class="tab-menu-card" data-tab-target="' + id + '">'
-           + '<div class="tab-menu-card-title">' + title + '</div>'
-           + '<div class="tab-menu-card-desc">' + desc + '</div>'
-           + '</button>';
+      var cardHtml = '<button type="button" class="tab-menu-card" data-tab-target="' + id + '">'
+                   + '<div class="tab-menu-card-title">' + title + '</div>'
+                   + '<div class="tab-menu-card-desc">' + desc + '</div>'
+                   + '</button>';
+      if (CARD_GROUP_COMMON[id]) common.push(cardHtml);
+      else if (CARD_GROUP_EXPERIMENTAL[id]) experimental.push(cardHtml);
+      else advanced.push(cardHtml);
     });
+    var html = '';
+    if (common.length) {
+      html += '<div class="tab-menu-section-title">Common</div>'
+            + '<div class="tab-menu-section-grid">' + common.join('') + '</div>';
+    }
+    if (advanced.length) {
+      html += '<div class="tab-menu-section-title">Advanced</div>'
+            + '<div class="tab-menu-section-grid">' + advanced.join('') + '</div>';
+    }
+    if (experimental.length) {
+      html += '<div class="tab-menu-section-title tab-menu-section-experimental">Experimental</div>'
+            + '<div class="tab-menu-section-grid">' + experimental.join('') + '</div>';
+    }
     tabMenuGridEl.innerHTML = html;
     tabMenuGridEl.querySelectorAll('.tab-menu-card').forEach(function (card) {
       card.addEventListener('click', function () {

@@ -9,7 +9,7 @@
   "intervalSeconds" : 300,
   "maxPrice" : 15000.0,
   "lastStatus" : "unknown",
-  "lastCheckedAt" : "2026-04-24T21:56:14.498006400Z",
+  "lastCheckedAt" : "2026-04-24T22:16:14.548749600Z",
   "lastNotifiedAt" : "",
   "createdAt" : "2026-04-24T08:13:09.088711600Z"
 }
