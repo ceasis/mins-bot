@@ -143,6 +143,7 @@
         <button class="tab tab-extra" data-tab="costs" data-desc="Live LLM spend this session + daily history + savings if you'd gone local.">Costs</button>
         <button class="tab tab-extra" data-tab="models" data-desc="Install local AI models — LLM, vision, code, embeddings.">Models</button>
         <button class="tab tab-extra" data-tab="skillpacks" data-desc="Skill packs (SKILL.md) — import, check prereqs, install binaries.">Skill Packs</button>
+        <button class="tab tab-extra" data-tab="code" data-desc="Scaffold projects via Claude Code CLI or the Anthropic SDK.">Code</button>
         <button class="tab tab-extra" data-tab="multiagent" data-desc="Multi-persona conversations with Analyst / Creative / Mediator." hidden>Multi-Agent</button>
         <button class="tab tab-extra" data-tab="automations" data-desc="If-this-then-that rules that fire on message patterns." hidden>Automations</button>
       </div>
@@ -1499,6 +1500,11 @@
           </div>
         </div>
       </div>
+      <!-- ═══ Code tab — scaffold projects via Claude Code CLI or Anthropic SDK ═══ -->
+      <div id="tab-code" class="tab-content">
+        <iframe src="/code.html" style="width:100%;height:100%;border:0;background:#0f1115"></iframe>
+      </div>
+
     </div><!-- /#panel — all tab-content divs now live inside the panel -->
 
     <div id="status-bar" class="status-bar">

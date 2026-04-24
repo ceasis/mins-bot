@@ -106,7 +106,8 @@ public class ToolClassifierService {
             "pdf_password",
             "web_to_pdf",
             "youtube_transcript",
-            "skill_packs"
+            "skill_packs",
+            "code_gen"
     );
 
     private static final String SYSTEM_PROMPT = """
@@ -190,6 +191,7 @@ public class ToolClassifierService {
             - pdf_password: unlock my pdf, forgot pdf password, pdf password recovery, try passwords on pdf, decrypt pdf, brute force pdf, crack pdf password, pdf is password protected, I lost the pdf password. PREFER THIS CATEGORY for encrypted-PDF recovery with a wordlist or hints.
             - web_to_pdf: save this page as pdf, archive this article, save webpage as pdf, print page to pdf, save this recipe as pdf, download page as pdf, convert webpage to pdf, save url as pdf, web to pdf. PREFER THIS CATEGORY to render a URL into a PDF file on disk.
             - youtube_transcript: youtube transcript, get transcript of this youtube video, what does this video say, transcribe youtube, captions of this video, summarize this youtube video, tldr this youtube, bullet points of this video, what is this video about. PREFER THIS CATEGORY for fetching captions / summarizing videos (no API key needed).
+            - code_gen: create me a project, create me a java/python/node/react/spring-boot project, scaffold a project, scaffold an app, build me a codebase, generate a starter project, make me a new app, write me an app that does X, create a codebase, scaffold with files, 'create me special <lang> project' (special = use SpecialCodeGenerator instead of primary). PREFER THIS CATEGORY over 'code_runner' when the user asks to CREATE/SCAFFOLD a new project or multi-file codebase on disk (vs. just running a snippet). Routes to ClaudeCodeTools (primary) and SpecialCodeGenerator (secondary, when user says 'special').
             - skill_packs: use the github skill, run the 1password skill, use the notion skill, use the discord skill, use the whisper skill, list available skill packs, what skill packs are installed, invoke the X skill, run skill X, show me what skills are available, use an external CLI skill (gh, op, whisper, etc), run a bash/shell command via a known skill. PREFER THIS CATEGORY whenever the user references an external CLI tool (gh, op, whisper, ffmpeg, yt-dlp, discord, notion, obsidian, slack, etc) OR asks to list/run a named skill pack.
             - dev_skills: encode this, decode base64, hex encode, url encode, hash this string, MD5, SHA-256, SHA-1, pretty print JSON, minify JSON, validate JSON, test regex, regex match, generate UUID, generate password, random number, roll dice, identify hash, what kind of hash, parse cron, next cron runs, convert unit, meters to feet, kg to lb, C to F, GB to MB, bytes conversion
             - productivity_skills: create note, save note, search notes, remind me to, set a reminder, list reminders, start timer, countdown, list timers, clipboard history search, create OKR, list OKRs, what time is it in, convert timezone, what time is in Tokyo, meeting cost, how much does this meeting cost, SLA downtime, uptime calculator, 99.9 uptime, downtime budget

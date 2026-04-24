@@ -164,6 +164,8 @@ public class ToolRouter {
     private final WebToPdfTools webToPdfTools;
     private final YouTubeTranscriptTools youTubeTranscriptTools;
     private final com.minsbot.skillpack.SkillPackTool skillPackTool;
+    private final ClaudeCodeTools claudeCodeTools;
+    private final SpecialCodeGenerator specialCodeGenerator;
 
     @Autowired(required = false)
     private ToolClassifierService classifier;
@@ -301,7 +303,9 @@ public class ToolRouter {
             PdfPasswordCrackerTools pdfPasswordCrackerTools,
             WebToPdfTools webToPdfTools,
             YouTubeTranscriptTools youTubeTranscriptTools,
-            com.minsbot.skillpack.SkillPackTool skillPackTool) {
+            com.minsbot.skillpack.SkillPackTool skillPackTool,
+            ClaudeCodeTools claudeCodeTools,
+            SpecialCodeGenerator specialCodeGenerator) {
 
         this.directivesTools = directivesTools;
         this.directiveDataTools = directiveDataTools;
@@ -423,6 +427,8 @@ public class ToolRouter {
         this.webToPdfTools = webToPdfTools;
         this.youTubeTranscriptTools = youTubeTranscriptTools;
         this.skillPackTool = skillPackTool;
+        this.claudeCodeTools = claudeCodeTools;
+        this.specialCodeGenerator = specialCodeGenerator;
 
         // Count @Tool methods on every bean (once, via reflection)
         countToolsOnAllBeans();
@@ -696,6 +702,7 @@ public class ToolRouter {
         map.put("video_creation", List.of(remotionVideoTools));
         map.put("trend_scout",   List.of(trendScoutTools, webSearchTools));
         map.put("github",        List.of(gitHubTools));
+        map.put("code_gen",      List.of(claudeCodeTools, specialCodeGenerator));
         map.put("bot_window",    List.of(botWindowTools));
         map.put("code_runner",   List.of(codeRunnerTools));
         map.put("file_watcher",  List.of(fileWatcherTools, fileTools));

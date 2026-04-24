@@ -187,8 +187,62 @@ public class GitHubTools {
         }
     }
 
-    @Tool(description = "Create a new GitHub repository under the authenticated user's account. "
-            + "Requires a GitHub token with 'repo' scope. Returns the new repo's URL on success.")
+    @Tool(description = "PRIMARY tool for creating a new GitHub repository. "
+            + "Call this immediately when the user asks to create/make/new a github repo, "
+            + "even if they phrase it casually ('create me a repo called X', 'new github project X', "
+            + "'spin up a repo'). Uses the installed `gh` CLI (already authenticated on this machine) "
+            + "so no API token is required. Returns the new repo URL on success.")
+    @com.minsbot.offline.RequiresOnline("GitHub — create repo via gh CLI")
+    public String createRepoViaGhCli(
+            @ToolParam(description = "Repository name, e.g. 'cool-projects'") String name,
+            @ToolParam(description = "True for private repo, false for public") boolean isPrivate,
+            @ToolParam(description = "True to initialize with a README") boolean addReadme) {
+        notifier.notify("Creating GitHub repo '" + name + "' via gh CLI...");
+        try {
+            if (name == null || name.isBlank()) return "Error: repository name is required.";
+            String cleanName = name.trim();
+
+            java.util.List<String> cmd = new java.util.ArrayList<>();
+            cmd.add("gh");
+            cmd.add("repo");
+            cmd.add("create");
+            cmd.add(cleanName);
+            cmd.add(isPrivate ? "--private" : "--public");
+            if (addReadme) cmd.add("--add-readme");
+
+            ProcessBuilder pb = new ProcessBuilder(cmd).redirectErrorStream(true);
+            Process p = pb.start();
+            String output = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+            boolean finished = p.waitFor(30, java.util.concurrent.TimeUnit.SECONDS);
+            if (!finished) {
+                p.destroyForcibly();
+                return "Error: gh command timed out after 30s.";
+            }
+            int exit = p.exitValue();
+            if (exit != 0) {
+                if (output.contains("not found") || output.contains("not recognized")) {
+                    return "gh CLI is not installed or not on PATH. Install via: winget install --id GitHub.cli -e";
+                }
+                if (output.toLowerCase().contains("authentication") || output.contains("gh auth")) {
+                    return "gh CLI is not authenticated. Run: gh auth login";
+                }
+                return "gh repo create failed (exit " + exit + "): " + output;
+            }
+            // gh prints the repo URL on success, usually as the last non-empty line
+            String url = output;
+            for (String line : output.split("\\R")) {
+                String t = line.trim();
+                if (t.startsWith("https://github.com/")) { url = t; break; }
+            }
+            return "Repository created: " + url;
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    @Tool(description = "Create a new GitHub repository via REST API (requires GITHUB_TOKEN). "
+            + "Prefer createRepoViaGhCli instead — it uses the already-authenticated gh CLI with no token. "
+            + "Only use this as a fallback when gh CLI is not available.")
     @com.minsbot.offline.RequiresOnline("GitHub — create repo")
     public String createRepo(
             @ToolParam(description = "Repository name (e.g. 'my-new-repo')") String name,
