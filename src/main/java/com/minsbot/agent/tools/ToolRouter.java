@@ -188,6 +188,10 @@ public class ToolRouter {
     private UnifiedFindTool unifiedFindTool;
     @org.springframework.beans.factory.annotation.Autowired
     private WhatNowTool whatNowTool;
+    @org.springframework.beans.factory.annotation.Autowired
+    private TodaysFocusTool todaysFocusTool;
+    @org.springframework.beans.factory.annotation.Autowired
+    private ArchiveUrlTool archiveUrlTool;
 
     @Autowired(required = false)
     private ToolClassifierService classifier;
@@ -693,7 +697,7 @@ public class ToolRouter {
         Map<String, List<Object>> map = new LinkedHashMap<>();
 
         map.put("chat_browser", List.of(playwrightTools, downloadTools, sitesConfigTools, webSearchTools));
-        map.put("browser",      List.of(screenClickTools, playwrightTools, downloadTools, sitesConfigTools, systemTools, chromeCdpTools, webSearchTools, travelSearchTools, researchTool));
+        map.put("browser",      List.of(screenClickTools, playwrightTools, downloadTools, sitesConfigTools, systemTools, chromeCdpTools, webSearchTools, travelSearchTools, researchTool, archiveUrlTool));
         map.put("cdp",          List.of(chromeCdpTools));
         map.put("sites",        List.of(sitesConfigTools));
         map.put("files",        List.of(fileTools, fileSystemTools, excelTools, systemTools, wordDocTools, pdfTools, backupConfigTools));
@@ -718,7 +722,7 @@ public class ToolRouter {
         map.put("travel",        List.of(travelSearchTools, webSearchTools, wordDocTools, pdfTools));
         map.put("knowledge",     List.of(knowledgeBaseTools));
         map.put("research",      List.of(webSearchTools, webScraperTools, excelTools, pdfTools, fileTools, fileSystemTools, ttsTools, summarizationTools));
-        map.put("briefing",      List.of(gmailApiTools, calendarTools, emailTools, weatherTools, ttsTools, summarizationTools, dailyBriefingTool, dailyRecapTool, whatNowTool));
+        map.put("briefing",      List.of(gmailApiTools, calendarTools, emailTools, weatherTools, ttsTools, summarizationTools, dailyBriefingTool, dailyRecapTool, whatNowTool, todaysFocusTool));
         map.put("calendar",      List.of(calendarTools));
         map.put("gmail",         List.of(gmailApiTools, emailTools));
         map.put("drive",         List.of(driveTools));

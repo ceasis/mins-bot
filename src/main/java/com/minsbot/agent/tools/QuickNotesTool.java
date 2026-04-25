@@ -56,6 +56,53 @@ public class QuickNotesTool {
         }
     }
 
+    @Tool(description = "Filter notes by hashtag (e.g. '#wifi', '#car', '#groceries'). Tags are inferred "
+            + "from the note body — any '#word' counts. Use when the user asks 'show my #wifi notes', "
+            + "'all notes tagged X'.")
+    public String notesByTag(
+            @ToolParam(description = "Tag to filter by, with or without leading '#' (e.g. 'wifi' or '#wifi').") String tag) {
+        if (tag == null || tag.isBlank()) return "Error: tag is required.";
+        String needle = "#" + tag.replace("#", "").trim().toLowerCase();
+        List<Path> files = listFiles();
+        StringBuilder sb = new StringBuilder();
+        int hits = 0;
+        for (Path p : files) {
+            try {
+                String body = Files.readString(p, StandardCharsets.UTF_8);
+                if (body.toLowerCase().contains(needle)) {
+                    hits++;
+                    sb.append("• ").append(humanStamp(p.getFileName().toString())).append(" — ")
+                      .append(body.trim()).append("\n\n");
+                }
+            } catch (IOException ignored) {}
+        }
+        if (hits == 0) return "No notes tagged " + needle + ".";
+        return "📝 " + hits + " note(s) tagged " + needle + ":\n\n" + sb;
+    }
+
+    @Tool(description = "List all hashtags found across saved notes, with counts. Use when the user asks "
+            + "'what tags do I have', 'what categories', 'show note tags'.")
+    public String listTags() {
+        List<Path> files = listFiles();
+        java.util.Map<String, Integer> counts = new java.util.TreeMap<>();
+        java.util.regex.Pattern tagP = java.util.regex.Pattern.compile("#([A-Za-z0-9_-]{2,})");
+        for (Path p : files) {
+            try {
+                String body = Files.readString(p, StandardCharsets.UTF_8);
+                java.util.regex.Matcher m = tagP.matcher(body);
+                java.util.Set<String> seen = new java.util.HashSet<>();
+                while (m.find()) seen.add("#" + m.group(1).toLowerCase());
+                for (String t : seen) counts.merge(t, 1, Integer::sum);
+            } catch (IOException ignored) {}
+        }
+        if (counts.isEmpty()) return "No tags yet. Add hashtags inside notes (e.g. '#wifi').";
+        StringBuilder sb = new StringBuilder("🏷  Tags (" + counts.size() + "):\n");
+        counts.entrySet().stream()
+                .sorted((a, b) -> b.getValue() - a.getValue())
+                .forEach(e -> sb.append("  ").append(e.getKey()).append("  × ").append(e.getValue()).append("\n"));
+        return sb.toString();
+    }
+
     @Tool(description = "List quick notes, most recent first. Use when the user asks 'show my notes', "
             + "'what did I jot down', 'list notes', 'what am I supposed to remember'.")
     public String listNotes(

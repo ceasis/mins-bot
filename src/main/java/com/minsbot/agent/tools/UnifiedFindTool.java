@@ -27,6 +27,8 @@ public class UnifiedFindTool {
     private static final Logger log = LoggerFactory.getLogger(UnifiedFindTool.class);
     private static final Path NOTES_DIR =
             Paths.get(System.getProperty("user.home"), "mins_bot_data", "quick_notes");
+    private static final Path RESEARCH_DIR =
+            Paths.get(System.getProperty("user.home"), "mins_bot_data", "research_archive");
 
     @Autowired(required = false) private TranscriptService transcriptService;
     @Autowired(required = false) private ToolExecutionNotifier notifier;
@@ -65,6 +67,33 @@ public class UnifiedFindTool {
         if (noteHits > 0) {
             out.append("📝 Notes (").append(noteHits).append("):\n").append(notesSb).append("\n");
             totalHits += noteHits;
+        }
+
+        // Research archive
+        int researchHits = 0;
+        StringBuilder researchSb = new StringBuilder();
+        if (Files.isDirectory(RESEARCH_DIR)) {
+            try (Stream<Path> s = Files.list(RESEARCH_DIR)) {
+                List<Path> files = s.filter(p -> p.toString().endsWith(".md"))
+                        .sorted(java.util.Comparator.reverseOrder()).toList();
+                for (Path p : files) {
+                    try {
+                        String body = Files.readString(p, StandardCharsets.UTF_8);
+                        if (body.toLowerCase().contains(q)) {
+                            researchHits++;
+                            String stem = p.getFileName().toString().replace(".md", "");
+                            String firstLine = body.split("\\R", 2)[0].replace("#", "").trim();
+                            researchSb.append("  • [").append(stem).append("] ")
+                                      .append(trimFor(firstLine, 140)).append("\n");
+                        }
+                    } catch (IOException ignored) {}
+                }
+            } catch (IOException ignored) {}
+        }
+        if (researchHits > 0) {
+            out.append("🔎 Research archive (").append(researchHits).append("):\n")
+               .append(researchSb).append("\n");
+            totalHits += researchHits;
         }
 
         // Recent chat memory

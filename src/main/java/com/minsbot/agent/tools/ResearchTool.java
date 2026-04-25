@@ -97,6 +97,7 @@ public class ResearchTool {
             for (int i = 0; i < urls.size(); i++) {
                 out.append("[").append(i + 1).append("] ").append(urls.get(i)).append("\n");
             }
+            persistResult(query, out.toString());
             return out.toString();
         } catch (Exception e) {
             log.warn("[Research] failed: {}", e.getMessage(), e);
@@ -107,5 +108,23 @@ public class ResearchTool {
     private static String truncate(String s, int max) {
         if (s == null) return "";
         return s.length() <= max ? s : s.substring(0, max) + "...";
+    }
+
+    private static void persistResult(String query, String body) {
+        try {
+            java.nio.file.Path dir = java.nio.file.Paths.get(
+                    System.getProperty("user.home"), "mins_bot_data", "research_archive");
+            java.nio.file.Files.createDirectories(dir);
+            String stem = java.time.LocalDateTime.now().format(
+                    java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
+            java.nio.file.Path p = dir.resolve(stem + ".md");
+            String header = "# " + query.trim() + "\n\n_archived: "
+                    + java.time.LocalDateTime.now().format(
+                        java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+                    + "_\n\n";
+            java.nio.file.Files.writeString(p, header + body, java.nio.charset.StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            log.debug("[Research] persist failed: {}", e.getMessage());
+        }
     }
 }
