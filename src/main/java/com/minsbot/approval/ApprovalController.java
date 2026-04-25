@@ -128,7 +128,12 @@ public class ApprovalController {
             try {
                 e.send(SseEmitter.event().name(event).data(data));
             } catch (Exception ex) {
+                // Client gone — drop AND tell Spring the emitter is done so the
+                // async-request machinery doesn't re-dispatch the IOException
+                // through the MVC pipeline (which would hit @ExceptionHandler
+                // returning JSON for a text/event-stream response → cascade).
                 subscribers.remove(e);
+                try { e.complete(); } catch (Exception ignored) {}
             }
         }
     }

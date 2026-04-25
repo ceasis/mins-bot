@@ -87,7 +87,121 @@
     if (typeof window.java !== 'undefined' && window.java.expand) window.java.expand();
     focusInputSoon();
     ensureInputFocus();
+    maybeShowSetupModal();
   }
+
+  // ═══ Setup modal — asks for missing API keys on first open / after defer expires ═══
+  var _setupShown = false;
+  async function maybeShowSetupModal() {
+    if (_setupShown) return;
+    var modal = document.getElementById('setup-modal');
+    if (!modal) return;
+    try {
+      var r = await fetch('/api/setup/needs', { cache: 'no-store' });
+      if (!r.ok) return;
+      var data = await r.json();
+      if (!data.needs || data.needs.length === 0) return;
+      if (data.suppressUntilSkipExpires) return;
+      renderSetupModal(data.needs, data.secretsFile);
+      _setupShown = true;
+    } catch (e) { /* offline / not deployed — ignore */ }
+  }
+
+  function renderSetupModal(needs, secretsFile) {
+    var body = document.getElementById('setup-modal-body');
+    body.innerHTML = '';
+    needs.forEach(function (n) {
+      var wrap = document.createElement('div');
+      wrap.className = 'setup-need';
+      var label = document.createElement('div');
+      label.className = 'setup-need-label';
+      label.textContent = n.label;
+      if (n.required) {
+        var req = document.createElement('span');
+        req.className = 'setup-need-required';
+        req.textContent = '· required';
+        label.appendChild(req);
+      }
+      wrap.appendChild(label);
+      var hint = document.createElement('div');
+      hint.className = 'setup-need-hint';
+      hint.textContent = n.hint;
+      if (n.docs) {
+        var sp = document.createTextNode(' ');
+        var a = document.createElement('a');
+        a.className = 'setup-need-docs';
+        a.href = n.docs; a.target = '_blank'; a.rel = 'noopener';
+        a.textContent = 'Get a key →';
+        hint.appendChild(sp); hint.appendChild(a);
+      }
+      wrap.appendChild(hint);
+      var input = document.createElement('input');
+      input.type = 'password';
+      input.className = 'setup-need-input';
+      input.placeholder = n.envKey + ' / ' + n.key;
+      input.dataset.key = n.key;
+      wrap.appendChild(input);
+      body.appendChild(wrap);
+    });
+    var footer = document.createElement('div');
+    footer.style.cssText = 'color:#8a93a6;font-size:11px;margin-top:6px';
+    footer.textContent = 'Stored in ' + secretsFile + '. Restart required for new keys to take effect.';
+    body.appendChild(footer);
+
+    document.getElementById('setup-modal').hidden = false;
+  }
+
+  function setupToast(msg, err) {
+    var t = document.getElementById('setup-modal-toast');
+    if (!t) return;
+    t.textContent = msg;
+    t.hidden = false;
+    t.className = 'setup-modal-toast' + (err ? ' err' : '');
+    clearTimeout(t._timer);
+    t._timer = setTimeout(function () { t.hidden = true; }, 2400);
+  }
+
+  function hideSetupModal() {
+    var modal = document.getElementById('setup-modal');
+    if (modal) modal.hidden = true;
+  }
+
+  document.addEventListener('click', async function (e) {
+    var save = e.target.closest('#setup-save-btn');
+    var skip = e.target.closest('#setup-skip-btn');
+    if (!save && !skip) return;
+    if (skip) {
+      try { await fetch('/api/setup/skip', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hours: 6 }) }); } catch (_) {}
+      hideSetupModal();
+      return;
+    }
+    if (save) {
+      var inputs = document.querySelectorAll('#setup-modal-body .setup-need-input');
+      var payload = {};
+      inputs.forEach(function (inp) {
+        var v = (inp.value || '').trim();
+        if (v) payload[inp.dataset.key] = v;
+      });
+      if (Object.keys(payload).length === 0) {
+        setupToast('Add at least one key, or click Later.', true);
+        return;
+      }
+      save.disabled = true;
+      try {
+        var r = await fetch('/api/setup/save', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        var j = await r.json();
+        if (!r.ok || !j.ok) throw new Error(j.error || 'HTTP ' + r.status);
+        setupToast('Saved ' + j.saved + ' key(s). Restart to activate.');
+        setTimeout(hideSetupModal, 900);
+      } catch (err) {
+        setupToast('Save failed: ' + err.message, true);
+        save.disabled = false;
+      }
+    }
+  });
 
   // ═══ Anti-drag (prevent "Copy" ghost on Windows) ═══
 
@@ -1732,6 +1846,8 @@
     // JavaFX shell: chat is the only surface.
     setActiveSurface('chat');
   }
+  // Setup modal — also try once on init so browser-view users see it before expand().
+  setTimeout(maybeShowSetupModal, 1500);
   if (tabBackBtnEl) {
     tabBackBtnEl.addEventListener('click', showTabMenu);
   }

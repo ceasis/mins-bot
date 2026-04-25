@@ -48,10 +48,14 @@ public class ResearchArchivePageController {
                 sb.append("<div class=b>").append(esc(e.title)).append("</div>");
                 sb.append("</a>");
             }
+            sb.append("<div id=empty-q class=empty hidden>No research entries match your filter.</div>");
             sb.append("<script>const q=document.getElementById('q');")
-              .append("q.addEventListener('input',()=>{const v=q.value.trim().toLowerCase();")
+              .append("const emptyEl=document.getElementById('empty-q');")
+              .append("q.addEventListener('input',()=>{const v=q.value.trim().toLowerCase();let visible=0;")
               .append("document.querySelectorAll('[data-note]').forEach(el=>{")
-              .append("el.classList.toggle('hide',v!==''&&el.dataset.body.indexOf(v)<0);});});</script>");
+              .append("const hide=v!==''&&el.dataset.body.indexOf(v)<0;")
+              .append("el.classList.toggle('hide',hide);if(!hide)visible++;});")
+              .append("emptyEl.hidden=!(v!==''&&visible===0);});</script>");
         }
         sb.append("</body></html>");
         return ResponseEntity.ok().header("Cache-Control", "no-store").body(sb.toString());
@@ -69,8 +73,25 @@ public class ResearchArchivePageController {
         catch (IOException e) { return ResponseEntity.status(500).body("<h1>Read error</h1>"); }
         StringBuilder sb = new StringBuilder();
         startHtml(sb, "Research — " + safe);
-        sb.append("<a href='/research.html' class=back>← back to archive</a>");
+        sb.append("<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:12px'>");
+        sb.append("<a href='/research.html' class=back style='margin:0'>← back to archive</a>");
+        sb.append("<button id=del class='btn danger' data-id='").append(esc(safe)).append("'>🗑 Delete</button>");
+        sb.append("</div>");
         sb.append("<pre class=body>").append(esc(body)).append("</pre>");
+        sb.append("<div id=toast></div>");
+        sb.append("<script>");
+        sb.append("const del=document.getElementById('del');const toast=document.getElementById('toast');");
+        sb.append("function showToast(m,e){toast.textContent=m;toast.className=e?'show err':'show';");
+        sb.append("clearTimeout(toast._t);toast._t=setTimeout(()=>toast.classList.remove('show','err'),2200);}");
+        sb.append("del.addEventListener('click',async()=>{");
+        sb.append("del.disabled=true;");
+        sb.append("try{const r=await fetch('/api/research/'+encodeURIComponent(del.dataset.id),{method:'DELETE'});");
+        sb.append("if(!r.ok)throw new Error('HTTP '+r.status);");
+        sb.append("showToast('Deleted (recoverable from trash)');");
+        sb.append("setTimeout(()=>location.href='/research.html',500);");
+        sb.append("}catch(err){showToast('Failed: '+err.message,true);del.disabled=false;}");
+        sb.append("});");
+        sb.append("</script>");
         sb.append("</body></html>");
         return ResponseEntity.ok().header("Cache-Control", "no-store").body(sb.toString());
     }
@@ -95,7 +116,27 @@ public class ResearchArchivePageController {
         sb.append(".back{display:inline-block;color:#7c5cff;text-decoration:none;margin-bottom:12px}");
         sb.append(".body{white-space:pre-wrap;word-break:break-word;background:#171a21;");
         sb.append("border:1px solid #222733;border-radius:8px;padding:16px;color:#d9dce3;font:13px/1.6 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}");
+        sb.append(".navbar{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}");
+        sb.append(".navbar a{color:#8a93a6;text-decoration:none;font-size:12px;padding:5px 10px;");
+        sb.append("border:1px solid #2a2f3a;border-radius:999px;background:#171a21}");
+        sb.append(".navbar a:hover{color:#e6e8ef;border-color:#7c5cff}");
+        sb.append(".navbar a.active{color:#fff;border-color:#7c5cff;background:#1a1729}");
+        sb.append(".btn{background:#1f232c;color:#e6e8ef;border:1px solid #2a2f3a;border-radius:6px;");
+        sb.append("padding:6px 12px;font-size:12px;cursor:pointer;font-family:inherit}");
+        sb.append(".btn:hover{border-color:#7c5cff;color:#fff}");
+        sb.append(".btn.danger:hover{border-color:#ff5c7c;color:#ffb0c0}");
+        sb.append("#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);");
+        sb.append("background:#1f232c;border:1px solid #2a2f3a;border-radius:8px;padding:10px 16px;");
+        sb.append("color:#e6e8ef;font-size:13px;opacity:0;pointer-events:none;transition:opacity 0.15s}");
+        sb.append("#toast.show{opacity:1}");
+        sb.append("#toast.err{border-color:#ff5c7c;color:#ffb0c0}");
         sb.append("</style></head><body>");
+        sb.append("<div class=navbar>");
+        sb.append("<a href='/home.html'>🏠 Home</a>");
+        sb.append("<a href='/notes.html'>📝 Notes</a>");
+        sb.append("<a href='/research.html' class=active>🔎 Research</a>");
+        sb.append("<a href='/tools.html'>🛠 Tools</a>");
+        sb.append("</div>");
     }
 
     private static List<Entry> loadAll() {

@@ -83,7 +83,19 @@ public class ToolsCheatSheetController {
         sb.append(".tool .p{font-family:monospace;font-size:11px;color:#5a6072;margin-top:4px}");
         sb.append(".hit b{background:rgba(124,92,255,0.35);color:#fff;border-radius:3px;padding:0 2px}");
         sb.append(".hide{display:none}");
+        sb.append(".empty-q{color:#8a93a6;font-style:italic;padding:20px 0}");
+        sb.append(".navbar{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}");
+        sb.append(".navbar a{color:#8a93a6;text-decoration:none;font-size:12px;padding:5px 10px;");
+        sb.append("border:1px solid #2a2f3a;border-radius:999px;background:#171a21}");
+        sb.append(".navbar a:hover{color:#e6e8ef;border-color:#7c5cff}");
+        sb.append(".navbar a.active{color:#fff;border-color:#7c5cff;background:#1a1729}");
         sb.append("</style></head><body>");
+        sb.append("<div class=navbar>");
+        sb.append("<a href='/home.html'>🏠 Home</a>");
+        sb.append("<a href='/notes.html'>📝 Notes</a>");
+        sb.append("<a href='/research.html'>🔎 Research</a>");
+        sb.append("<a href='/tools.html' class=active>🛠 Tools</a>");
+        sb.append("</div>");
         sb.append("<h1>Mins Bot — Tool reference</h1>");
         sb.append("<div class=sub>").append(total).append(" tools across ").append(byClass.size())
           .append(" components. Type to filter by name, class, or description.</div>");
@@ -102,17 +114,21 @@ public class ToolsCheatSheetController {
             }
             sb.append("</div>");
         }
+        sb.append("<div id=empty-q class=empty-q hidden>No tools match. Try fewer characters or a different keyword.</div>");
         sb.append("<script>");
         sb.append("const q=document.getElementById('q');");
+        sb.append("const emptyEl=document.getElementById('empty-q');");
         sb.append("q.addEventListener('input',()=>{");
         sb.append("const v=q.value.trim().toLowerCase();");
+        sb.append("let visible=0;");
         sb.append("document.querySelectorAll('[data-tool]').forEach(el=>{");
         sb.append("const hit=v===''||el.dataset.body.indexOf(v)>=0;");
-        sb.append("el.classList.toggle('hide',!hit);");
+        sb.append("el.classList.toggle('hide',!hit);if(hit)visible++;");
         sb.append("});");
         sb.append("document.querySelectorAll('[data-grp]').forEach(g=>{");
         sb.append("const any=[...g.querySelectorAll('[data-tool]')].some(e=>!e.classList.contains('hide'));");
         sb.append("g.classList.toggle('hide',!any);});");
+        sb.append("emptyEl.hidden=!(v!==''&&visible===0);");
         sb.append("});");
         sb.append("</script></body></html>");
         return sb.toString();

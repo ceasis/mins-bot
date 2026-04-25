@@ -609,7 +609,10 @@ public class FloatingAppLauncher extends Application {
                     + "if(!el) return false;"
                     // If we hit an SVG child, walk up to the nearest interactive HTML ancestor
                     + "var target = el.closest('button,a,input,select,textarea,label,[onclick],[role=button]');"
-                    + "if(!target) target = el;"
+                    // No interactive ancestor → native click already fired in WebView; do nothing.
+                    // Re-dispatching synthetic mousedown/mouseup on plain text causes the browser
+                    // to treat it as a multi-click and auto-select the nearest text run.
+                    + "if(!target) return false;"
                     + "var textTarget = target.matches('input:not([type=button]):not([type=submit]):not([type=checkbox]):not([type=radio]),textarea,[contenteditable]');"
                     // For text fields, DO NOT dispatch synthetic click events here.
                     // Native events already occurred; dispatching again breaks drag-selection/highlight.

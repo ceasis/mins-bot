@@ -5,7 +5,8 @@ A floating desktop AI assistant built with **Java 17**, **Spring Boot**, and **J
 ![Java](https://img.shields.io/badge/Java-17-blue)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.3-green)
 ![JavaFX](https://img.shields.io/badge/JavaFX-21-orange)
-![License](https://img.shields.io/badge/License-AGPL--3.0%20%2B%20Commons%20Clause-red)
+![License](https://img.shields.io/badge/License-Proprietary%20EULA-red)
+![Skills SDK](https://img.shields.io/badge/Skills%20SDK-MIT-green)
 
 ---
 
@@ -547,16 +548,12 @@ mins-bot/
 
 ## License
 
-This project is licensed under the **GNU Affero General Public License v3.0** with the **Commons Clause** license condition.
+Mins Bot is **commercial software**. The desktop app is sold under a proprietary EULA — see [LICENSE](LICENSE).
 
-**You may:**
-- Use, view, and modify the source code
-- Distribute copies under the same license terms
-- Use it for personal and internal purposes
+- **The app**: closed-source, paid ($49 lifetime, single-user, up to 3 devices). 14-day refund.
+- **The skill format & SDK**: open-source under MIT. Build and share your own skills freely. See [SKILL_FORMAT.md](SKILL_FORMAT.md) and the [mins-bot-skills](https://github.com/mins-bot/mins-bot-skills) repo for examples.
+- **API keys (OpenAI / Anthropic / Google / etc.)**: bring your own. Mins Bot is a client — your data and usage stay on your machine, billed directly by the provider.
 
-**You may not:**
-- Sell the software or offer it as a paid hosted service
-- Distribute modified versions without sharing the source code
-- Remove license or copyright notices
+> This repository is **source-available to license holders for review and audit**. It is not open source. Redistribution, modification of the binary, or use to develop a competing product is prohibited under the EULA. Skill packs you author are yours and may be distributed under any license you choose.
 
-See [LICENSE](LICENSE) for the full text.
+For licensing questions, contact support@mins.io.

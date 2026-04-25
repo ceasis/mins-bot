@@ -2,10 +2,14 @@ package com.minsbot.agent.tools;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.io.IOException;
 
 import java.lang.management.ManagementFactory;
 import java.time.Instant;
@@ -66,15 +70,34 @@ public class ToolErrorHandler {
         );
     }
 
+    /**
+     * Client-side disconnects ({@code IOException: connection aborted / broken pipe})
+     * during SSE flushes are normal — the user closed the tab or the network blipped.
+     * Don't log a stack trace and don't try to write a JSON body, since the response
+     * is already mid-stream with Content-Type: text/event-stream and Jackson has no
+     * converter for that combination → cascading {@link org.springframework.http.converter.HttpMessageNotWritableException}.
+     */
+    @ExceptionHandler(IOException.class)
+    public ResponseEntity<Void> handleClientAbort(IOException ex, HttpServletResponse response) {
+        log.debug("Client disconnect during write: {}", ex.getMessage());
+        // Response is already committed for SSE; just signal end-of-stream with no body.
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+    }
+
     @ExceptionHandler(Exception.class)
-    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
-    public Map<String, Object> handleGenericException(Exception ex) {
+    public ResponseEntity<?> handleGenericException(Exception ex, HttpServletResponse response) {
         log.error("Unhandled exception in controller: {}", ex.getMessage(), ex);
-        return Map.of(
+        // If the response is mid-stream as SSE, returning a Map will fail message
+        // conversion (Jackson has no text/event-stream converter). Bail empty.
+        String ct = response.getContentType();
+        if (ct != null && ct.startsWith("text/event-stream")) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                 "error", true,
                 "message", "An internal error occurred: " + ex.getMessage(),
                 "timestamp", Instant.now().toString()
-        );
+        ));
     }
 
     // ───────────────────────── Tool execution safety wrapper ─────────────────────────

@@ -53,6 +53,22 @@
         </button>
       </div>
     </header>
+    <!-- First-run / API key setup modal. Hidden by default; shown by app.js when /api/setup/needs reports missing keys and no active deferral. -->
+    <div id="setup-modal" class="setup-modal" hidden aria-hidden="true">
+      <div class="setup-modal-backdrop"></div>
+      <div class="setup-modal-card" role="dialog" aria-labelledby="setup-modal-title">
+        <div class="setup-modal-header">
+          <div id="setup-modal-title" class="setup-modal-title">Quick setup</div>
+          <div class="setup-modal-sub">Add the API keys you have. The rest can wait.</div>
+        </div>
+        <div id="setup-modal-body" class="setup-modal-body"></div>
+        <div class="setup-modal-footer">
+          <button type="button" id="setup-skip-btn" class="setup-btn-secondary">Later</button>
+          <button type="button" id="setup-save-btn" class="setup-btn-primary">Save</button>
+        </div>
+        <div id="setup-modal-toast" class="setup-modal-toast" hidden></div>
+      </div>
+    </div>
     <div id="panel" class="panel">
       <div class="panel-header">
         <div style="display:flex;align-items:center;gap:8px;">

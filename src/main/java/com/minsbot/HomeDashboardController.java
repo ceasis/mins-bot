@@ -115,14 +115,26 @@ public class HomeDashboardController {
         sb.append(".chip{background:#1f232c;color:#d9dce3;border:1px solid #2a2f3a;border-radius:999px;");
         sb.append("padding:6px 12px;font-size:12px;text-decoration:none}");
         sb.append(".chip:hover{border-color:#7c5cff;color:#fff}");
+        sb.append(".navbar{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}");
+        sb.append(".navbar a{color:#8a93a6;text-decoration:none;font-size:12px;padding:5px 10px;");
+        sb.append("border:1px solid #2a2f3a;border-radius:999px;background:#171a21}");
+        sb.append(".navbar a:hover{color:#e6e8ef;border-color:#7c5cff}");
+        sb.append(".navbar a.active{color:#fff;border-color:#7c5cff;background:#1a1729}");
         sb.append("</style></head><body>");
+        sb.append("<div class=navbar>");
+        sb.append("<a href='/home.html' class=active>🏠 Home</a>");
+        sb.append("<a href='/notes.html'>📝 Notes</a>");
+        sb.append("<a href='/research.html'>🔎 Research</a>");
+        sb.append("<a href='/tools.html'>🛠 Tools</a>");
+        sb.append("</div>");
         sb.append("<h1>Welcome back</h1>");
         sb.append("<div class=sub>").append(today).append("</div>");
 
         // Focus banner — async-loaded so the page renders fast
         sb.append("<div id=focus class='card' style='margin-bottom:16px;border-color:#3a2f6a;background:#1a1729'>");
         sb.append("<h2 style='color:#a99dff'>Focus</h2>");
-        sb.append("<div class=item><div class=b id=focus-text>Loading…</div></div>");
+        sb.append("<div class=item><div class=b id=focus-text>Loading…</div>");
+        sb.append("<button id=focus-retry class=chip style='margin-top:8px;display:none;cursor:pointer;border:none;font:inherit'>Retry</button></div>");
         sb.append("</div>");
 
         sb.append("<div class=grid>");
@@ -210,12 +222,18 @@ public class HomeDashboardController {
         sb.append("</div>");
 
         // Async focus loader: hits /api/home/focus which calls TodaysFocusTool.
-        sb.append("<script>(async()=>{try{");
+        sb.append("<script>");
+        sb.append("const focusText=document.getElementById('focus-text');");
+        sb.append("const focusRetry=document.getElementById('focus-retry');");
+        sb.append("async function loadFocus(){focusText.textContent='Loading…';focusRetry.style.display='none';try{");
         sb.append("const r=await fetch('/api/home/focus',{cache:'no-store'});");
+        sb.append("if(!r.ok)throw new Error('HTTP '+r.status);");
         sb.append("const j=await r.json();");
-        sb.append("document.getElementById('focus-text').textContent=j.text||'(no suggestion yet)';");
-        sb.append("}catch(e){document.getElementById('focus-text').textContent='(focus unavailable)';}");
-        sb.append("})();</script>");
+        sb.append("focusText.textContent=j.text||'(no suggestion yet)';");
+        sb.append("}catch(e){focusText.textContent='Focus unavailable ('+e.message+').';focusRetry.style.display='inline-block';}}");
+        sb.append("focusRetry.addEventListener('click',loadFocus);");
+        sb.append("loadFocus();");
+        sb.append("</script>");
 
         sb.append("</body></html>");
         return ResponseEntity.ok().header("Cache-Control", "no-store").body(sb.toString());
