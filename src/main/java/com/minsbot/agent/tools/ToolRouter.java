@@ -176,6 +176,18 @@ public class ToolRouter {
     private final ProjectAutoLaunchService projectAutoLaunchService;
     private final ProjectManagementTools projectManagementTools;
     private final ProjectTestService projectTestService;
+    @org.springframework.beans.factory.annotation.Autowired
+    private ResearchTool researchTool;
+    @org.springframework.beans.factory.annotation.Autowired
+    private DailyBriefingTool dailyBriefingTool;
+    @org.springframework.beans.factory.annotation.Autowired
+    private QuickNotesTool quickNotesTool;
+    @org.springframework.beans.factory.annotation.Autowired
+    private DailyRecapTool dailyRecapTool;
+    @org.springframework.beans.factory.annotation.Autowired
+    private UnifiedFindTool unifiedFindTool;
+    @org.springframework.beans.factory.annotation.Autowired
+    private WhatNowTool whatNowTool;
 
     @Autowired(required = false)
     private ToolClassifierService classifier;
@@ -667,6 +679,7 @@ public class ToolRouter {
         List<Object> core = new ArrayList<>(List.of(
                 directivesTools, directiveDataTools,
                 chatHistoryTool, taskStatusTool, clipboardTools, todoListTools,
+                unifiedFindTool,
                 personalConfigTools, lifeProfileTools, minsbotConfigTools, webSearchTools, sensoryToggleTools,
                 // Skill-pack menu: always on so the LLM can discover SKILL.md packs on any turn.
                 skillPackTool));
@@ -680,7 +693,7 @@ public class ToolRouter {
         Map<String, List<Object>> map = new LinkedHashMap<>();
 
         map.put("chat_browser", List.of(playwrightTools, downloadTools, sitesConfigTools, webSearchTools));
-        map.put("browser",      List.of(screenClickTools, playwrightTools, downloadTools, sitesConfigTools, systemTools, chromeCdpTools, webSearchTools, travelSearchTools));
+        map.put("browser",      List.of(screenClickTools, playwrightTools, downloadTools, sitesConfigTools, systemTools, chromeCdpTools, webSearchTools, travelSearchTools, researchTool));
         map.put("cdp",          List.of(chromeCdpTools));
         map.put("sites",        List.of(sitesConfigTools));
         map.put("files",        List.of(fileTools, fileSystemTools, excelTools, systemTools, wordDocTools, pdfTools, backupConfigTools));
@@ -705,7 +718,7 @@ public class ToolRouter {
         map.put("travel",        List.of(travelSearchTools, webSearchTools, wordDocTools, pdfTools));
         map.put("knowledge",     List.of(knowledgeBaseTools));
         map.put("research",      List.of(webSearchTools, webScraperTools, excelTools, pdfTools, fileTools, fileSystemTools, ttsTools, summarizationTools));
-        map.put("briefing",      List.of(gmailApiTools, calendarTools, emailTools, weatherTools, ttsTools, summarizationTools));
+        map.put("briefing",      List.of(gmailApiTools, calendarTools, emailTools, weatherTools, ttsTools, summarizationTools, dailyBriefingTool, dailyRecapTool, whatNowTool));
         map.put("calendar",      List.of(calendarTools));
         map.put("gmail",         List.of(gmailApiTools, emailTools));
         map.put("drive",         List.of(driveTools));
@@ -742,7 +755,7 @@ public class ToolRouter {
         map.put("barge_in",      List.of(bargeInTools));
         map.put("restart",       List.of(restartTools));
         map.put("orchestrator",  List.of(orchestratorTools));
-        map.put("reminders",     List.of(remindersTools));
+        map.put("reminders",     List.of(remindersTools, quickNotesTool));
         map.put("watcher",       List.of(watcherTools, emailTools));
 
         // ─── Skill packs (wrappers around self-contained skills under com.minsbot.skills.*) ───
