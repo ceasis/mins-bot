@@ -1,5 +1,6 @@
 package com.minsbot;
 
+import com.minsbot.agent.tools.ProjectHistoryService;
 import com.minsbot.agent.tools.TodaysFocusTool;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
@@ -37,6 +38,47 @@ public class HomeDashboardController {
     private static final DateTimeFormatter HUMAN_TS = DateTimeFormatter.ofPattern("MMM d · HH:mm");
 
     @Autowired(required = false) private TodaysFocusTool todaysFocusTool;
+    @Autowired(required = false) private ProjectHistoryService projectHistory;
+    @Autowired(required = false) private com.minsbot.agent.tools.CalendarTools calendarTools;
+
+    private static final Path SCHEDULED_REPORTS_DIR =
+            Paths.get(System.getProperty("user.home"), "mins_bot_data", "scheduled_reports");
+
+    @GetMapping(value = "/api/home/state", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<Map<String, Object>> state() {
+        Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("notes_count", countFiles(NOTES_DIR, ".txt"));
+        out.put("research_count", countFiles(RESEARCH_DIR, ".md"));
+        List<Map<String, String>> recentNotes = new java.util.ArrayList<>();
+        for (Snippet s : recentNotes(5)) {
+            recentNotes.add(Map.of("id", s.id, "time", s.time, "text", s.text));
+        }
+        out.put("recent_notes", recentNotes);
+        List<Map<String, String>> recentResearch = new java.util.ArrayList<>();
+        for (Snippet s : recentResearch(5)) {
+            recentResearch.add(Map.of("id", s.id, "time", s.time, "text", s.text));
+        }
+        out.put("recent_research", recentResearch);
+        out.put("date", LocalDate.now().toString());
+        return ResponseEntity.ok().header("Cache-Control", "no-store").body(out);
+    }
+
+    private static int countPendingReminders() {
+        if (!Files.isDirectory(SCHEDULED_REPORTS_DIR)) return 0;
+        try (Stream<Path> s = Files.list(SCHEDULED_REPORTS_DIR)) {
+            return (int) s.filter(p -> {
+                String n = p.getFileName().toString();
+                return n.endsWith(".json") || n.endsWith(".yml") || n.endsWith(".yaml");
+            }).count();
+        } catch (IOException e) { return 0; }
+    }
+
+    private static int countFiles(Path dir, String ext) {
+        if (!Files.isDirectory(dir)) return 0;
+        try (Stream<Path> s = Files.list(dir)) {
+            return (int) s.filter(p -> p.toString().endsWith(ext)).count();
+        } catch (IOException e) { return 0; }
+    }
 
     @GetMapping(value = "/api/home/focus", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Map<String, String>> focus() {
@@ -108,9 +150,57 @@ public class HomeDashboardController {
         sb.append("<div class=links><a class=chip href='/research.html'>All research →</a></div>");
         sb.append("</div>");
 
+        // Today's calendar card
+        sb.append("<div class=card><h2>Today</h2>");
+        String todayEvents = "";
+        if (calendarTools != null) {
+            try { todayEvents = calendarTools.getTodayEvents(); } catch (Exception ignored) {}
+        }
+        if (todayEvents == null || todayEvents.isBlank()) {
+            sb.append("<div class=empty>No calendar events today (or calendar not connected).</div>");
+        } else {
+            String[] lines = todayEvents.split("\\R");
+            int shown = 0;
+            for (String line : lines) {
+                if (line.isBlank()) continue;
+                if (shown++ >= 6) break;
+                sb.append("<div class=item><div class=b>").append(esc(line.trim())).append("</div></div>");
+            }
+        }
+        int pendingReminders = countPendingReminders();
+        if (pendingReminders > 0) {
+            sb.append("<div class=item><div class=t>⏰ Reminders</div>")
+              .append("<div class=b>").append(pendingReminders).append(" scheduled</div></div>");
+        }
+        sb.append("</div>");
+
+        // Recent code projects card
+        sb.append("<div class=card><h2>Recent code projects</h2>");
+        java.util.List<ProjectHistoryService.ProjectRecord> projects = java.util.List.of();
+        if (projectHistory != null) {
+            try { projects = projectHistory.list(); } catch (Exception ignored) {}
+        }
+        if (projects.isEmpty()) {
+            sb.append("<div class=empty>No projects yet — generate one from the Code page.</div>");
+        } else {
+            int shown = 0;
+            for (ProjectHistoryService.ProjectRecord r : projects) {
+                if (shown++ >= 5) break;
+                String name = r.projectName != null ? r.projectName : (r.jobId != null ? r.jobId : "(unnamed)");
+                String when = r.completedAt != null ? r.completedAt : "";
+                String status = r.status != null ? r.status : "";
+                sb.append("<div class=item><div class=t>").append(esc(when))
+                  .append(status.isEmpty() ? "" : " · " + esc(status))
+                  .append("</div><div class=b>").append(esc(name)).append("</div></div>");
+            }
+        }
+        sb.append("</div>");
+
         // Quick links card
         sb.append("<div class=card><h2>Explore</h2>");
         sb.append("<div class=item><div class=b>The bot can do a lot. Browse what's available, or ask it directly.</div></div>");
+        sb.append("<div class=item><div class=t style='color:#8a93a6'>To chat:</div>");
+        sb.append("<div class=b style='font-size:12px;color:#8a93a6'>Use the floating Mins Bot on your desktop — the browser surface is read-only.</div></div>");
         sb.append("<div class=links>");
         sb.append("<a class=chip href='/tools.html'>🛠  All tools</a>");
         sb.append("<a class=chip href='/notes.html'>📝 Notes</a>");

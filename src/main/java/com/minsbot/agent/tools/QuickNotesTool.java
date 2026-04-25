@@ -31,10 +31,36 @@ public class QuickNotesTool {
     private static final DateTimeFormatter HUMAN_TS = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
     private final ToolExecutionNotifier notifier;
+    private final org.springframework.ai.chat.client.ChatClient chatClient;
 
-    public QuickNotesTool(ToolExecutionNotifier notifier) {
+    public QuickNotesTool(ToolExecutionNotifier notifier,
+                          org.springframework.ai.chat.client.ChatClient.Builder chatClientBuilder) {
         this.notifier = notifier;
+        this.chatClient = chatClientBuilder.build();
         try { Files.createDirectories(DIR); } catch (IOException ignored) {}
+    }
+
+    private String suggestTags(String text) {
+        try {
+            String prompt = "Suggest 1-3 short lowercase hashtag categories for this personal note. "
+                    + "Reply with ONLY the hashtags, space-separated, e.g. '#wifi #cabin'. No prose. "
+                    + "If nothing fits, reply 'none'.\n\nNote: " + text;
+            String reply = chatClient.prompt().user(prompt).call().content();
+            if (reply == null) return "";
+            reply = reply.trim();
+            if (reply.equalsIgnoreCase("none") || reply.isEmpty()) return "";
+            // Keep only hashtag-shaped tokens
+            StringBuilder out = new StringBuilder();
+            for (String tok : reply.split("\\s+")) {
+                if (tok.matches("#[a-z0-9_-]{2,20}")) {
+                    if (out.length() > 0) out.append(' ');
+                    out.append(tok);
+                }
+            }
+            return out.toString();
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     @Tool(description = "Save a quick note / jot something down / remember a fact. Use when the user says "
@@ -46,10 +72,15 @@ public class QuickNotesTool {
         LocalDateTime now = LocalDateTime.now();
         String fname = now.format(FS_TS) + ".txt";
         Path p = DIR.resolve(fname);
+        String body = text.trim();
+        // Auto-tag only if user hasn't already provided any hashtag.
+        String autoTags = body.contains("#") ? "" : suggestTags(body);
+        if (!autoTags.isEmpty()) body = body + "  " + autoTags;
         try {
-            Files.writeString(p, text.trim() + "\n", StandardCharsets.UTF_8);
-            notifier.notify("📝 note saved");
-            return "Saved: " + fname + " — \"" + trimFor(text, 80) + "\"";
+            Files.writeString(p, body + "\n", StandardCharsets.UTF_8);
+            notifier.notify("📝 note saved" + (autoTags.isEmpty() ? "" : " " + autoTags));
+            return "Saved: " + fname + " — \"" + trimFor(text, 80) + "\""
+                    + (autoTags.isEmpty() ? "" : " (auto-tagged " + autoTags + ")");
         } catch (IOException e) {
             log.warn("[QuickNotes] save failed: {}", e.getMessage());
             return "Failed to save note: " + e.getMessage();
@@ -103,16 +134,61 @@ public class QuickNotesTool {
         return sb.toString();
     }
 
-    @Tool(description = "List quick notes, most recent first. Use when the user asks 'show my notes', "
+    @Tool(description = "Pin or unpin a note (adds/removes '#pinned' inside the note body). "
+            + "Use when the user says 'pin this note', 'unpin', 'always show this'. "
+            + "Pinned notes appear at the top of listNotes.")
+    public String togglePin(
+            @ToolParam(description = "Note id (filename stem like 20260425-114300).") String id) {
+        if (id == null || id.isBlank()) return "Error: note id required.";
+        String fname = id.endsWith(".txt") ? id : id + ".txt";
+        Path p = DIR.resolve(fname).normalize();
+        if (!p.startsWith(DIR) || !Files.isRegularFile(p)) return "Note not found: " + id;
+        try {
+            String body = Files.readString(p, StandardCharsets.UTF_8);
+            String updated;
+            boolean pinned;
+            if (body.toLowerCase().contains("#pinned")) {
+                updated = body.replaceAll("(?i)\\s*#pinned\\b", "").trim() + "\n";
+                pinned = false;
+            } else {
+                updated = body.trim() + " #pinned\n";
+                pinned = true;
+            }
+            Files.writeString(p, updated, StandardCharsets.UTF_8);
+            return (pinned ? "📌 Pinned: " : "🔓 Unpinned: ") + id;
+        } catch (IOException e) {
+            return "Failed: " + e.getMessage();
+        }
+    }
+
+    @Tool(description = "List quick notes, most recent first. Pinned notes (containing '#pinned') "
+            + "appear at the top regardless of date. Use when the user asks 'show my notes', "
             + "'what did I jot down', 'list notes', 'what am I supposed to remember'.")
     public String listNotes(
             @ToolParam(description = "Maximum number of notes to show (default 20).", required = false) Integer limit) {
         int max = (limit == null || limit <= 0) ? 20 : limit;
         List<Path> files = listFiles();
         if (files.isEmpty()) return "No notes saved yet.";
+        List<Path> pinned = new ArrayList<>();
+        List<Path> rest = new ArrayList<>();
+        for (Path p : files) {
+            try {
+                if (Files.readString(p, StandardCharsets.UTF_8).toLowerCase().contains("#pinned")) pinned.add(p);
+                else rest.add(p);
+            } catch (IOException e) { rest.add(p); }
+        }
         StringBuilder sb = new StringBuilder("📝 ").append(files.size()).append(" note(s):\n\n");
         int shown = 0;
-        for (Path p : files) {
+        if (!pinned.isEmpty()) {
+            sb.append("📌 Pinned:\n");
+            for (Path p : pinned) {
+                if (shown++ >= max) break;
+                sb.append("• ").append(humanStamp(p.getFileName().toString())).append(" — ")
+                  .append(firstLine(p)).append("\n");
+            }
+            sb.append("\n");
+        }
+        for (Path p : rest) {
             if (shown++ >= max) break;
             sb.append("• ").append(humanStamp(p.getFileName().toString())).append(" — ")
               .append(firstLine(p)).append("\n");
@@ -144,8 +220,12 @@ public class QuickNotesTool {
         return "📝 " + hits + " match(es):\n\n" + sb;
     }
 
+    private static final Path TRASH_DIR =
+            Paths.get(System.getProperty("user.home"), "mins_bot_data", "quick_notes_trash");
+
     @Tool(description = "Delete a quick note by its id (filename stem like 20260425-062800). "
-            + "Use when the user says 'delete that note', 'forget that'.")
+            + "Use when the user says 'delete that note', 'forget that'. Soft-delete: the note "
+            + "moves to a trash folder and can be recovered with restoreNote.")
     public String deleteNote(
             @ToolParam(description = "Note id — the filename stem returned from saveNote or listNotes.") String id) {
         if (id == null || id.isBlank()) return "Error: note id is required.";
@@ -153,11 +233,46 @@ public class QuickNotesTool {
         Path p = DIR.resolve(fname).normalize();
         if (!p.startsWith(DIR)) return "Error: invalid id.";
         try {
-            if (!Files.deleteIfExists(p)) return "Note not found: " + id;
-            return "Deleted: " + id;
+            if (!Files.isRegularFile(p)) return "Note not found: " + id;
+            Files.createDirectories(TRASH_DIR);
+            Files.move(p, TRASH_DIR.resolve(fname), StandardCopyOption.REPLACE_EXISTING);
+            return "Deleted: " + id + " (recoverable via restoreNote)";
         } catch (IOException e) {
             return "Failed to delete: " + e.getMessage();
         }
+    }
+
+    @Tool(description = "Restore a previously deleted note from trash. Use when the user says "
+            + "'undelete that note', 'restore my note', 'I deleted it by mistake'.")
+    public String restoreNote(
+            @ToolParam(description = "Note id to restore (filename stem).") String id) {
+        if (id == null || id.isBlank()) return "Error: note id required.";
+        String fname = id.endsWith(".txt") ? id : id + ".txt";
+        Path src = TRASH_DIR.resolve(fname).normalize();
+        if (!src.startsWith(TRASH_DIR) || !Files.isRegularFile(src)) return "Not in trash: " + id;
+        try {
+            Files.move(src, DIR.resolve(fname), StandardCopyOption.REPLACE_EXISTING);
+            return "Restored: " + id;
+        } catch (IOException e) {
+            return "Failed to restore: " + e.getMessage();
+        }
+    }
+
+    @Tool(description = "List notes currently in trash (deleted but recoverable). Use when the user "
+            + "asks 'what did I delete', 'show trash', 'recently deleted notes'.")
+    public String listTrash() {
+        if (!Files.isDirectory(TRASH_DIR)) return "Trash is empty.";
+        try (Stream<Path> s = Files.list(TRASH_DIR)) {
+            List<Path> files = s.filter(p -> p.toString().endsWith(".txt"))
+                    .sorted(Comparator.reverseOrder()).toList();
+            if (files.isEmpty()) return "Trash is empty.";
+            StringBuilder sb = new StringBuilder("🗑  ").append(files.size()).append(" in trash:\n");
+            for (Path p : files) {
+                sb.append("• ").append(humanStamp(p.getFileName().toString())).append(" — ")
+                  .append(firstLine(p)).append("\n");
+            }
+            return sb.toString();
+        } catch (IOException e) { return "Failed to read trash: " + e.getMessage(); }
     }
 
     private static List<Path> listFiles() {

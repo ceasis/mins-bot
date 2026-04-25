@@ -71,7 +71,7 @@ public class ToolsCheatSheetController {
         sb.append("h1{margin:0 0 4px;font-size:22px;font-weight:600;letter-spacing:-0.01em}");
         sb.append(".sub{color:#8a93a6;font-size:13px;margin-bottom:16px}");
         sb.append("input{width:100%;max-width:700px;background:#1f232c;color:#e6e8ef;");
-        sb.append("border:1px solid #2a2f3a;border-radius:8px;padding:10px 14px;font:14px inherit;margin-bottom:18px}");
+        sb.append("border:1px solid #2a2f3a;border-radius:8px;padding:10px 14px;font-size:14px;font-family:inherit;margin-bottom:18px}");
         sb.append("input:focus{outline:none;border-color:#7c5cff}");
         sb.append(".grp{margin-bottom:28px}");
         sb.append(".grp h2{font-size:13px;text-transform:uppercase;letter-spacing:0.08em;");

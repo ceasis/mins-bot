@@ -176,22 +176,16 @@ public class ToolRouter {
     private final ProjectAutoLaunchService projectAutoLaunchService;
     private final ProjectManagementTools projectManagementTools;
     private final ProjectTestService projectTestService;
-    @org.springframework.beans.factory.annotation.Autowired
-    private ResearchTool researchTool;
-    @org.springframework.beans.factory.annotation.Autowired
-    private DailyBriefingTool dailyBriefingTool;
-    @org.springframework.beans.factory.annotation.Autowired
-    private QuickNotesTool quickNotesTool;
-    @org.springframework.beans.factory.annotation.Autowired
-    private DailyRecapTool dailyRecapTool;
-    @org.springframework.beans.factory.annotation.Autowired
-    private UnifiedFindTool unifiedFindTool;
-    @org.springframework.beans.factory.annotation.Autowired
-    private WhatNowTool whatNowTool;
-    @org.springframework.beans.factory.annotation.Autowired
-    private TodaysFocusTool todaysFocusTool;
-    @org.springframework.beans.factory.annotation.Autowired
-    private ArchiveUrlTool archiveUrlTool;
+    private final ResearchTool researchTool;
+    private final DailyBriefingTool dailyBriefingTool;
+    private final QuickNotesTool quickNotesTool;
+    private final DailyRecapTool dailyRecapTool;
+    private final UnifiedFindTool unifiedFindTool;
+    private final WhatNowTool whatNowTool;
+    private final TodaysFocusTool todaysFocusTool;
+    private final ArchiveUrlTool archiveUrlTool;
+    private final ExportBundleTool exportBundleTool;
+    private final WeeklyDigestTool weeklyDigestTool;
 
     @Autowired(required = false)
     private ToolClassifierService classifier;
@@ -341,7 +335,28 @@ public class ToolRouter {
             ProjectTemplateTools projectTemplateTools,
             ProjectAutoLaunchService projectAutoLaunchService,
             ProjectManagementTools projectManagementTools,
-            ProjectTestService projectTestService) {
+            ProjectTestService projectTestService,
+            ResearchTool researchTool,
+            DailyBriefingTool dailyBriefingTool,
+            QuickNotesTool quickNotesTool,
+            DailyRecapTool dailyRecapTool,
+            UnifiedFindTool unifiedFindTool,
+            WhatNowTool whatNowTool,
+            TodaysFocusTool todaysFocusTool,
+            ArchiveUrlTool archiveUrlTool,
+            ExportBundleTool exportBundleTool,
+            WeeklyDigestTool weeklyDigestTool) {
+
+        this.researchTool = researchTool;
+        this.dailyBriefingTool = dailyBriefingTool;
+        this.quickNotesTool = quickNotesTool;
+        this.dailyRecapTool = dailyRecapTool;
+        this.unifiedFindTool = unifiedFindTool;
+        this.whatNowTool = whatNowTool;
+        this.todaysFocusTool = todaysFocusTool;
+        this.archiveUrlTool = archiveUrlTool;
+        this.exportBundleTool = exportBundleTool;
+        this.weeklyDigestTool = weeklyDigestTool;
 
         this.directivesTools = directivesTools;
         this.directiveDataTools = directiveDataTools;
@@ -722,7 +737,7 @@ public class ToolRouter {
         map.put("travel",        List.of(travelSearchTools, webSearchTools, wordDocTools, pdfTools));
         map.put("knowledge",     List.of(knowledgeBaseTools));
         map.put("research",      List.of(webSearchTools, webScraperTools, excelTools, pdfTools, fileTools, fileSystemTools, ttsTools, summarizationTools));
-        map.put("briefing",      List.of(gmailApiTools, calendarTools, emailTools, weatherTools, ttsTools, summarizationTools, dailyBriefingTool, dailyRecapTool, whatNowTool, todaysFocusTool));
+        map.put("briefing",      List.of(gmailApiTools, calendarTools, emailTools, weatherTools, ttsTools, summarizationTools, dailyBriefingTool, dailyRecapTool, whatNowTool, todaysFocusTool, weeklyDigestTool));
         map.put("calendar",      List.of(calendarTools));
         map.put("gmail",         List.of(gmailApiTools, emailTools));
         map.put("drive",         List.of(driveTools));
@@ -759,7 +774,7 @@ public class ToolRouter {
         map.put("barge_in",      List.of(bargeInTools));
         map.put("restart",       List.of(restartTools));
         map.put("orchestrator",  List.of(orchestratorTools));
-        map.put("reminders",     List.of(remindersTools, quickNotesTool));
+        map.put("reminders",     List.of(remindersTools, quickNotesTool, exportBundleTool));
         map.put("watcher",       List.of(watcherTools, emailTools));
 
         // ─── Skill packs (wrappers around self-contained skills under com.minsbot.skills.*) ───

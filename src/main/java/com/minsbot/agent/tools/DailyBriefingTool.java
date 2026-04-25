@@ -61,7 +61,19 @@ public class DailyBriefingTool {
         } catch (Exception e) { out.append("\n🌤 (weather unavailable)\n"); }
 
         out.append("\n── end briefing ──");
-        return out.toString();
+        String result = out.toString();
+        snapshot(result);
+        return result;
+    }
+
+    private static void snapshot(String body) {
+        try {
+            java.nio.file.Path dir = java.nio.file.Paths.get(
+                    System.getProperty("user.home"), "mins_bot_data", "briefing_history");
+            java.nio.file.Files.createDirectories(dir);
+            java.nio.file.Path p = dir.resolve(LocalDate.now() + ".txt");
+            java.nio.file.Files.writeString(p, body, java.nio.charset.StandardCharsets.UTF_8);
+        } catch (Exception ignored) {}
     }
 
     private static String oneLine(String s) {

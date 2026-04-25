@@ -868,6 +868,11 @@
     return (el.scrollHeight - el.scrollTop - el.clientHeight) < threshold;
   }
 
+  var _thinkingWatchdog = null;
+  function kickThinkingWatchdog() {
+    if (_thinkingWatchdog) clearTimeout(_thinkingWatchdog);
+    _thinkingWatchdog = setTimeout(function () { hideThinking(); }, 300000);
+  }
   function showThinking() {
     if (headerThinkingEl) {
       headerThinkingEl.hidden = false;
@@ -875,6 +880,11 @@
     }
     sendBtn.hidden = true;
     stopBtn.hidden = false;
+    // Idempotent: nuke any stale indicators before appending. Duplicate IDs are
+    // legal in HTML but only the first is removed by getElementById, so without
+    // this, repeated send-clicks leak permanent dots bubbles.
+    var stale = messagesEl.querySelectorAll('#thinking-indicator, .thinking');
+    for (var s = 0; s < stale.length; s++) stale[s].remove();
     var el = document.createElement('div');
     el.className = 'thinking';
     el.id = 'thinking-indicator';
@@ -886,6 +896,10 @@
     var wasAtBottom = isAtBottom(messagesEl);
     messagesEl.appendChild(el);
     if (wasAtBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
+    // Watchdog: 5 min of pure silence (no status messages, no reply) clears the
+    // indicator. Any incoming status event resets the timer (see startStatusPolling),
+    // so genuinely-long tool runs stay live indefinitely as long as something is happening.
+    kickThinkingWatchdog();
   }
 
   function hideThinking() {
@@ -895,8 +909,10 @@
     }
     stopBtn.hidden = true;
     sendBtn.hidden = false;
-    var el = document.getElementById('thinking-indicator');
-    if (el) el.remove();
+    if (_thinkingWatchdog) { clearTimeout(_thinkingWatchdog); _thinkingWatchdog = null; }
+    // Remove ALL stale indicators, not just the one getElementById finds.
+    var stale = messagesEl.querySelectorAll('#thinking-indicator, .thinking');
+    for (var s = 0; s < stale.length; s++) stale[s].remove();
   }
 
   function appendStatus(text) {
@@ -961,7 +977,9 @@
         var res = await fetch('/api/chat/status');
         var data = await res.json();
         if (data.messages && data.messages.length > 0) {
-          hideThinking();
+          // Server activity — reset watchdog but keep the dots up; they'll be
+          // cleared when the actual reply arrives.
+          kickThinkingWatchdog();
           for (var i = 0; i < data.messages.length; i++) {
             var msg = data.messages[i];
             if (msg.startsWith('__vision__')) {
@@ -1616,10 +1634,13 @@
   // Advanced     = pro users, config / tuning / telemetry
   // Experimental = feature may not be needed, we're unsure
   var CARD_GROUP_COMMON = {
-    'chat': 1, 'browser': 1, 'code': 1, 'agents': 1, 'skills': 1,
+    /* 'chat': 1, */ // hidden in browser view — inconsistent with FX-app chat
+    'browser': 1, 'code': 1, 'agents': 1, 'skills': 1,
     'schedules': 1, 'watcher': 1, 'todos': 1, 'knowledge': 1,
     'memories': 1, 'proactive': 1, 'voice': 1
   };
+  // Tabs to skip entirely from the browser-view card grid (still reachable in FX shell).
+  var CARD_HIDDEN = { 'chat': 1 };
   var CARD_GROUP_EXPERIMENTAL = {
     'calibration': 1, 'marketplace': 1, 'workflows': 1, 'templates': 1,
     'multiagent': 1, 'automations': 1, 'screens': 1
@@ -1633,6 +1654,7 @@
     Array.prototype.forEach.call(tabs, function (btn) {
       if (btn.hasAttribute('hidden')) return;
       var id = btn.dataset.tab;
+      if (CARD_HIDDEN[id]) return;
       var title = btn.textContent.trim();
       var desc = btn.getAttribute('data-desc') || '';
       var cardHtml = '<button type="button" class="tab-menu-card" data-tab-target="' + id + '">'

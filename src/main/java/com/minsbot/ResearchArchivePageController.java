@@ -83,7 +83,7 @@ public class ResearchArchivePageController {
         sb.append("h1{margin:0 0 4px;font-size:22px;font-weight:600;letter-spacing:-0.01em}");
         sb.append(".sub{color:#8a93a6;font-size:13px;margin-bottom:16px}");
         sb.append("input{width:100%;max-width:700px;background:#1f232c;color:#e6e8ef;");
-        sb.append("border:1px solid #2a2f3a;border-radius:8px;padding:10px 14px;font:14px inherit;margin-bottom:18px}");
+        sb.append("border:1px solid #2a2f3a;border-radius:8px;padding:10px 14px;font-size:14px;font-family:inherit;margin-bottom:18px}");
         sb.append("input:focus{outline:none;border-color:#7c5cff}");
         sb.append(".note{display:block;padding:12px 14px;border:1px solid #222733;border-radius:8px;");
         sb.append("margin-bottom:10px;background:#171a21;text-decoration:none;color:inherit}");
@@ -94,7 +94,7 @@ public class ResearchArchivePageController {
         sb.append(".hide{display:none}");
         sb.append(".back{display:inline-block;color:#7c5cff;text-decoration:none;margin-bottom:12px}");
         sb.append(".body{white-space:pre-wrap;word-break:break-word;background:#171a21;");
-        sb.append("border:1px solid #222733;border-radius:8px;padding:16px;color:#d9dce3;font:13px/1.6 ui-sans-serif,system-ui}");
+        sb.append("border:1px solid #222733;border-radius:8px;padding:16px;color:#d9dce3;font:13px/1.6 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}");
         sb.append("</style></head><body>");
     }
 

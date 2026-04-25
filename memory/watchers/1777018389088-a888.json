@@ -8,8 +8,8 @@
   "notifyWebhook" : "",
   "intervalSeconds" : 300,
   "maxPrice" : 15000.0,
-  "lastStatus" : "error",
-  "lastCheckedAt" : "2026-04-25T03:19:23.803149700Z",
+  "lastStatus" : "unknown",
+  "lastCheckedAt" : "2026-04-25T04:12:12.274191Z",
   "lastNotifiedAt" : "",
   "createdAt" : "2026-04-24T08:13:09.088711600Z"
 }

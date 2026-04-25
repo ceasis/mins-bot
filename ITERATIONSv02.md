@@ -132,3 +132,62 @@ Continuing from ITERATIONSv01.md (which ended iter 8 at $95 / $24 / $370k). Same
 | 15 | Focus banner on `/home.html` | $145 | $38 | $485k |
 
 **Net delta over v02 (iters 9–15):** +$50 per copy, +$14/mo, +$115k system. Theme: turning v01's primitives into a coherent product surface — every artifact captured (notes, research, archived URLs) flows into a single dashboard that opens with an opinionated recommendation. The bot is no longer a chat box with tools; it's an app with a homepage that knows you.
+
+---
+
+## Hotfix — 2026-04-25 ~11:35
+
+Startup NPE: `ToolRouter` referenced 8 tools (`researchTool`, `dailyBriefingTool`, `quickNotesTool`, `dailyRecapTool`, `unifiedFindTool`, `whatNowTool`, `todaysFocusTool`, `archiveUrlTool`) inside `List.of(...)` in `buildCoreTools` / `buildCategories`. They were `@Autowired` field-injected, so still null when the constructor ran → `List.of` rejects nulls → app failed to boot. Converted all 8 to constructor injection (the existing pattern for everything else). No semantic change; valuation unchanged.
+
+---
+
+## Iteration 16 — 2026-04-25 ~11:38
+
+**Added:** `/api/home/state` JSON endpoint on `HomeDashboardController` — returns `{ notes_count, research_count, recent_notes[], recent_research[], date }`. Single fetch lets any future UI surface (chat sidebar, embedded WebView panel, mobile companion) render live home state without scraping HTML.
+
+**Why this lifts value:** The `/home.html` page is human-only. Exposing the same data as JSON is the standard "make it programmable" upgrade — costs almost nothing, unlocks integration. Future iterations (and external scripts) get a stable contract instead of HTML parsing.
+
+**Files touched:**
+- `src/main/java/com/minsbot/HomeDashboardController.java` (+`/api/home/state`)
+
+**Valuation after this iteration:**
+- Per copy: **$148** — modest +$3. Pure infra; doesn't move the consumer-facing pitch much.
+- Per month: **$39/mo** — +$1. Same.
+- System: **$490k** — +$5k. API surface is mildly attractive to acquirers but doesn't change the story.
+
+---
+
+## Iteration 17 — 2026-04-25 ~11:42
+
+**Added:** `DailyBriefingTool` now snapshots each call to `~/mins_bot_data/briefing_history/<date>.txt`. One file per day, overwritten on multi-call. Users can scroll back to yesterday's briefing without re-deriving it.
+
+**Why this lifts value:** Briefings were ephemeral — once dismissed, gone. Snapshotting is one line of code and gives the user a personal-history thread they can grep. Doesn't move the pitch much; it's a quality-of-life detail.
+
+**Files touched:**
+- `src/main/java/com/minsbot/agent/tools/DailyBriefingTool.java` (+`snapshot` helper)
+
+**Valuation after this iteration:**
+- Per copy: **$150** — +$2. Tiny convenience.
+- Per month: **$40/mo** — +$1.
+- System: **$493k** — +$3k.
+
+---
+
+**Stop condition met:** iter 16 (+$3) and iter 17 (+$2) both showed per-copy increases below $5. Halting iterations.
+
+## Final v02 trajectory
+
+| # | Feature | Per copy | Per month | System |
+|---|---|---:|---:|---:|
+| 9 | Research archive | $102 | $26 | $385k |
+| 10 | `/research.html` viewer | $108 | $28 | $400k |
+| 11 | Note tags | $112 | $29 | $410k |
+| 12 | `/home.html` dashboard | $120 | $32 | $430k |
+| 13 | TodaysFocusTool | $128 | $34 | $450k |
+| 14 | ArchiveUrlTool | $135 | $36 | $465k |
+| 15 | Focus banner on home | $145 | $38 | $485k |
+| — | _Hotfix: constructor injection_ | — | — | — |
+| 16 | `/api/home/state` JSON | $148 | $39 | $490k |
+| 17 | Briefing snapshot history | $150 | $40 | $493k |
+
+**Total v02 net delta:** +$55 per copy, +$16/mo, +$123k system. The diminishing returns curve is real — iters 9-13 each added $7-8 in per-copy value; iters 16-17 added $2-3. The 30-second-demo improvements (homepage, focus, research archive, URL save) are largely captured. Beyond this, further uplift requires deeper investments: real RAG over the archive, embeddings, mobile companion, polish/onboarding — none of which fit the "single tool added" rhythm of these iterations.
