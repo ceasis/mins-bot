@@ -149,9 +149,12 @@ public class DeliverableExecutor {
         // user-configurable on purpose — every task is a temp workspace, not a
         // long-term home for the document. Old runs are pruned after 30 days
         // by purgeOldWorkfolders(); the user-visible final lives elsewhere.
-        Path workDir = resolveWorkfolderRoot().resolve(taskId);
-
+        // Resolve via the canonical path utility — it sanitises the slug AND
+        // asserts the resolved path lives inside the workfolder root. The LLM
+        // cannot influence this location no matter what it passes upstream.
+        Path workDir;
         try {
+            workDir = WorkfolderPaths.resolve(taskId);
             Files.createDirectories(workDir);
             // Best-effort cleanup of >30-day-old siblings. Cheap (≈1 dir scan)
             // and runs once per task instead of on a timer so it can't drift.
@@ -314,7 +317,7 @@ public class DeliverableExecutor {
             notifier.notifyProgress(PROGRESS_LABEL, 5, 5);
             notifier.notify("✅ deliverable ready (" + score + "/10, " + cycle + " cycle"
                     + (cycle == 1 ? "" : "s") + ")");
-            return Result.ok(delivered, score, cycle, lastCritique
+            return Result.ok(delivered, workDir, score, cycle, lastCritique
                     + "\n[" + budgetLine + "]");
 
         } catch (BudgetExceeded be) {
@@ -322,7 +325,7 @@ public class DeliverableExecutor {
             String partial = "Stopped on budget cap (" + be.getMessage() + "). "
                     + "Partial work in: " + workDir.toAbsolutePath();
             if (finalPathSoFar != null) {
-                return Result.ok(finalPathSoFar, 0, 0, partial);
+                return Result.ok(finalPathSoFar, workDir, 0, 0, partial);
             }
             return Result.fail(partial);
         } catch (Exception e) {
@@ -929,7 +932,7 @@ public class DeliverableExecutor {
 
     private static String slug(String s) {
         String t = s.toLowerCase().replaceAll("[^a-z0-9]+", "-").replaceAll("^-+|-+$", "");
-        return t.length() > 40 ? t.substring(0, 40) : (t.isEmpty() ? "task" : t);
+        return t.length() > 55 ? t.substring(0, 55) : (t.isEmpty() ? "task" : t);
     }
 
     /**
@@ -938,19 +941,6 @@ public class DeliverableExecutor {
      * Microsoft account), the standard Desktop, the {@code USERPROFILE}
      * Desktop, and finally {@code user.home} as a last resort.
      */
-    /**
-     * Hard-coded scratch root for every deliverable task:
-     * {@code ~/mins_bot_data/workfolder/}. Not user-configurable — this is a
-     * temporary workspace, not a publishing destination. Final outputs are
-     * copied out to the user's chosen folder by {@link #publishFinal}.
-     */
-    private static Path resolveWorkfolderRoot() {
-        String home = System.getProperty("user.home");
-        Path root = Paths.get(home == null ? "." : home, "mins_bot_data", "mins_workfolder");
-        try { Files.createDirectories(root); } catch (Exception ignored) {}
-        return root;
-    }
-
     /**
      * Best-effort prune of task folders under {@code parent} whose last-modified
      * time is older than {@code days} days. Runs once per task on entry. Silent
@@ -1075,12 +1065,19 @@ public class DeliverableExecutor {
 
     public record Critique(int score, List<String> gaps) {}
 
-    public record Result(boolean ok, Path path, int score, int cycles, String message) {
-        public static Result ok(Path p, int score, int cycles, String msg) {
-            return new Result(true, p, score, cycles, msg);
+    /**
+     * @param path     published file (the user-visible copy on Desktop)
+     * @param workDir  scratch folder inside mins_workfolder — full audit trail
+     *                 (plan.md / scratchpad.md / drafts / critiques / images/).
+     *                 The Java executor owns this path; skill prompts should
+     *                 read it from this Result, not hardcode the convention.
+     */
+    public record Result(boolean ok, Path path, Path workDir, int score, int cycles, String message) {
+        public static Result ok(Path p, Path work, int score, int cycles, String msg) {
+            return new Result(true, p, work, score, cycles, msg);
         }
         public static Result fail(String msg) {
-            return new Result(false, null, 0, 0, msg);
+            return new Result(false, null, null, 0, 0, msg);
         }
     }
 }

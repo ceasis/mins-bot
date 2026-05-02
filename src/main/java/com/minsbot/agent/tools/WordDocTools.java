@@ -32,23 +32,52 @@ public class WordDocTools {
         this.notifier = notifier;
     }
 
-    @Tool(description = "Create a Word document (.docx) with a title and body content. " +
-            "Use this when the user asks to prepare, create, or write a Word document or report. " +
-            "The content parameter supports simple formatting: lines starting with '# ' become headings, " +
-            "'## ' become sub-headings, '- ' become bullet points, and everything else is normal paragraphs. " +
-            "Blank lines create paragraph spacing.")
+    @Tool(description = "LOW-LEVEL: render an already-finished, single-page text snippet to .docx. " +
+            "Use ONLY when the user hands you finished content and asks to save it verbatim as a Word file. " +
+            "DO NOT use for ANY 'docx/Word report on X', 'memo about Y', or any researched / multi-section / " +
+            "compared / multi-source content — those MUST go through produceDeliverable, which runs " +
+            "plan→research→synthesize→critique→refine and renders the .docx with images and citations. " +
+            "Picking this tool for research deliverables produces a thin source-less Word file that misses intent.")
     public String createWordDocument(
             @ToolParam(description = "Full file path for the document, e.g. 'C:\\Users\\user\\Documents\\report.docx'") String filePath,
             @ToolParam(description = "Document title (shown as the main heading)") String title,
             @ToolParam(description = "Document body content. Use '# ' for headings, '## ' for sub-headings, " +
                     "'- ' for bullet points, blank lines for spacing.") String content) {
 
+        String refusal = refuseIfResearchDeliverable(content);
+        if (refusal != null) return refusal;
         notifier.notify("Creating Word document: " + title);
         return writeDocx(filePath, title, content);
     }
 
-    @Tool(description = "Create a Word document from pre-formatted sections. Each section has a heading and body text. " +
-            "Use this for structured reports like travel research, comparisons, or multi-topic documents.")
+    /** Same refusal heuristic as PdfTools — keeps 'researched multi-section reports'
+     *  off the low-level writers and routes them to produceDeliverable. */
+    private static String refuseIfResearchDeliverable(String content) {
+        if (content == null) return null;
+        int h2 = 0;
+        int sections = 0;
+        for (String raw : content.split("\n", -1)) {
+            String t = raw.trim();
+            if (t.startsWith("## ") || t.startsWith("### ")) h2++;
+            if (t.startsWith("**") && t.matches("^\\*\\*\\s*\\d+[.\\)\\-:].*\\*\\*\\s*$")) sections++;
+        }
+        int total = h2 + sections;
+        if (h2 >= 3 || (total >= 2 && content.length() >= 1500)) {
+            return "REFUSED: this content looks like a researched multi-section deliverable ("
+                    + total + " sections, " + content.length() + " chars). "
+                    + "Call produceDeliverable(goal, format, output) instead — it runs the full "
+                    + "plan→research→synthesize→critique→refine loop, renders the file with real "
+                    + "images and citations, and saves it to ~/mins_bot_data/mins_workfolder/<task-id>/ "
+                    + "before publishing to Desktop.";
+        }
+        return null;
+    }
+
+    @Tool(description = "LOW-LEVEL: render pre-finished sections to a .docx. DO NOT use for any " +
+            "researched / compared / sourced / multi-product report — that's produceDeliverable's job " +
+            "(it runs the plan→research→synthesize→critique→refine loop and produces a file with images " +
+            "and citations). Use this only when the user has already given you the finished section text " +
+            "verbatim and just wants it written out as a Word file.")
     public String createWordReport(
             @ToolParam(description = "Full file path ending in .docx") String filePath,
             @ToolParam(description = "Report title") String title,
@@ -56,6 +85,8 @@ public class WordDocTools {
                     "Each section: first line is the heading, rest is body text. " +
                     "Example: 'Flight Options\\nCebu Pacific $150\\nPAL $200\\n---\\nHotel Options\\nHotel A $80/night'") String sections) {
 
+        String refusal = refuseIfResearchDeliverable(sections);
+        if (refusal != null) return refusal;
         notifier.notify("Creating Word report: " + title);
 
         // Convert sections format to markdown-style

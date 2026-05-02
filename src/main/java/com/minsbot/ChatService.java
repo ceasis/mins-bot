@@ -942,7 +942,13 @@ public class ChatService {
             }
         }
         transcriptService.clearHistory();
-        log.info("[ChatService] Chat history and AI memory cleared.");
+        // Reset autonomous state too. Otherwise a stale directive (e.g. an old
+        // "research-laptops") keeps grinding in the background and posts
+        // unrelated replies after the user has moved on / cleared the chat.
+        autonomousAbortRequested = true;
+        autonomousConcludedAllAddressed = true;
+        lastAutonomousMessageSent = null;
+        log.info("[ChatService] Chat history, AI memory, and autonomous state cleared.");
     }
 
     /** Returns and removes the next async result, or null if none. */
@@ -1043,6 +1049,12 @@ public class ChatService {
 
     private volatile long lastActivityTime = System.currentTimeMillis();
     private volatile boolean autonomousRunning = false;
+
+    /** Flipped to true when a user message arrives while autonomous mode is in
+     *  flight. The autonomous loop checks this at each step boundary and bails
+     *  WITHOUT posting any reply — keeps stale-directive output (e.g. an old
+     *  laptops research grind) from leaking into the user's new conversation. */
+    private volatile boolean autonomousAbortRequested = false;
     private volatile java.awt.Point lastCheckedMousePos = null;
     /** Last message pushed from autonomous mode; cleared on user input so we don't repeat when idle. */
     private volatile String lastAutonomousMessageSent = null;
@@ -1117,6 +1129,11 @@ public class ChatService {
         lastActivityTime = System.currentTimeMillis();
         lastAutonomousMessageSent = null;
         autonomousConcludedAllAddressed = false;
+        // Tell any in-flight autonomous step to bail BEFORE it posts its reply.
+        // Without this, a stale directive (e.g. last week's "research-laptops")
+        // can keep grinding and answer the user about laptops while the user
+        // actually just asked about top companies to invest in.
+        autonomousAbortRequested = true;
         toolNotifier.clear();
         transcriptService.save("USER", trimmed);
 
@@ -1772,10 +1789,31 @@ public class ChatService {
         if (isHelpCommand(message)) return false;
         if (isSimpleFactualQuestion(message)) return false;
         if (SystemContextProvider.isMessageAboutMinsbotSelfConfig(message)) return false;
+        // Deliverable requests ("pdf report on X", "make a deck about Y", "memo
+        // about Z", "research X and write a report") are pure synthesis tasks —
+        // the screen has nothing to do with the answer. Skip the GPT Vision /
+        // OCR pass; it just burns ~1.5s + a vision call for no benefit.
+        if (isDeliverableLikeRequest(message)) return false;
         int wordCount = message.trim().split("\\s+").length;
         if (wordCount <= 2) return false;
         if (wordCount >= 16) return true;
         return SCREEN_OR_AUTOMATION_HINT.matcher(message).find();
+    }
+
+    private static final java.util.regex.Pattern DELIVERABLE_HINT =
+            java.util.regex.Pattern.compile(
+                "(?i)\\b(pdf|pptx?|powerpoint|deck|slides?|docx?|word\\s+doc|memo|brief|"
+              + "white\\s*paper|whitepaper)\\b|"
+              + "\\b(report|brief|deck|memo|summary|comparison|write[- ]?up|analysis|"
+              + "presentation|document)\\s+(?:on|about|of|for|covering|comparing)\\b|"
+              + "\\b(make|create|generate|draft|produce|compile|build|prepare|put\\s+together|"
+              + "i\\s+(?:want|need)|give\\s+me)\\s+(?:a\\s+|an\\s+|me\\s+a\\s+|the\\s+)?"
+              + "(?:pdf|pptx?|powerpoint|deck|slides?|docx?|word\\s+doc|memo|brief|report|"
+              + "presentation|document)\\b");
+
+    private static boolean isDeliverableLikeRequest(String message) {
+        if (message == null) return false;
+        return DELIVERABLE_HINT.matcher(message).find();
     }
 
     /**
@@ -2158,12 +2196,17 @@ public class ChatService {
         if (autonomousConcludedAllAddressed) return; // already said "all directives addressed" with no new input
 
         autonomousRunning = true;
+        autonomousAbortRequested = false;
         int step = 0;
         try {
             log.info("[Autonomous] User idle — starting continuous directive work.");
 
             while (step < 100) {
                 step++;
+                if (autonomousAbortRequested || mainLoopBusy) {
+                    log.info("[Autonomous] Abort requested — user is active. Stopping at step {}.", step);
+                    break;
+                }
 
                 String prompt = buildAutonomousPrompt(directives, step);
 
@@ -2199,6 +2242,13 @@ public class ChatService {
                 workingSound.stop();
 
                 if (reply != null && !reply.isBlank()) {
+                    // The LLM call we just finished could have been in-flight
+                    // for 10–30s. If a user message arrived during that window,
+                    // their new task is the truth — drop this reply on the floor.
+                    if (autonomousAbortRequested || mainLoopBusy) {
+                        log.info("[Autonomous] Discarding step {} reply — user became active mid-call.", step);
+                        break;
+                    }
                     String normalized = reply.trim().replaceAll("\\s+", " ");
                     String lower = normalized.toLowerCase();
                     // Don't repeat the same message when there's been no new user input

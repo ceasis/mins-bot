@@ -3315,6 +3315,33 @@ select.tab-input option,
   position: relative;
 }
 
+/* 5px sliver pinned to the bottom edge of .chat-area — at-a-glance task
+   progress. Idle state: 0 width, fully hidden. While active: blue fill
+   slides right with width %. On complete: brief green flash, then fade. */
+.task-progress-strip {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 5px;
+  background: rgba(74, 144, 226, 0.10);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 240ms ease;
+  z-index: 5;
+}
+.task-progress-strip.active { opacity: 1; }
+.task-progress-strip-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #4a90e2 0%, #5fb0ff 100%);
+  box-shadow: 0 0 6px rgba(95, 176, 255, 0.55);
+  transition: width 320ms cubic-bezier(0.4, 0, 0.2, 1),
+              background 240ms ease, box-shadow 240ms ease;
+}
+.task-progress-strip.complete .task-progress-strip-fill {
+  background: linear-gradient(90deg, #3cb464 0%, #5dd987 100%);
+  box-shadow: 0 0 6px rgba(93, 217, 135, 0.55);
+}
+
 /* Messages */
 .messages {
   flex: 1;

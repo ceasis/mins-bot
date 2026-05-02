@@ -195,8 +195,16 @@ public class DeliverableFormatter {
                   strong { color: #0e1d3a; }
                   a { color: #2962a8; text-decoration: none; word-break: break-all; }
                   hr { border: 0; border-top: 1px solid #d8dde8; margin: 1.4em 0; }
-                  img { max-width: 100%; height: auto; border-radius: 6px; display: block;
-                        object-fit: contain; }
+                  /* Cap every image at a sensible page-fraction so a single
+                     photo can't consume a whole page. The two-column section
+                     layout has its own tighter cap (280px); this applies to
+                     any image NOT inside section.with-image (e.g. a hero
+                     that landed in the preamble or a section the grouper
+                     didn't catch). max-height: 3.2in keeps images small
+                     enough that captions + body still fit alongside. */
+                  img { max-width: 100%; max-height: 3.2in; height: auto;
+                        border-radius: 6px; display: block;
+                        object-fit: contain; margin: .5em auto; }
                   /* Title page */
                   .title-page { page-break-after: always; min-height: 9.2in; display: flex;
                                 flex-direction: column; align-items: center; justify-content: center;
@@ -576,6 +584,21 @@ public class DeliverableFormatter {
         if (url == null || url.isBlank()) return null;
         log.info("[Formatter] pptx fetching image: {}", url);
         try {
+            // file:// URIs — what saveImageLocally now emits for workfolder
+            // images. Without this branch we'd fall through to Paths.get(url)
+            // which can't parse a "file:///C:/..." string on Windows, every
+            // slide image would silently fail to embed.
+            if (url.startsWith("file:")) {
+                Path local = Paths.get(URI.create(url));
+                if (Files.isRegularFile(local) && Files.size(local) <= 8 * 1024 * 1024) {
+                    byte[] body = Files.readAllBytes(local);
+                    log.info("[Formatter] pptx image read from local file ({} bytes): {}",
+                            body.length, local);
+                    return body;
+                }
+                log.warn("[Formatter] pptx local image not found / too big: {}", local);
+                return null;
+            }
             if (url.startsWith("http://") || url.startsWith("https://")) {
                 HttpClient http = HttpClient.newBuilder()
                         .connectTimeout(Duration.ofSeconds(8))
@@ -610,22 +633,39 @@ public class DeliverableFormatter {
         }
     }
 
+    /** Bold-numbered item shape the synthesizer commonly emits: {@code **1. Name**}.
+     *  Without recognising this, a deck like "Top 5 SUVs" with no H2 headings
+     *  collapses into a single "Overview" slide that crams every item into
+     *  one bullet list. */
+    private static final java.util.regex.Pattern PPT_BOLD_NUM = java.util.regex.Pattern.compile(
+            "^\\*\\*\\s*\\d+\\s*[.\\)\\-:]\\s*([^*]{3,80}?)\\s*\\*\\*\\s*$");
+
     private static List<Section> splitH2(String md) {
         List<Section> out = new ArrayList<>();
         if (md == null || md.isBlank()) return out;
         String current = null;
         StringBuilder buf = new StringBuilder();
         for (String line : md.split("\n")) {
-            if (line.startsWith("## ")) {
+            String t = line.trim();
+            String newHeading = null;
+            if (t.startsWith("## ")) {
+                newHeading = t.substring(3).trim();
+            } else if (t.startsWith("### ")) {
+                newHeading = t.substring(4).trim();
+            } else {
+                java.util.regex.Matcher bm = PPT_BOLD_NUM.matcher(t);
+                if (bm.matches()) newHeading = bm.group(1).trim();
+            }
+            if (newHeading != null) {
                 if (current != null) out.add(toSection(current, buf.toString()));
-                current = line.substring(3).trim();
+                current = newHeading;
                 buf.setLength(0);
             } else if (current != null) {
                 buf.append(line).append("\n");
             }
         }
         if (current != null) out.add(toSection(current, buf.toString()));
-        // If no H2 sections exist at all, treat the whole body as one slide.
+        // If no section headings exist at all, treat the whole body as one slide.
         if (out.isEmpty()) out.add(toSection("Overview", md));
         return out;
     }

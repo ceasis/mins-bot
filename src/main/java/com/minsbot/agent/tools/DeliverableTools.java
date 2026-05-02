@@ -68,6 +68,12 @@ public class DeliverableTools {
         StringBuilder sb = new StringBuilder();
         sb.append("✅ Deliverable ready.\n\n");
         sb.append("File: ").append(r.path().toAbsolutePath()).append("\n");
+        if (r.workDir() != null) {
+            // Surface the scratch folder so any verification step in the calling
+            // skill knows where plan.md / scratchpad.md / images/ live, without
+            // having to hardcode the path convention.
+            sb.append("TaskFolder: ").append(r.workDir().toAbsolutePath()).append("\n");
+        }
         sb.append("Score: ").append(r.score()).append("/10  ·  ");
         sb.append("Cycles: ").append(r.cycles());
         if (r.score() < 8) {

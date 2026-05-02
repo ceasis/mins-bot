@@ -1086,6 +1086,82 @@ The Setup: You run a small Python sidecar or CLI command that uses SeleniumBase,
 ### DEALING WITH EXCEL FILE
 - if creating new, then need a blank workbook
 
+## Skill packs — workfolder (mandatory)
+
+**Every skill — without exception — uses `~/mins_bot_data/mins_workfolder/` as its scratch root.** No skill writes anywhere else for intermediate work. Layout under it:
+
+```
+~/mins_bot_data/mins_workfolder/
+├── <yyyymmdd-hhmmss>-<slug>/        ← per-task deliverable scratch
+│   ├── plan.md, scratchpad.md
+│   ├── draft-N.md, critique-N.md
+│   ├── FINAL.md, FINAL.pdf|pptx|docx
+│   └── images/                      ← every picked image + _search-log.txt
+└── directive_<name>/                ← per-directive research scratch
+    ├── *_finding.txt
+    └── screenshots/, downloads/
+```
+
+Rules:
+- **Hardcoded path.** Not user-configurable. The folder is temporary by contract.
+- **30-day auto-prune.** Anything older than 30 days under `mins_workfolder/` is deleted on the next deliverable run. Don't store anything you want to keep here.
+- **Final outputs are *copied out*** to the user's visible destination (`<Desktop>/MinsBot Deliverables/<task-id>.<ext>`) by `publishFinal(...)`. The workfolder copy stays for audit until the prune.
+- **No skill may write to `~/mins_bot_data/` root** for scratch. That root is reserved for long-lived state (config, memory, log, registry). Anything ephemeral goes inside `mins_workfolder/`.
+
+When authoring a new skill (`createSkillPack` or by hand), the body MUST reference paths inside `mins_workfolder/` for any intermediate file the LLM creates. If a skill currently writes elsewhere, that's a bug — fix it.
+
+### Path ownership: a single Java constant, no exceptions
+
+The workfolder location is **not subject to interpretation**. It does not vary by:
+- LLM intent (no prompt can redirect it),
+- skill manifest (no `metadata.minsbot.workfolder` key — there isn't one),
+- tool parameter (no `@Tool` accepts a workfolder override),
+- runtime config (no `app.workfolder.path` property),
+- OS-specific layout shenanigans.
+
+It is the single static field `com.minsbot.agent.WorkfolderPaths.ROOT`, value `~/mins_bot_data/mins_workfolder/`. Every resolver — `DeliverableExecutor.produce`, `DirectiveDataTools.getDirectiveDir`, image scratch under `PlaywrightService` and `WebScraperTools` — flows through this one constant. `WorkfolderPaths.assertInside(Path)` guards every site that resolves an LLM-supplied slug into the workfolder, throwing `IllegalStateException` if the resolved path escapes.
+
+If you need to relocate the workfolder, edit `WorkfolderPaths.resolveRoot()`. Nowhere else.
+
+### Path ownership: Java only — never in skill prompts
+
+The literal path `~/mins_bot_data/mins_workfolder/...` lives in **exactly one place**: `DeliverableExecutor.resolveWorkfolderRoot()` (and the parallel `BASE_DIR` constants in the directive tools). **No skill `.md` body may hardcode this path.** When a skill needs to verify images, read drafts, or open the search log, it reads the path from the tool's structured response — `produceDeliverable` returns `File:` (published) and `TaskFolder:` (scratch) on separate lines for exactly this reason. Skills reference them as `<TaskFolder>/images/` etc., abstractly.
+
+Why this matters: if the workfolder ever moves (rename, OS-specific layout, multi-user install), Java changes one line and every skill keeps working. Hardcoded paths in prompts would force a hunt-and-replace across dozens of `.md` files and silently break older skill packs the user installed.
+
+If you find a skill referencing `mins_bot_data` or `mins_workfolder` literally in its body, treat it as a bug and rewrite it to consume `TaskFolder:` from the tool result.
+
+## Skill packs (.md) — the canonical home for customizable logic
+
+**Hard rule:** anything a user might reasonably want to tweak — prompts, success criteria, retry policy, model choice, output format, trigger phrases, verification checks — lives in a skill-pack `.md`, **not in Java**. Java owns infrastructure (the executor loop, file I/O, image search, model clients, registry, prereq checks). Skill packs own behavior.
+
+**Why:** every time we hard-coded a tunable inside Java, the user had to ask us to change it and rebuild. With skill packs, the user (or the bot itself, via `createSkillPack`) edits the `.md` and the change takes effect on the next `SkillRegistry.rescan()` — no recompile, no restart.
+
+### What MUST live in a skill pack
+- **Trigger phrases** — the natural-language shapes that route to the skill.
+- **Prompts** — any prompt text the LLM follows for this specific workflow.
+- **Success criteria / verification rules** — file-size floors, image-count vs section-count, placeholder grep patterns, slide-count ranges, etc. The skill checks the output against its own bar; Java does not.
+- **Retry policy** — "if criteria fail, call X again with goal Y; cap at N retries."
+- **Model preference** — `metadata.minsbot.model` per skill (when honored by the executor).
+- **Output format / style defaults** — `output: pdf | pptx | docx | md`, `format: report | slides | memo | brief`.
+- **Quality bars** — `ship-score`, `max-cycles`, `min-images-per-section`.
+
+### What stays in Java
+- The plan→execute→synthesize→critique→refine loop in `DeliverableExecutor`.
+- File I/O, workfolder layout, 30-day prune, publish-to-Desktop copy.
+- Image search + verification + transcoding (`DeliverableFormatter`, `PlaywrightService`).
+- Tool registry, intent interceptor regex (just to *route* — not to *judge*).
+- Skill manifest parser and registry rescan.
+
+### Two reference skills today
+- `skill_packs/generate-pdf-report/skill.md` — PDF report flow, declares its own verification (file ≥ 50 KB, image-count ≥ ½ section-count, FINAL.md placeholder grep) and a 1-retry policy.
+- `skill_packs/generate-ppt-report/skill.md` — same shape for PowerPoint decks (file ≥ 80 KB, 8–14 slides, ≥ 70% image coverage).
+
+If you add a third deliverable shape (memo, whitepaper, brief), make a new skill pack — don't fork the executor.
+
+### Authoring at runtime
+The bot can write its own skill packs via `SkillAuthorTool.createSkillPack(name, description, body, output, format, model, …)`, which writes `~/mins_bot_data/skill_packs/<name>/skill.md` and triggers a registry rescan. Use this when the user says "make a skill that …" — never inline new behavior into Java to satisfy a one-off request.
+
 ## SKILLS TAB in WEB APP
 - show list of skills
 - add upload skills feature

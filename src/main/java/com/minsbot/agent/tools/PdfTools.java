@@ -106,16 +106,57 @@ public class PdfTools {
         }
     }
 
-    @Tool(description = "Create a PDF document with a title and body content. " +
-            "Use this when the user asks to save results as PDF, create a PDF report, or export to PDF. " +
-            "The content parameter supports: lines starting with '# ' become large headings, " +
-            "'## ' become medium headings, '- ' become bullet points, '**text**' becomes bold, " +
-            "and everything else is normal text. Blank lines add spacing.")
+    @Tool(description = "LOW-LEVEL: render an already-finished, single-page text snippet to PDF. " +
+            "Use ONLY when the user hands you finished content and asks to save it verbatim as a PDF " +
+            "(e.g. 'save this letter as a PDF', 'export these notes to PDF'). " +
+            "DO NOT use for ANY of the following — these MUST go through produceDeliverable instead: " +
+            "any 'PDF report on X', 'PDF brief about Y', 'compile a PDF of Z', researched / sectioned / " +
+            "compared / multi-product / multi-source content, anything where YOU still need to do " +
+            "research before drafting. produceDeliverable runs plan→research→synthesize→critique→refine and " +
+            "renders to PDF with images and citations; this tool just dumps text. Picking this tool for " +
+            "research deliverables produces a thin, image-less, source-less PDF that misses the user's intent.")
     public String createPdfDocument(
             @ToolParam(description = "Full file path for the PDF, e.g. 'C:\\Users\\user\\Documents\\report.pdf'") String filePath,
             @ToolParam(description = "Document title (shown as the main heading)") String title,
             @ToolParam(description = "Document body content. Use '# ' for headings, '## ' for sub-headings, " +
                     "'- ' for bullet points, '**text**' for bold, blank lines for spacing.") String content) {
+
+        // Hard refusal guard: if the content looks like a researched multi-section
+        // deliverable, route the LLM back to produceDeliverable. The @Tool
+        // description forbids this path but the model picks it anyway about a
+        // third of the time, then ships a 5 KB text-only PDF and walks away.
+        // Heuristic: ≥3 H2/H3 headings OR ≥2 sections + ≥1500 chars suggests a
+        // research report — stop and route. Short letters / notes / single-page
+        // text dumps still pass through.
+        if (content != null) {
+            int h2 = 0;
+            int sections = 0;
+            for (String raw : content.split("\n", -1)) {
+                String t = raw.trim();
+                if (t.startsWith("## ") || t.startsWith("### ")) h2++;
+                if (t.startsWith("**") && t.matches("^\\*\\*\\s*\\d+[.\\)\\-:].*\\*\\*\\s*$")) sections++;
+            }
+            int totalSections = h2 + sections;
+            if (h2 >= 3 || (totalSections >= 2 && content.length() >= 1500)) {
+                String msg = "TOOL_REFUSED — wrong tool. This content has " + totalSections
+                        + " sections and " + content.length() + " chars — that's a researched deliverable, "
+                        + "not a single-page text dump. "
+                        + "REQUIRED next step: call produceDeliverable(goal=\"<the original user request>\", "
+                        + "format=\"report\", output=\"pdf\") with NO further changes. produceDeliverable runs "
+                        + "plan→research→synthesize→critique→refine internally, sources real images via "
+                        + "Playwright, embeds citations, writes everything to "
+                        + "~/mins_bot_data/mins_workfolder/<task-id>/, and publishes to Desktop. "
+                        + "Do NOT reply to the user with the text content — call produceDeliverable. "
+                        + "Do NOT pick a different filewriter (Word/Pptx/Excel) as a workaround. "
+                        + "Do NOT mark the task as done.";
+                log.warn("[PDF] refused createPdfDocument — routing to produceDeliverable: {} sections, {} chars",
+                        totalSections, content.length());
+                if (notifier != null) {
+                    notifier.notify("⚠ wrong tool picked (createPdfDocument) — routing to produceDeliverable");
+                }
+                return msg;
+            }
+        }
 
         notifier.notify("Creating PDF: " + title);
 

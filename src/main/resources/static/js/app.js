@@ -1243,8 +1243,33 @@
    * itself a moment after reaching 100%.
    */
   var _progressBars = {};   // label → { wrap, fill, label, count, hideTimer }
+  // Per-chat-area thin strip — at-a-glance progress that doesn't take up
+  // chat real estate. Driven by the same upsert calls as the labeled dock bars.
+  var _stripHideTimer = null;
+  function updateTaskProgressStrip(pct, done) {
+    var strip = document.getElementById('task-progress-strip');
+    var fill = document.getElementById('task-progress-strip-fill');
+    if (!strip || !fill) return;
+    if (_stripHideTimer) { clearTimeout(_stripHideTimer); _stripHideTimer = null; }
+    strip.classList.add('active');
+    fill.style.width = pct + '%';
+    if (done) {
+      strip.classList.add('complete');
+      _stripHideTimer = setTimeout(function () {
+        strip.classList.remove('active');
+        strip.classList.remove('complete');
+        fill.style.width = '0%';
+      }, 1800);
+    } else {
+      strip.classList.remove('complete');
+    }
+  }
+
   function upsertProgressBar(label, current, total) {
     var pct = Math.max(0, Math.min(100, Math.round((current / Math.max(1, total)) * 100)));
+    // Drive the bottom-of-chat sliver too. The labeled dock bar above is
+    // optional context; the strip is the always-visible progress signal.
+    updateTaskProgressStrip(pct, current >= total);
     var entry = _progressBars[label];
     if (!entry) {
       var wrap = document.createElement('div');
@@ -1276,13 +1301,15 @@
     entry.fill.style.width = pct + '%';
     if (entry.hideTimer) { clearTimeout(entry.hideTimer); entry.hideTimer = null; }
     if (current >= total) {
-      // Mark complete but DON'T auto-hide. The user might look away during a
-      // long deliverable; if we whisk it off-screen they miss the whole thing.
-      // The "completed" class flips the fill to a calm green and adds a ✓.
+      // Brief green "✓ Complete" celebration, then fade and remove. Earlier
+      // we left these on screen indefinitely; users complained about stacks
+      // of stale completed bars. 4s is long enough to register, short enough
+      // to clear out before the next task starts.
       entry.wrap.classList.add('progress-complete');
       entry.count.textContent = '✓ Complete · ' + total + ' / ' + total;
-      // Drop the registry slot so the next deliverable's first event creates
-      // a fresh bar instead of mutating this finished one in place.
+      var w = entry.wrap;
+      setTimeout(function () { w.style.opacity = '0'; }, 3500);
+      setTimeout(function () { if (w && w.parentNode) w.parentNode.removeChild(w); }, 4500);
       delete _progressBars[label];
     }
   }

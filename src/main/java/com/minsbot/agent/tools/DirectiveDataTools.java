@@ -148,9 +148,15 @@ public class DirectiveDataTools {
         }
     }
 
-    /** Build the directive folder path: ~/mins_bot_data/directive_{sanitized_name}/ */
+    /** Build the directive folder path inside mins_workfolder. The slug is
+     *  sanitised and the resolved path is asserted to live under the workfolder
+     *  root — no LLM-supplied directive name can escape via {@code ..} or any
+     *  other trick. The location of the workfolder itself is owned by
+     *  {@link com.minsbot.agent.WorkfolderPaths}, never by this class. */
     private Path getDirectiveDir(String directiveName) {
-        return BASE_DIR.resolve("directive_" + sanitizeName(directiveName));
+        Path p = BASE_DIR.resolve("directive_" + sanitizeName(directiveName)).normalize();
+        com.minsbot.agent.WorkfolderPaths.assertInside(p);
+        return p;
     }
 
     /** Sanitize a directive name into a safe folder name. */

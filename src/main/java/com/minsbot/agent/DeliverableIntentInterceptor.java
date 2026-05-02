@@ -36,21 +36,24 @@ public class DeliverableIntentInterceptor {
      *
      * Captures: 1=format-word, rest=goal text.
      */
+    // (?s) = DOTALL — `.` matches newlines too. Required because users
+    // routinely add scope on a second line ("pdf report on X.\ntop tier only,
+    // with images") and `.` without DOTALL would stop at the first \n.
     private static final Pattern INTENT = Pattern.compile(
-            "(?i)\\b(?:create|generate|make|draft|produce|put together|write|compile|" +
+            "(?is)\\b(?:create|generate|make|draft|produce|put together|write|compile|" +
             "i\\s+(?:want|need)|give\\s+me|prepare|build)\\s+(?:a\\s+|an\\s+|me\\s+a\\s+|the\\s+)?" +
             "(powerpoint|ppt|pptx|deck|slides?|pdf|word\\s+doc(?:ument)?|docx|memo)\\b" +
             "[\\s,:]*(?:report|brief|deck|document|presentation|file|copy)?\\s*(?:of|on|about|for|covering|comparing)?\\s*(.{4,400})$");
 
     /** Looser variant for messages that lead with the format word: "PDF on X". */
     private static final Pattern INTENT_LEADING_FORMAT = Pattern.compile(
-            "(?i)^\\s*(powerpoint|ppt|pptx|deck|slides?|pdf|word\\s+doc(?:ument)?|docx|memo)\\b" +
+            "(?is)^\\s*(powerpoint|ppt|pptx|deck|slides?|pdf|word\\s+doc(?:ument)?|docx|memo)\\b" +
             "[\\s,:]*(?:report|brief|deck|document|presentation|file)?\\s*(?:of|on|about|for|covering|comparing)?\\s*(.{4,400})$");
 
     /** Format-less variant: action verb + deliverable noun ("create a report on X",
      *  "compile a comparison of Y"). No file extension named — default to PDF. */
     private static final Pattern INTENT_NO_FORMAT = Pattern.compile(
-            "(?i)\\b(?:create|generate|make|draft|produce|put together|write|compile|" +
+            "(?is)\\b(?:create|generate|make|draft|produce|put together|write|compile|" +
             "i\\s+(?:want|need)|give\\s+me|prepare|build)\\s+(?:a\\s+|an\\s+|me\\s+a\\s+|the\\s+)?" +
             "(report|brief|deck|memo|document|presentation|comparison|write[- ]?up|whitepaper|analysis)\\b" +
             "\\s*(?:of|on|about|for|covering|comparing)?\\s*(.{4,400})$");
