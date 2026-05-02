@@ -68,6 +68,19 @@ public class ToolExecutionNotifier {
         }
     }
 
+    /**
+     * Emit a structured progress event. The frontend polls these and renders a
+     * blue progress bar (sticky per label, updated in place) so the user can see
+     * long-running plans actually moving instead of guessing whether the bot
+     * is alive. Message format: {@code __progress__<label>|<current>|<total>}.
+     */
+    public void notifyProgress(String label, int current, int total) {
+        if (label == null) label = "";
+        int safeTotal = Math.max(1, total);
+        int safeCurrent = Math.max(0, Math.min(current, safeTotal));
+        notify("__progress__" + label.replace('|', '/') + "|" + safeCurrent + "|" + safeTotal);
+    }
+
     /** Drains all pending status messages (called by the polling endpoint). */
     public List<String> drain() {
         List<String> result = new ArrayList<>();

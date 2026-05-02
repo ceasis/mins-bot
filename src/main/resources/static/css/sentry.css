@@ -1,0 +1,376 @@
+/* ─── Sentry Mode ─────────────────────────────────────────────────────── */
+
+#sentry-overlay[hidden] { display: none !important; }
+
+#sentry-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  background: radial-gradient(ellipse at center, #0a1420 0%, #000408 70%, #000 100%);
+  color: #cfeaff;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  user-select: none;
+}
+
+.sentry-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(0, 200, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 200, 255, 0.04) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+  animation: sentry-grid-pan 30s linear infinite;
+}
+@keyframes sentry-grid-pan {
+  from { background-position: 0 0; }
+  to   { background-position: 40px 40px; }
+}
+
+.sentry-topbar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 28px;
+  font-size: 11px;
+  letter-spacing: 4px;
+  color: #4ad6ff;
+  text-transform: uppercase;
+}
+.sentry-status {
+  font-weight: 600;
+  text-shadow: 0 0 12px rgba(74, 214, 255, 0.6);
+}
+.sentry-exit-btn {
+  background: transparent;
+  color: #4ad6ff;
+  border: 1px solid rgba(74, 214, 255, 0.4);
+  padding: 6px 14px;
+  font-size: 11px;
+  letter-spacing: 3px;
+  cursor: pointer;
+  font-family: inherit;
+  text-transform: uppercase;
+}
+.sentry-exit-btn:hover {
+  background: rgba(74, 214, 255, 0.1);
+  border-color: #4ad6ff;
+}
+
+/* ─── Gear ─── */
+.sentry-stage {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+/* The pulse amplitude and glow are driven by CSS custom properties so that
+ * state changes (idle ↔ listening ↔ speaking) tween smoothly via `transition`
+ * instead of swapping keyframe sets and hard-restarting an animation.
+ *
+ * The gear rotations run at a single constant speed forever — perceived
+ * "speeding up" comes from the pulse amplitude/frequency change, which is
+ * visually less jarring than ramping animation-duration mid-spin. */
+@property --pulse-amp   { syntax: '<number>';                     inherits: true; initial-value: 0.012; }
+@property --pulse-period{ syntax: '<time>';                       inherits: true; initial-value: 4s; }
+@property --glow        { syntax: '<length>';                     inherits: true; initial-value: 24px; }
+@property --glow-color  { syntax: '<color>';                      inherits: true; initial-value: rgba(74, 214, 255, 0.45); }
+
+.sentry-gear-wrap {
+  --pulse-amp: 0.012;
+  --pulse-period: 4s;
+  --glow: 24px;
+  --glow-color: rgba(74, 214, 255, 0.45);
+
+  position: relative;
+  width: 480px;
+  height: 480px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  filter: drop-shadow(0 0 var(--glow) var(--glow-color));
+  animation: sentry-pulse var(--pulse-period) cubic-bezier(0.4, 0, 0.4, 1) infinite;
+  transition:
+    --pulse-amp    400ms cubic-bezier(0.4, 0, 0.2, 1),
+    --pulse-period 600ms cubic-bezier(0.4, 0, 0.2, 1),
+    --glow         400ms ease-out,
+    --glow-color   400ms ease-out;
+  will-change: transform, filter;
+  backface-visibility: hidden;
+  transform: translateZ(0);
+}
+
+.sentry-gear-wrap.listening {
+  --pulse-amp: 0.05;
+  --pulse-period: 1.4s;
+  --glow: 34px;
+  --glow-color: rgba(96, 255, 160, 0.65);
+}
+.sentry-gear-wrap.speaking {
+  --pulse-amp: 0.08;
+  --pulse-period: 0.9s;
+  --glow: 42px;
+  --glow-color: rgba(74, 214, 255, 0.95);
+}
+
+@keyframes sentry-pulse {
+  0%   { transform: scale(1); }
+  50%  { transform: scale(calc(1 + var(--pulse-amp))); }
+  100% { transform: scale(1); }
+}
+
+.sentry-gear {
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 50%;
+  will-change: transform;
+  backface-visibility: hidden;
+}
+.sentry-gear-outer { animation: sentry-rotate-cw  60s linear infinite; }
+.sentry-gear-inner { animation: sentry-rotate-ccw 40s linear infinite; }
+
+@keyframes sentry-rotate-cw  { from { transform: rotate(0deg);   } to { transform: rotate(360deg);  } }
+@keyframes sentry-rotate-ccw { from { transform: rotate(0deg);   } to { transform: rotate(-360deg); } }
+
+.sentry-gear circle, .sentry-gear rect {
+  fill: none;
+  stroke: #4ad6ff;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+.sentry-gear-outer .tooth { fill: rgba(74, 214, 255, 0.18); stroke: #4ad6ff; }
+.sentry-gear-inner .tooth { fill: rgba(74, 214, 255, 0.30); stroke: #82e6ff; }
+.sentry-gear-wrap.listening .sentry-gear circle,
+.sentry-gear-wrap.listening .sentry-gear rect { stroke: #6effa0; }
+.sentry-gear-wrap.listening .tooth { fill: rgba(96, 255, 160, 0.25); stroke: #6effa0; }
+.sentry-gear-wrap.speaking .sentry-gear circle,
+.sentry-gear-wrap.speaking .sentry-gear rect { stroke: #aef0ff; }
+
+.sentry-core {
+  position: relative;
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #4ad6ff 0%, rgba(74, 214, 255, 0.25) 50%, transparent 80%);
+  z-index: 2;
+  animation: sentry-core-pulse 3.2s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+}
+.sentry-gear-wrap.listening .sentry-core { animation-duration: 1.8s; }
+.sentry-gear-wrap.speaking  .sentry-core { animation-duration: 1.2s; }
+@keyframes sentry-core-pulse {
+  0%, 100% { opacity: 0.82; transform: scale(0.96); }
+  50%      { opacity: 1.00; transform: scale(1.08); }
+}
+
+/* ─── Transcript ─── */
+.sentry-transcript {
+  position: absolute;
+  bottom: 130px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 70%;
+  text-align: center;
+  font-size: 18px;
+  color: #cfeaff;
+  text-shadow: 0 0 8px rgba(74, 214, 255, 0.5);
+  min-height: 28px;
+  pointer-events: none;
+}
+.sentry-transcript .you   { color: #6effa0; }
+.sentry-transcript .bot   { color: #aef0ff; }
+
+/* ─── Input ─── */
+.sentry-input-row {
+  display: flex;
+  justify-content: center;
+  padding: 22px;
+  position: relative;
+  z-index: 3;
+}
+.sentry-input {
+  width: 60%;
+  max-width: 720px;
+  background: rgba(10, 25, 40, 0.7);
+  border: 1px solid rgba(74, 214, 255, 0.4);
+  border-radius: 28px;
+  padding: 14px 22px;
+  color: #cfeaff;
+  font-size: 16px;
+  font-family: inherit;
+  outline: none;
+  letter-spacing: 1px;
+}
+.sentry-input::placeholder { color: rgba(207, 234, 255, 0.4); letter-spacing: 2px; }
+.sentry-input:focus { border-color: #4ad6ff; box-shadow: 0 0 18px rgba(74, 214, 255, 0.4); }
+
+/* ─── Side Panels ─── */
+.sentry-panel {
+  position: absolute;
+  top: 80px;
+  bottom: 100px;
+  width: 38vw;
+  max-width: 640px;
+  background: rgba(10, 25, 40, 0.92);
+  border: 1px solid rgba(74, 214, 255, 0.35);
+  border-radius: 12px;
+  box-shadow: 0 0 30px rgba(74, 214, 255, 0.25);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: transform 280ms ease, opacity 280ms ease;
+  z-index: 4;
+}
+.sentry-panel[hidden] { display: none !important; }
+.sentry-panel.left  { left: 28px;  transform: translateX(-110%); }
+.sentry-panel.right { right: 28px; transform: translateX( 110%); }
+.sentry-panel.show  { transform: translateX(0); opacity: 1; }
+
+.sentry-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  font-size: 11px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: #4ad6ff;
+  border-bottom: 1px solid rgba(74, 214, 255, 0.25);
+}
+.sentry-panel-close {
+  background: transparent;
+  color: #4ad6ff;
+  border: none;
+  cursor: pointer;
+  font-size: 18px;
+  padding: 0 6px;
+}
+.sentry-panel-tools {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+  margin-right: 8px;
+}
+.sentry-chip {
+  background: transparent;
+  border: 1px solid rgba(74, 214, 255, 0.4);
+  color: #cfeaff;
+  font-family: inherit;
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+.sentry-chip:hover { border-color: #4ad6ff; background: rgba(74, 214, 255, 0.08); }
+.sentry-chip.active {
+  background: rgba(74, 214, 255, 0.25);
+  border-color: #4ad6ff;
+  color: #fff;
+  box-shadow: 0 0 12px rgba(74, 214, 255, 0.5);
+}
+
+/* Leaflet map container fills the panel body */
+.sentry-leaflet {
+  width: 100%;
+  height: 100%;
+  background: #0a1420;
+}
+/* Tone the leaflet tiles to match the cyber aesthetic without ugly inversion */
+.sentry-leaflet .leaflet-tile {
+  filter: brightness(0.65) saturate(0.7) hue-rotate(180deg);
+}
+.sentry-leaflet .leaflet-control-attribution {
+  background: rgba(10, 25, 40, 0.7);
+  color: #8ab2c8;
+  font-size: 9px;
+}
+.sentry-leaflet .leaflet-control-attribution a { color: #4ad6ff; }
+
+/* Aircraft marker — rotated SVG of a small plane */
+.sentry-plane {
+  width: 24px;
+  height: 24px;
+  pointer-events: auto;
+  transition: transform 11s linear; /* matches the 12s poll for smooth glide */
+  transform-origin: 50% 50%;
+  filter: drop-shadow(0 0 4px rgba(74, 214, 255, 0.9));
+}
+.sentry-plane svg { width: 100%; height: 100%; display: block; }
+.sentry-plane svg path { fill: #aef0ff; stroke: #4ad6ff; stroke-width: 1; }
+.sentry-plane.ground svg path { fill: #6effa0; stroke: #6effa0; }
+
+.leaflet-popup-content-wrapper {
+  background: rgba(10, 25, 40, 0.95);
+  color: #cfeaff;
+  border: 1px solid rgba(74, 214, 255, 0.4);
+  border-radius: 6px;
+}
+.leaflet-popup-tip { background: rgba(10, 25, 40, 0.95); }
+.leaflet-popup-content { font-family: inherit; font-size: 12px; line-height: 1.4; }
+.leaflet-popup-content b { color: #4ad6ff; letter-spacing: 1px; }
+.sentry-panel-body {
+  flex: 1;
+  overflow: auto;
+  padding: 0;
+}
+.sentry-panel-body iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+/* Image grid */
+.sentry-img-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  padding: 10px;
+}
+.sentry-img-grid img {
+  width: 100%;
+  height: 110px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: #122;
+  cursor: pointer;
+  transition: transform 150ms ease;
+}
+.sentry-img-grid img:hover { transform: scale(1.04); }
+
+.sentry-empty {
+  padding: 28px;
+  text-align: center;
+  color: rgba(207, 234, 255, 0.5);
+  font-size: 13px;
+  letter-spacing: 2px;
+}
+
+/* Hint chip */
+.sentry-hints {
+  position: absolute;
+  bottom: 78px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 10px;
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: rgba(207, 234, 255, 0.5);
+  text-transform: uppercase;
+  pointer-events: none;
+}
+.sentry-hints span {
+  border: 1px solid rgba(74, 214, 255, 0.25);
+  padding: 4px 10px;
+  border-radius: 12px;
+}

@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -37,8 +36,7 @@ public class TavusVideoTools {
 
     public TavusVideoTools(ToolExecutionNotifier notifier) { this.notifier = notifier; }
 
-    @Tool(description = "Generate a personalized avatar video with Tavus from a replica id + script. "
-            + "Returns a video id; poll with getTavusVideo. Use when user says 'tavus', 'personalized replica video'.")
+    // @Tool removed - duplicate provider; canonical SoraVideoTools.
     public String generateTavusVideo(
             @ToolParam(description = "Script text for the replica to speak") String scriptText,
             @ToolParam(description = "Replica id (optional if default is set)") String replicaId,
@@ -75,7 +73,7 @@ public class TavusVideoTools {
         }
     }
 
-    @Tool(description = "Check status of a Tavus video by id.")
+    // @Tool removed - duplicate provider; canonical SoraVideoTools.
     public String getTavusVideo(@ToolParam(description = "Tavus video_id") String id) {
         if (!configured()) return notConfig();
         if (id == null || id.isBlank()) return "Provide a video_id.";

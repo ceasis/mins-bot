@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -47,8 +46,7 @@ public class KlingVideoTools {
 
     public KlingVideoTools(ToolExecutionNotifier notifier) { this.notifier = notifier; }
 
-    @Tool(description = "Generate a video with Kling AI from a text prompt. Photoreal quality. "
-            + "Returns a task id; poll with getKlingVideoStatus. Use when user says 'kling', 'kuaishou video'.")
+    // @Tool removed — duplicate text-to-video provider. Canonical: SoraVideoTools.
     public String generateKlingVideo(
             @ToolParam(description = "Prompt describing the video") String prompt,
             @ToolParam(description = "Aspect ratio: '16:9','9:16','1:1'") String aspectRatio,
@@ -83,7 +81,7 @@ public class KlingVideoTools {
         }
     }
 
-    @Tool(description = "Check status of a Kling video task by id.")
+    // @Tool removed — companion to demoted generateKlingVideo.
     public String getKlingVideoStatus(@ToolParam(description = "Kling task_id") String taskId) {
         if (!configured()) return notConfig();
         if (taskId == null || taskId.isBlank()) return "Provide a task_id.";

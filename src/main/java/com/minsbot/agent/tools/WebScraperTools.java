@@ -60,8 +60,12 @@ public class WebScraperTools {
         this.notifier = notifier;
     }
 
-    @Tool(description = "Fetch a web page and return its readable text content (HTML stripped). " +
-            "Use this to read articles, search results, or any web page without opening a browser.")
+    @Tool(description = "CANONICAL way to read a specific web page's text content. Server-side HTTP " +
+            "fetch + tag strip — cheapest, no browser launches. Use for articles, search-result pages, " +
+            "blog posts, plain HTML. Returns up to 8000 chars. " +
+            "DO NOT use for JS-heavy SPAs (React/Vue/Angular dashboards, infinite-scroll feeds) — " +
+            "use playwrightTools.browseAndGetLinks/Images which renders JS first. " +
+            "DO NOT use to OPEN a page for the user to view — use browserTools.openUrl.")
     public String fetchPageText(
             @ToolParam(description = "The full URL to fetch, e.g. 'https://example.com'") String url) {
         notifier.notify("Fetching page: " + url);
@@ -93,8 +97,10 @@ public class WebScraperTools {
         }
     }
 
-    @Tool(description = "Extract all image URLs from a web page. Returns a list of absolute image URLs " +
-            "that can then be downloaded with downloadFile.")
+    @Tool(description = "Extract image URLs from a static HTML page. Cheap (no browser). " +
+            "Use for plain HTML pages, blog posts, product listings with server-rendered <img> tags. " +
+            "DO NOT use on JS-heavy pages where images load via JS (Pinterest, Instagram, modern SPAs) — " +
+            "use playwrightTools.browseAndGetImages instead (renders JS first).")
     public String extractImageUrls(
             @ToolParam(description = "The full URL of the page to scan for images") String url) {
         notifier.notify("Extracting images from: " + url);
@@ -130,8 +136,9 @@ public class WebScraperTools {
         }
     }
 
-    @Tool(description = "Extract all links (URLs) from a web page. Useful for navigating search results " +
-            "or finding specific pages to visit next.")
+    @Tool(description = "Extract <a href> links from a static HTML page. Cheap, no browser. " +
+            "Use for plain HTML pages and search-result pages. " +
+            "DO NOT use on JS-heavy SPAs — use playwrightTools.browseAndGetLinks (renders JS first).")
     public String extractLinks(
             @ToolParam(description = "The full URL of the page to scan for links") String url) {
         notifier.notify("Extracting links from: " + url);

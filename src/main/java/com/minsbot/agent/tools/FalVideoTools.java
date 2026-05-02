@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -37,10 +36,7 @@ public class FalVideoTools {
 
     public FalVideoTools(ToolExecutionNotifier notifier) { this.notifier = notifier; }
 
-    @Tool(description = "Generate a video via fal.ai. Use any model slug "
-            + "(e.g. 'fal-ai/kling-video/v2/master/text-to-video', 'fal-ai/minimax-video', "
-            + "'fal-ai/luma-dream-machine/ray-2', 'fal-ai/ltx-video'). "
-            + "Returns a request_id; poll with getFalRequest.")
+    // @Tool removed - duplicate provider; canonical SoraVideoTools.
     public String generateFalVideo(
             @ToolParam(description = "fal.ai model slug, e.g. 'fal-ai/kling-video/v2/master/text-to-video'") String modelSlug,
             @ToolParam(description = "Prompt describing the video") String prompt,
@@ -80,8 +76,7 @@ public class FalVideoTools {
         }
     }
 
-    @Tool(description = "Check the status of a fal.ai request by model slug + request_id. "
-            + "When completed, also fetches the result payload (video URL).")
+    // @Tool removed - duplicate provider; canonical SoraVideoTools.
     public String getFalRequest(
             @ToolParam(description = "fal.ai model slug used for generation") String modelSlug,
             @ToolParam(description = "Request id returned by generate") String requestId) {

@@ -106,10 +106,13 @@ public class HeyGenTools {
 
     // ─── Generation ─────────────────────────────────────────────────
 
-    @Tool(description = "Generate a talking-head video with HeyGen using an AI avatar speaking your text. "
-            + "Returns a video_id you can poll for status + the final video URL. "
-            + "USE THIS when the user says 'make a heygen video of me saying X', 'create an AI avatar video', "
-            + "'generate a talking head video'. Uses default avatar + voice from Setup if none provided.")
+    @Tool(description = "CANONICAL way to generate a talking-head / avatar video — an AI presenter "
+            + "speaking text. Uses HeyGen. Returns a video_id; poll getHeyGenVideoStatus for the URL. "
+            + "Use whenever the user says 'avatar video', 'talking head', 'AI presenter saying X', "
+            + "'make a video of someone saying Y'. Uses default avatar+voice from Setup if none given. "
+            + "DO NOT use for cinematic / scene / motion videos — use soraVideoTools.generateSoraVideo. "
+            + "Other talking-head providers (D-ID, Synthesia, Tavus) exist as Java beans but are "
+            + "not exposed to the LLM.")
     public String generateHeygenVideo(
             @ToolParam(description = "Text the avatar should say (max ~1500 chars)") String text,
             @ToolParam(description = "Avatar ID (from listHeygenAvatars). Blank = use default from Setup.") String avatarId,

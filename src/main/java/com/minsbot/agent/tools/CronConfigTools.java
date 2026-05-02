@@ -124,10 +124,11 @@ public class CronConfigTools {
         return sb.toString().trim();
     }
 
-    @Tool(description = "Add or update a recurring check/reminder. Creates a new Markdown task file under "
-            + "~/mins_bot_data/mins_recurring_tasks/. Section should be one of: "
-            + "'Daily checks', 'Weekly checks', 'Reminders', 'Other schedule'. "
-            + "Content is a natural-language description like 'Check email at 9am' or 'Drink water every 2 hours'.")
+    // @Tool removed for LLM scope — natural-language → cron regex guessing here is lossy
+    // (it silently falls through to "noon daily" if the input doesn't match a pattern).
+    // The LLM should use RemindersTools.createDailyReminder / createWeeklyReminder /
+    // createCronReminder which take structured time/cron directly. Method retained for
+    // the UI controller (TabsController) which already passes structured section + content.
     public String updateCronInfo(
             @ToolParam(description = "Section name, e.g. 'Daily checks', 'Weekly checks', 'Reminders', 'Other schedule'") String section,
             @ToolParam(description = "Description of the scheduled check or reminder") String content) {

@@ -28,8 +28,11 @@ public class TimerTools {
         this.notifier = notifier;
     }
 
-    @Tool(description = "Set a reminder: after the given number of minutes, show a system notification. " +
-            "Use when the user says 'remind me in X minutes' or 'set a timer for X minutes'.")
+    @Tool(description = "One-shot SYSTEM NOTIFICATION (OS toast popup) after a delay. NOT a chat reminder. " +
+            "Use ONLY when the user explicitly wants a native OS notification — 'pop up a notification in 5 min', " +
+            "'show me a toast when the timer ends', 'set a kitchen timer'. " +
+            "DO NOT use for 'remind me in 5 minutes to X' (that belongs in chat — use RemindersTools). " +
+            "Lost on app restart. Max delay 24 hours.")
     public String setReminder(
             @ToolParam(description = "Delay in minutes (decimals OK, e.g. 5 for 5 minutes, 0.5 for 30 seconds)") double delayMinutes,
             @ToolParam(description = "Title of the reminder notification") String title,

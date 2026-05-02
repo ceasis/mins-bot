@@ -80,11 +80,20 @@ public class PlaywrightService {
         return ensurePlaywright().chromium().connectOverCDP(endpoint);
     }
 
-    /** Launch headless Chromium with stealth/anti-detection options. */
+    @org.springframework.beans.factory.annotation.Value("${app.playwright.headless:true}")
+    private boolean headless;
+
+    @org.springframework.beans.factory.annotation.Value("${app.playwright.slow-mo-ms:0}")
+    private double slowMoMs;
+
+    /** Launch Chromium with stealth/anti-detection options. Set
+     *  {@code app.playwright.headless=false} to watch operations live;
+     *  {@code app.playwright.slow-mo-ms=250} adds delay between actions. */
     private Browser launchChromium(Playwright pw) {
         return pw.chromium().launch(
                 new BrowserType.LaunchOptions()
-                        .setHeadless(true)
+                        .setHeadless(headless)
+                        .setSlowMo(slowMoMs)
                         .setArgs(List.of(
                                 "--disable-gpu",
                                 "--no-sandbox",
@@ -182,6 +191,69 @@ public class PlaywrightService {
             return out.toString();
         } catch (Exception e) {
             throw new RuntimeException("renderToPdf failed: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Render an HTML string directly to PDF — no URL needed. Used by the
+     * deliverable formatter to bypass PDFBox entirely and let Chromium handle
+     * image fetching, CDN headers, webp/avif decoding, and CSS layout.
+     *
+     * <p>Writes the HTML to a temp file (data URIs hit size limits with embedded
+     * styles + a few images), navigates Chromium to it, waits for network idle,
+     * then prints to {@code outputPath}.
+     */
+    public String renderHtmlStringToPdf(String html, String outputPath,
+                                         String format, boolean landscape) {
+        java.nio.file.Path tmpHtml = null;
+        try (Page page = newPage()) {
+            tmpHtml = java.nio.file.Files.createTempFile("minsbot_pdf_", ".html");
+            java.nio.file.Files.writeString(tmpHtml, html, java.nio.charset.StandardCharsets.UTF_8);
+            String url = tmpHtml.toUri().toString();
+            page.navigate(url);
+            try { page.waitForLoadState(LoadState.NETWORKIDLE); } catch (Exception ignored) {}
+            // Explicit wait for all <img> elements to either load or fail.
+            // NETWORKIDLE alone isn't enough — it fires when network is quiet
+            // for 500ms but doesn't guarantee images decoded. Without this,
+            // page.pdf() can snapshot blank image frames.
+            try {
+                page.evaluate("""
+                    () => Promise.all(
+                      Array.from(document.images).map(img =>
+                        (img.complete && img.naturalWidth > 0)
+                          ? Promise.resolve()
+                          : new Promise(res => {
+                              const done = () => res();
+                              img.addEventListener('load', done, { once: true });
+                              img.addEventListener('error', done, { once: true });
+                              // 8s hard cap per image
+                              setTimeout(done, 8000);
+                            })
+                      )
+                    )
+                """);
+            } catch (Exception ignored) {}
+            page.waitForTimeout(400); // small final settle for layout
+            java.nio.file.Path out = java.nio.file.Path.of(outputPath);
+            if (out.getParent() != null) java.nio.file.Files.createDirectories(out.getParent());
+            Page.PdfOptions opts = new Page.PdfOptions()
+                    .setPath(out)
+                    .setFormat(format != null && !format.isBlank() ? format : "Letter")
+                    .setLandscape(landscape)
+                    .setPrintBackground(true)
+                    // Margins are set in CSS @page so PDF margins must be 0 to
+                    // avoid double-padding.
+                    .setMargin(new com.microsoft.playwright.options.Margin()
+                            .setTop("0").setBottom("0").setLeft("0").setRight("0"));
+            page.pdf(opts);
+            page.context().close();
+            return out.toString();
+        } catch (Exception e) {
+            throw new RuntimeException("renderHtmlStringToPdf failed: " + e.getMessage(), e);
+        } finally {
+            if (tmpHtml != null) {
+                try { java.nio.file.Files.deleteIfExists(tmpHtml); } catch (Exception ignored) {}
+            }
         }
     }
 
@@ -710,6 +782,87 @@ public class PlaywrightService {
     /**
      * Search Bing Images for a query and extract full-size image URLs.
      */
+    /**
+     * Headless TEXT search via Bing — free, no API key, works locally. Returns
+     * pre-formatted result text in the same shape Serper produces so the LLM
+     * sees consistent input regardless of which provider was used.
+     *
+     * <p>Why Bing not Google: Google's anti-bot pipeline serves CAPTCHAs to
+     * headless Chromium fairly aggressively now; Bing's HTML is more stable
+     * and friendlier to scraping. Both are free.
+     *
+     * <p>Format per result: numbered, with title, snippet, link.
+     */
+    public String searchTextResults(String query, int maxResults) {
+        Page page = null;
+        try {
+            page = newPage();
+            // Hard timeout cap. Don't wait on tracking pixels / 3rd-party ads —
+            // Bing's NETWORKIDLE never fires within a reasonable window.
+            page.setDefaultTimeout(10_000);
+            String searchUrl = "https://www.bing.com/search?q=" +
+                    java.net.URLEncoder.encode(query, java.nio.charset.StandardCharsets.UTF_8);
+            page.navigate(searchUrl, new Page.NavigateOptions()
+                    .setWaitUntil(com.microsoft.playwright.options.WaitUntilState.DOMCONTENTLOADED)
+                    .setTimeout(10_000));
+            // 600ms settle is enough — results are in initial HTML
+            page.waitForTimeout(600);
+
+            @SuppressWarnings("unchecked")
+            java.util.List<java.util.Map<String, Object>> results =
+                    (java.util.List<java.util.Map<String, Object>>) page.evaluate("""
+                    (max) => {
+                      const out = [];
+                      // Primary algorithm result blocks
+                      document.querySelectorAll('li.b_algo').forEach(li => {
+                        const a = li.querySelector('h2 a');
+                        if (!a) return;
+                        const title = (a.textContent || '').trim();
+                        const url = a.href || '';
+                        let snippet = '';
+                        const cap = li.querySelector('.b_caption p, .b_lineclamp4, p');
+                        if (cap) snippet = (cap.textContent || '').trim();
+                        if (url && url.startsWith('http')) {
+                          out.push({ title, url, snippet });
+                        }
+                      });
+                      return out.slice(0, max);
+                    }
+                    """, maxResults);
+
+            if (results == null || results.isEmpty()) {
+                return null; // signal to caller: try a different provider
+            }
+            StringBuilder sb = new StringBuilder("Search results for: ").append(query)
+                    .append(" (via Bing — local browser)\n\n");
+            int i = 0;
+            for (java.util.Map<String, Object> r : results) {
+                String title = String.valueOf(r.getOrDefault("title", ""));
+                String url = String.valueOf(r.getOrDefault("url", ""));
+                String snippet = String.valueOf(r.getOrDefault("snippet", ""));
+                if (title.isEmpty() && url.isEmpty()) continue;
+                sb.append(++i).append(". ").append(title.isEmpty() ? "(no title)" : title).append("\n");
+                if (!snippet.isEmpty()) {
+                    if (snippet.length() > 280) snippet = snippet.substring(0, 280) + "…";
+                    sb.append("   ").append(snippet).append("\n");
+                }
+                if (!url.isEmpty()) sb.append("   ").append(url).append("\n");
+                sb.append("\n");
+            }
+            return sb.toString().trim();
+        } catch (Exception e) {
+            log.warn("[Playwright] searchTextResults failed for '{}': {}", query, e.getMessage());
+            return null;
+        } finally {
+            // Always tear down the per-call context. Without this, a timeout
+            // leaves a half-attached context behind and subsequent calls fail
+            // with "Cannot find object to call __adopt__" / "frame doesn't exist".
+            if (page != null) {
+                try { page.context().close(); } catch (Exception ignored) {}
+            }
+        }
+    }
+
     public List<String> searchBingImages(String query, int maxResults) {
         try (Page page = newPage()) {
             String searchUrl = "https://www.bing.com/images/search?q=" +

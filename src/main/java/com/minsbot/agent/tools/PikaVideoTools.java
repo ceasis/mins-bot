@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -37,8 +36,7 @@ public class PikaVideoTools {
 
     public PikaVideoTools(ToolExecutionNotifier notifier) { this.notifier = notifier; }
 
-    @Tool(description = "Generate a short stylized video with Pika Labs from a prompt. Returns a job id; "
-            + "poll with getPikaVideoStatus. Use when user says 'pika video', 'pika labs', 'stylized short video'.")
+    // @Tool removed - duplicate provider; canonical SoraVideoTools.
     public String generatePikaVideo(
             @ToolParam(description = "Prompt describing the video") String prompt,
             @ToolParam(description = "Aspect ratio: '16:9','9:16','1:1'") String aspectRatio,
@@ -72,7 +70,7 @@ public class PikaVideoTools {
         }
     }
 
-    @Tool(description = "Check status of a Pika video job by id.")
+    // @Tool removed - duplicate provider; canonical SoraVideoTools.
     public String getPikaVideoStatus(@ToolParam(description = "Pika video id") String id) {
         if (!configured()) return notConfig();
         if (id == null || id.isBlank()) return "Provide an id.";

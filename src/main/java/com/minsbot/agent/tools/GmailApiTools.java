@@ -46,10 +46,11 @@ public class GmailApiTools {
         this.notifier = notifier;
     }
 
-    @Tool(description = "Get unread emails from Gmail via Google API. Returns sender, subject, date, " +
-            "and a snippet of each unread email. Use for morning briefings, email checks, or when the user asks " +
-            "'check my email' or 'any new emails'. Requires Gmail integration connected in Integrations tab. " +
-            "If Gmail API is not connected, falls back to suggesting IMAP readInbox.")
+    @Tool(description = "CANONICAL way to read UNREAD emails. Uses the Gmail API via OAuth. Returns "
+            + "sender, subject, date, snippet of each unread message. Use for morning briefings, "
+            + "email checks, 'check my email', 'any new emails', 'what's new in my inbox', "
+            + "'what came in overnight'. Single-account default; for multi-account use "
+            + "getUnreadEmailsFromAll. Requires Gmail integration connected in Integrations tab.")
     @com.minsbot.offline.RequiresOnline("Gmail unread emails")
     public String getUnreadEmails(
             @ToolParam(description = "Maximum number of unread emails to fetch (1-20)") double maxResults) {
@@ -109,8 +110,11 @@ public class GmailApiTools {
         }
     }
 
-    @Tool(description = "Get recent emails from Gmail (read and unread). Returns sender, subject, date, " +
-            "and snippet. Use when user asks for recent mail overview, not just unread.")
+    @Tool(description = "CANONICAL way to read recent emails (read AND unread). Gmail API via OAuth. "
+            + "Use for 'show me my recent emails', 'what's been happening in my inbox', "
+            + "'last 10 emails', 'summarize today's mail'. Differs from getUnreadEmails by including "
+            + "already-read messages — pick this when the user wants context, not just new mail. "
+            + "DO NOT use emailTools.readInbox (IMAP) when Gmail is configured.")
     public String getRecentEmails(
             @ToolParam(description = "Maximum number of emails to fetch (1-20)") double maxResults) {
         int max = Math.max(1, Math.min(20, (int) Math.round(maxResults)));
@@ -416,10 +420,12 @@ public class GmailApiTools {
 
     // ═══ Send (write) ═════════════════════════════════════════════════════
 
-    @Tool(description = "Send an email via the Gmail API using the OAuth token (no SMTP configuration needed). "
-            + "Use when the user says 'send an email to X', 'email Y about Z', 'reply to this'. "
+    @Tool(description = "CANONICAL way to send email. Uses the Gmail API via OAuth — no SMTP setup, "
+            + "no browser autoclick, fully reliable. Use whenever the user says 'send an email to X', "
+            + "'email Y about Z', 'reply to this', 'shoot a quick note to Q', 'draft and send'. "
             + "If multiple Gmail accounts are connected, pass fromAccount to pick which one; "
-            + "otherwise the first connected account is used.")
+            + "otherwise the first connected account is used. Body can be plain text or HTML. "
+            + "DO NOT use emailTools.sendEmail (SMTP-then-browser fallback, fragile) when Gmail is configured.")
     public String sendGmailViaApi(
             @ToolParam(description = "Recipient email(s), comma-separated") String to,
             @ToolParam(description = "Subject line") String subject,

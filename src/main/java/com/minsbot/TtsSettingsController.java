@@ -180,6 +180,13 @@ public class TtsSettingsController {
         return Map.of("success", true, "autoSpeak", ttsTools.isAutoSpeak());
     }
 
+    /** Lightweight live state — currently just whether audio is actively playing.
+     *  Polled by Sentry Mode to flip the gear into the "speaking" pulse. */
+    @GetMapping(value = "/state", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> ttsState() {
+        return Map.of("speaking", ttsTools.isSpeaking());
+    }
+
     /** Returns (and clears) a one-time startup notice if Fish Audio failed on first TTS attempt. */
     @GetMapping(value = "/startup-notice", produces = MediaType.APPLICATION_JSON_VALUE)
     public Map<String, Object> startupNotice() {

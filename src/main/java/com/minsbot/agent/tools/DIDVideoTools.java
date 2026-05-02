@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -37,9 +36,7 @@ public class DIDVideoTools {
 
     public DIDVideoTools(ToolExecutionNotifier notifier) { this.notifier = notifier; }
 
-    @Tool(description = "Generate a talking-head video with D-ID. Takes a source image URL and "
-            + "text to speak. Returns a talk id; poll with getDIDTalk. Use when user says 'd-id', "
-            + "'talking avatar from photo', 'make this person speak'.")
+    // @Tool removed - duplicate provider; canonical SoraVideoTools.
     public String generateDIDVideo(
             @ToolParam(description = "Public image URL of the person whose face should be animated") String sourceImageUrl,
             @ToolParam(description = "Text to speak") String scriptText,
@@ -79,7 +76,7 @@ public class DIDVideoTools {
         }
     }
 
-    @Tool(description = "Check status of a D-ID talk by id.")
+    // @Tool removed - duplicate provider; canonical SoraVideoTools.
     public String getDIDTalk(@ToolParam(description = "D-ID talk id") String id) {
         if (!configured()) return notConfig();
         if (id == null || id.isBlank()) return "Provide an id.";

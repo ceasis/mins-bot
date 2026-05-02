@@ -391,7 +391,7 @@ public class WindowsSettingsTools {
         } catch (Exception e) { return "Failed: " + e.getMessage(); }
     }
 
-    @Tool(description = "Toggle Num Lock on or off.")
+    @Tool(description = "Set Num Lock state on the keyboard. Pass enabled=true to turn it on, false to turn it off. Use when the user says 'turn num lock on/off', 'enable the numpad', 'I keep typing numbers in passwords' (often Num Lock is the cause).")
     public String setNumLock(
             @ToolParam(description = "true for on, false for off") boolean on) {
         try {

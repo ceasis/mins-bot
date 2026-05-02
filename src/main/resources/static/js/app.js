@@ -132,6 +132,15 @@
         a.className = 'setup-need-docs';
         a.href = n.docs; a.target = '_blank'; a.rel = 'noopener';
         a.textContent = 'Get a key →';
+        // Inside JavaFX WebView, target="_blank" stays in the same WebView
+        // (the bot's chat window). Route through the Java bridge so the link
+        // opens in the user's real default browser as a new tab instead.
+        a.addEventListener('click', function (ev) {
+          if (window.java && typeof window.java.openUrl === 'function') {
+            ev.preventDefault();
+            window.java.openUrl(n.docs);
+          }
+        });
         hint.appendChild(sp); hint.appendChild(a);
       }
       wrap.appendChild(hint);
@@ -249,6 +258,109 @@
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
 
+    var titleBarCopyChat = document.getElementById('title-bar-copy-chat');
+    if (titleBarCopyChat) {
+      titleBarCopyChat.addEventListener('click', function () {
+        copyChatToClipboard(this);
+      });
+    }
+
+    /** Walk every visible chat bubble in order, build a plain-text transcript,
+     *  and copy it to the clipboard. The transcript drops the marker block
+     *  ("__TOOLS_USED__\n...") and progress UI noise — just speaker, time,
+     *  and message text. Easy to paste into a bug report. */
+    function copyChatToClipboard(btn) {
+      try {
+        // Scope to the messages container to avoid picking up stray .message
+        // elements elsewhere on the page. Query the actual bubbles directly —
+        // the previous `wrapper.querySelector('.message')` could miss bot
+        // bubbles when nested elements got in the way of "first descendant"
+        // selector resolution.
+        var messagesEl = document.getElementById('messages');
+        if (!messagesEl) messagesEl = document;
+        var bubbles = messagesEl.querySelectorAll(
+          '.message-wrapper > .message.user, .message-wrapper > .message.bot');
+        if (!bubbles.length) {
+          // Fallback: looser selector in case the structure differs
+          // (history-sync path, older bubble templates, etc.)
+          bubbles = messagesEl.querySelectorAll('.message.user, .message.bot');
+        }
+        if (!bubbles.length) {
+          flashCopyState(btn, 'empty', 'Nothing to copy');
+          return;
+        }
+        var lines = [];
+        bubbles.forEach(function (msg) {
+          var isUser = msg.classList.contains('user');
+          // Walk up to wrapper for the timestamp sibling.
+          var wrapper = msg.closest('.message-wrapper') || msg.parentElement;
+          var time = wrapper ? wrapper.querySelector('.message-time') : null;
+          var text = (msg.innerText || msg.textContent || '').trim();
+          // Drop the "✦ tools used (N)" button label which gets included by innerText.
+          text = text.replace(/\n?✦ tools used \(\d+\)\s*$/, '').trim();
+          if (!text) return;
+          var stamp = time ? time.textContent.trim() : '';
+          var speaker = isUser ? 'YOU' : 'BOT';
+          lines.push('[' + stamp + '] ' + speaker + ':\n' + text);
+        });
+        if (!lines.length) {
+          flashCopyState(btn, 'empty', 'Nothing to copy');
+          return;
+        }
+        var transcript = lines.join('\n\n');
+        // Try Java bridge FIRST. The JavaFX WebView's navigator.clipboard and
+        // document.execCommand both fail silently in this embedding; the
+        // native bridge is the only reliable path.
+        if (window.java && typeof window.java.copyToClipboard === 'function') {
+          try {
+            var bridged = window.java.copyToClipboard(transcript);
+            if (bridged) {
+              flashCopyState(btn, 'ok', 'Copied · ' + lines.length + ' messages');
+              return;
+            }
+          } catch (e) { /* fall through to web APIs below */ }
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(transcript).then(
+            function () { flashCopyState(btn, 'ok', 'Copied · ' + lines.length + ' messages'); },
+            function ()  { fallbackCopy(transcript, btn, lines.length); }
+          );
+          return;
+        }
+        fallbackCopy(transcript, btn, lines.length);
+      } catch (e) {
+        flashCopyState(btn, 'err', 'Copy failed');
+      }
+    }
+
+    function fallbackCopy(text, btn, n) {
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        var ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        flashCopyState(btn, ok ? 'ok' : 'err',
+                       ok ? ('Copied · ' + n + ' messages') : 'Copy failed');
+      } catch (e) {
+        flashCopyState(btn, 'err', 'Copy failed');
+      }
+    }
+
+    function flashCopyState(btn, kind, message) {
+      if (!btn) return;
+      var prev = btn.getAttribute('data-tip') || '';
+      btn.setAttribute('data-tip', message);
+      btn.classList.add('title-bar-btn-flash-' + kind);
+      setTimeout(function () {
+        btn.classList.remove('title-bar-btn-flash-' + kind);
+        btn.setAttribute('data-tip', prev);
+      }, 1600);
+    }
+
     if (titleBarRefresh) {
       titleBarRefresh.addEventListener('click', function () {
         // Hard reload: bypass any in-memory page state by appending a cache-buster
@@ -364,8 +476,17 @@
     return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
   }
 
-  // Detect Windows file paths and make them clickable
-  var pathRegex = /([A-Za-z]:\\[^\s<>"',:;!?\])(]+(?:\\[^\s<>"',:;!?\])(]+)*)/g;
+  // Detect Windows file paths and make them clickable.
+  //
+  // Three alternatives (only ONE capture group fires per match — see linkifyPaths):
+  //   1. Backtick-quoted: `C:\...` or `C:/...` — preserves spaces, strips backticks
+  //   2. Double-quote-quoted: "C:\..." — same
+  //   3. Bare unquoted: C:\... or C:/... — stops at whitespace, quotes, parens
+  //
+  // The bot frequently wraps paths in backticks; the old regex captured the
+  // trailing backtick as part of the path which made Paths.get fail server-side.
+  // Forward-slash paths and quoted-with-spaces paths now work too.
+  var pathRegex = /`([A-Za-z]:[\\/][^`\n]+?)`|"([A-Za-z]:[\\/][^"\n]+?)"|([A-Za-z]:[\\/][^\s<>"'`,;!?\)\(]+)/g;
 
   function linkifyPaths(text) {
     var parts = [];
@@ -376,7 +497,10 @@
       if (match.index > lastIndex) {
         parts.push({ type: 'text', value: text.substring(lastIndex, match.index) });
       }
-      parts.push({ type: 'path', value: match[0] });
+      // Use whichever capture group fired (1=backtick, 2=quote, 3=bare).
+      // Strip trailing punctuation that often slips in from prose like "see C:\foo\bar."
+      var captured = (match[1] || match[2] || match[3] || '').replace(/[.,;:!?\])>]+$/, '');
+      parts.push({ type: 'path', value: captured });
       lastIndex = pathRegex.lastIndex;
     }
     if (lastIndex < text.length) {
@@ -765,8 +889,20 @@
     // For bot messages, extract trailing [Option] lines as choice buttons.
     var choices = [];
     var displayText = text;
+    var toolsUsed = null;  // populated when reply contains __TOOLS_USED__ marker
     if (!isUser && text) {
-      var parsed = extractChoices(text);
+      // Strip the tools-used marker BEFORE choices parsing so it doesn't leak
+      // into the rendered reply or get treated as a choice line.
+      var tu = text.indexOf('__TOOLS_USED__');
+      if (tu !== -1) {
+        var tail = text.substring(tu + '__TOOLS_USED__'.length).trim();
+        toolsUsed = tail.split('\n').map(function (s) { return s.trim(); })
+          .filter(function (s) { return s.length > 0; });
+        // Also strip the small "(used N tools)" pre-marker if present.
+        var preMarker = text.substring(0, tu).replace(/\(used \d+ tools?\)\s*$/i, '');
+        displayText = preMarker.trim();
+      }
+      var parsed = extractChoices(displayText);
       displayText = parsed.text;
       choices = parsed.choices;
     }
@@ -789,12 +925,14 @@
           buildMessageContent(msg, displayText);
           addCopyListener(msg);
           renderChoices(msg, choices);
+          if (toolsUsed && toolsUsed.length) attachToolsUsedButton(msg, toolsUsed);
         }
       }, 25);
     } else {
       buildMessageContent(msg, displayText);
       addCopyListener(msg);
       if (!isUser) renderChoices(msg, choices);
+      if (!isUser && toolsUsed && toolsUsed.length) attachToolsUsedButton(msg, toolsUsed);
     }
 
     if (wasAtBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -1029,6 +1167,66 @@
     for (var s = 0; s < stale.length; s++) stale[s].remove();
   }
 
+  /** Attach a "✦ tools used (N)" button below a bot message. Click → modal with the full list. */
+  function attachToolsUsedButton(messageEl, tools) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'tools-used-btn';
+    btn.textContent = '✦ tools used (' + tools.length + ')';
+    btn.title = 'Show the tools the bot called this turn';
+    btn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      showToolsUsedModal(tools);
+    });
+    messageEl.appendChild(btn);
+  }
+
+  /** Render and show a modal with the list of tools used. Reused element across calls. */
+  var _toolsUsedModalEl = null;
+  function showToolsUsedModal(tools) {
+    if (!_toolsUsedModalEl) {
+      var backdrop = document.createElement('div');
+      backdrop.className = 'tools-used-modal-backdrop';
+      backdrop.hidden = true;
+      var dialog = document.createElement('div');
+      dialog.className = 'tools-used-modal';
+      var head = document.createElement('div');
+      head.className = 'tools-used-modal-head';
+      var title = document.createElement('div');
+      title.className = 'tools-used-modal-title';
+      title.textContent = 'Tools used';
+      var close = document.createElement('button');
+      close.type = 'button';
+      close.className = 'tools-used-modal-close';
+      close.textContent = '×';
+      close.addEventListener('click', function () { backdrop.hidden = true; });
+      head.appendChild(title);
+      head.appendChild(close);
+      var body = document.createElement('div');
+      body.className = 'tools-used-modal-body';
+      dialog.appendChild(head);
+      dialog.appendChild(body);
+      backdrop.appendChild(dialog);
+      // Click outside dialog → close
+      backdrop.addEventListener('click', function (e) {
+        if (e.target === backdrop) backdrop.hidden = true;
+      });
+      document.body.appendChild(backdrop);
+      _toolsUsedModalEl = { backdrop: backdrop, body: body, title: title };
+    }
+    _toolsUsedModalEl.title.textContent = 'Tools used (' + tools.length + ')';
+    _toolsUsedModalEl.body.innerHTML = '';
+    var ol = document.createElement('ol');
+    ol.className = 'tools-used-list';
+    tools.forEach(function (t) {
+      var li = document.createElement('li');
+      li.textContent = t;
+      ol.appendChild(li);
+    });
+    _toolsUsedModalEl.body.appendChild(ol);
+    _toolsUsedModalEl.backdrop.hidden = false;
+  }
+
   function appendStatus(text) {
     var el = document.createElement('div');
     el.className = 'message-status';
@@ -1037,6 +1235,56 @@
     messagesEl.appendChild(el);
     if (wasAtBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
     if (window._minsSound) window._minsSound.notification();
+  }
+
+  /**
+   * Sticky-per-label progress bar inside the chat. The bar is reused (not
+   * recreated) across updates so the user sees it grow in place. Hides
+   * itself a moment after reaching 100%.
+   */
+  var _progressBars = {};   // label → { wrap, fill, label, count, hideTimer }
+  function upsertProgressBar(label, current, total) {
+    var pct = Math.max(0, Math.min(100, Math.round((current / Math.max(1, total)) * 100)));
+    var entry = _progressBars[label];
+    if (!entry) {
+      var wrap = document.createElement('div');
+      wrap.className = 'message-progress';
+      wrap.dataset.label = label;
+      var labelEl = document.createElement('div');
+      labelEl.className = 'progress-label';
+      var countEl = document.createElement('div');
+      countEl.className = 'progress-count';
+      var head = document.createElement('div');
+      head.className = 'progress-head';
+      head.appendChild(labelEl);
+      head.appendChild(countEl);
+      var track = document.createElement('div');
+      track.className = 'progress-track';
+      var fill = document.createElement('div');
+      fill.className = 'progress-fill';
+      track.appendChild(fill);
+      wrap.appendChild(head);
+      wrap.appendChild(track);
+      // Dock the progress bar in a fixed slot above the input — that way new
+      // chat messages can never push it out of view.
+      var dock = document.getElementById('progress-dock');
+      (dock || messagesEl).appendChild(wrap);
+      entry = _progressBars[label] = { wrap: wrap, fill: fill, label: labelEl, count: countEl, hideTimer: null };
+    }
+    entry.label.textContent = label;
+    entry.count.textContent = current + ' / ' + total + ' · ' + pct + '%';
+    entry.fill.style.width = pct + '%';
+    if (entry.hideTimer) { clearTimeout(entry.hideTimer); entry.hideTimer = null; }
+    if (current >= total) {
+      // Mark complete but DON'T auto-hide. The user might look away during a
+      // long deliverable; if we whisk it off-screen they miss the whole thing.
+      // The "completed" class flips the fill to a calm green and adds a ✓.
+      entry.wrap.classList.add('progress-complete');
+      entry.count.textContent = '✓ Complete · ' + total + ' / ' + total;
+      // Drop the registry slot so the next deliverable's first event creates
+      // a fresh bar instead of mutating this finished one in place.
+      delete _progressBars[label];
+    }
   }
 
   function clearStatusMessages() {
@@ -1098,6 +1346,16 @@
             var msg = data.messages[i];
             if (msg.startsWith('__vision__')) {
               showVisionStatus(msg.substring(10));
+            } else if (msg.startsWith('__progress__')) {
+              // Format: __progress__<label>|<current>|<total>
+              var rest = msg.substring('__progress__'.length);
+              var parts = rest.split('|');
+              if (parts.length === 3) {
+                var pLabel = parts[0];
+                var cur = parseInt(parts[1], 10) || 0;
+                var tot = parseInt(parts[2], 10) || 1;
+                upsertProgressBar(pLabel, cur, tot);
+              }
             } else {
               appendStatus(msg);
             }
@@ -1119,7 +1377,37 @@
     if (sendingMessage) return;
     stopQuitCountdown();
     sendingMessage = true;
+    // Clear any "✓ Complete" bars from previous turns so the dock starts fresh.
+    var _dock = document.getElementById('progress-dock');
+    if (_dock) {
+      var _done = _dock.querySelectorAll('.message-progress.progress-complete');
+      for (var _i = 0; _i < _done.length; _i++) _done[_i].remove();
+    }
     const msg = text.trim();
+
+    // Sentry Mode: trigger phrases short-circuit the normal chat round-trip.
+    if (window.MinsbotSentry) {
+      const low = msg.toLowerCase();
+      if (low === 'sentry mode' || low === 'enter sentry' || low === 'sentry on') {
+        inputEl.value = '';
+        inputEl.style.height = 'auto';
+        inputEl.classList.remove('multiline');
+        sendingMessage = false;
+        try { window.MinsbotSentry.enter(); } catch (e) {}
+        return;
+      }
+      if (window.MinsbotSentry.isActive && window.MinsbotSentry.isActive()) {
+        // While sentry is active, route any chat-input text through it
+        // instead of /api/chat (sentry has its own dispatch + voice loop).
+        inputEl.value = '';
+        inputEl.style.height = 'auto';
+        inputEl.classList.remove('multiline');
+        sendingMessage = false;
+        try { window.MinsbotSentry.handleText(msg); } catch (e) {}
+        return;
+      }
+    }
+
     addToInputHistory(msg);
     historyIndex = -1;
     savedInput = '';

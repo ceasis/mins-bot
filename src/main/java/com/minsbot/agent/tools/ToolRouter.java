@@ -25,6 +25,21 @@ public class ToolRouter {
     @Autowired(required = false)
     private com.minsbot.agent.plan.PlanTool planTool;
 
+    // Deliverable executor (plan→research→synthesize→critique→refine, format-converts to
+    // pdf/docx/pptx). MUST be always-in-scope so the LLM picks it for "research X and put
+    // it in a PDF" — without this, the model hallucinates pandoc/md-to-pdf paths.
+    @Autowired(required = false)
+    private com.minsbot.agent.tools.DeliverableTools deliverableTools;
+
+    @Autowired(required = false)
+    private com.minsbot.agent.tools.ResearchCacheTools researchCacheTools;
+
+    @Autowired(required = false)
+    private com.minsbot.agent.tools.DeliverablePrecedentTools precedentTools;
+
+    @Autowired(required = false)
+    private com.minsbot.agent.tools.DeliverableFeedbackTools feedbackTools;
+
     private static final Logger log = LoggerFactory.getLogger(ToolRouter.class);
 
     /** OpenAI's maximum tools per API call. */
@@ -533,6 +548,7 @@ public class ToolRouter {
         beans.add(codeRunnerTools);
         // Orchestrators need to spawn & monitor sub-agents.
         beans.add(orchestratorTools);
+        beans.removeIf(b -> toolCounts.getOrDefault(b, 0) == 0);
         return beans.toArray();
     }
 
@@ -607,6 +623,12 @@ public class ToolRouter {
             }
         }
 
+        // Drop any bean whose @Tool count is 0. Spring AI throws "No @Tool annotated
+        // methods found" if you pass an empty bean — which kills the whole chat round.
+        // Beans get to count=0 legitimately (whole-class demotions like ScheduledTaskTools)
+        // so the registry isn't broken; we just must not hand them to ChatClient.
+        selected.removeIf(b -> toolCounts.getOrDefault(b, 0) == 0);
+
         Object[] result = selected.toArray();
         log.info("[ToolRouter] Selected {} bean(s) ({} tools) for: {}",
                 result.length, used, truncate(message, 60));
@@ -650,7 +672,8 @@ public class ToolRouter {
                 journalService, screenRegionWatcher, semanticFileSearch, meetingMode,
                 heyGenTools, veoVideoTools,
                 pdfAdvancedTools, pdfPasswordCrackerTools, webToPdfTools, youTubeTranscriptTools,
-                skillPackTool
+                skillPackTool,
+                deliverableTools, researchCacheTools, precedentTools, feedbackTools
         };
         for (Object bean : allBeans) {
             if (bean != null && !toolCounts.containsKey(bean)) {
@@ -705,6 +728,15 @@ public class ToolRouter {
         // Plan tool: lets the model author/update its own multi-step plan. Optional
         // bean (field-injected) so ToolRouter doesn't require it at construction.
         if (planTool != null) core.add(planTool);
+        // Deliverable executor — must be always-in-scope. Without this the LLM
+        // can't pick produceDeliverable for "research X and put in PDF/Word/PPT"
+        // and instead hallucinates fake conversion paths (pandoc / md-to-pdf).
+        if (deliverableTools != null) core.add(deliverableTools);
+        if (researchCacheTools != null) core.add(researchCacheTools);
+        if (precedentTools != null) core.add(precedentTools);
+        // Feedback tools — must be always-in-scope so the LLM can record user
+        // reactions ("perfect" / "you forgot X") right after a deliverable lands.
+        if (feedbackTools != null) core.add(feedbackTools);
         return core;
     }
 

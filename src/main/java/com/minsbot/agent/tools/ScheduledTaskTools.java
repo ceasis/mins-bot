@@ -4,7 +4,6 @@ import com.minsbot.agent.AsyncMessageService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -44,8 +43,9 @@ public class ScheduledTaskTools {
         this.cronConfigTools = cronConfigTools;
     }
 
-    @Tool(description = "Schedule a one-shot reminder that fires after a delay (tracked by ID; use listScheduledTasks/cancelScheduledTask). " +
-            "Use when the user says 'remind me in 5 minutes to...' and you need list/cancel support.")
+    // @Tool annotation removed — in-memory tasks were lost on app restart, causing silent
+    // data loss. Use RemindersTools (file-backed, persistent) for all LLM-facing reminder
+    // creation. This method is kept for any non-LLM Java caller still depending on it.
     public String scheduleReminder(
             @ToolParam(description = "Reminder message, e.g. 'Take a break'") String message,
             @ToolParam(description = "Delay in minutes before the reminder fires (decimals OK, e.g. 0.5 for 30 seconds)") double delayMinutes) {
@@ -81,9 +81,7 @@ public class ScheduledTaskTools {
         }
     }
 
-    @Tool(description = "Schedule a recurring notification that repeats at a fixed interval. " +
-            "Use for simple repeated notifications like 'remind me every hour to stretch'. " +
-            "For recurring AI-generated content (quotes, tips, facts), use scheduleRecurringAiTask instead.")
+    // @Tool removed — superseded by RemindersTools.create*Reminder (persistent).
     public String scheduleRecurring(
             @ToolParam(description = "Task description or message to repeat") String description,
             @ToolParam(description = "Interval in seconds between each execution (e.g. 10 for every 10 seconds, 300 for every 5 minutes)") double intervalSeconds) {
@@ -118,9 +116,8 @@ public class ScheduledTaskTools {
         }
     }
 
-    @Tool(description = "Schedule a recurring AI-generated task. Each interval the AI generates fresh content " +
-            "and posts it in the chat. Use when the user says things like 'every minute tell me a quote', " +
-            "'give me a fun fact every 5 minutes', 'every hour give me a motivational message', etc.")
+    // @Tool removed — superseded by RemindersTools.createDailyReminder /
+    // createWeeklyReminder / createCronReminder (persistent, survive restart).
     public String scheduleRecurringAiTask(
             @ToolParam(description = "Prompt for the AI to generate each interval, e.g. 'Give me a unique inspiring quote', 'Tell me a random fun fact'") String prompt,
             @ToolParam(description = "Interval in seconds between each execution (e.g. 60 for every minute, 300 for every 5 minutes)") double intervalSeconds) {
@@ -167,7 +164,8 @@ public class ScheduledTaskTools {
         }
     }
 
-    @Tool(description = "Cancel a scheduled task or reminder by its ID.")
+    // @Tool removed — managed only the in-memory tasks above. Use
+    // RemindersTools.deleteReminder/pauseReminder for the canonical surface.
     public String cancelScheduledTask(
             @ToolParam(description = "The task ID to cancel (e.g. 'rem-1234567890', 'rec-1234567890', or 'ai-1234567890')") String taskId) {
         notifier.notify("Cancelling task: " + taskId);
@@ -184,7 +182,8 @@ public class ScheduledTaskTools {
         return "Cancelled task " + taskId + ": " + entry.description;
     }
 
-    @Tool(description = "List all scheduled tasks and reminders with their status.")
+    // @Tool removed — only listed in-memory tasks (incomplete view). Use
+    // RemindersTools.listReminders for the full file-backed list.
     public String listScheduledTasks() {
         notifier.notify("Listing scheduled tasks");
         if (tasks.isEmpty()) return "No scheduled tasks.";
@@ -201,7 +200,7 @@ public class ScheduledTaskTools {
         return sb.toString().trim();
     }
 
-    @Tool(description = "Get any fired reminders that haven't been acknowledged yet.")
+    // @Tool removed — in-memory only.
     public String getFiredReminders() {
         if (firedReminders.isEmpty()) return "No pending reminders.";
         StringBuilder sb = new StringBuilder("Fired reminders:\n");

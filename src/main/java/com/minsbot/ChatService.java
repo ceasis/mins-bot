@@ -332,6 +332,19 @@ public class ChatService {
     @Autowired(required = false)
     private ModuleStatsService moduleStats;
 
+    /** Passive feedback scanner — runs on every user message and, if a deliverable
+     *  was produced recently, applies any "perfect" / "you forgot X" / "drop Y"
+     *  reactions to the feedback store automatically. */
+    @Autowired(required = false)
+    private com.minsbot.agent.DeliverableFeedbackInterceptor feedbackInterceptor;
+
+    /** Pre-LLM intent router. When the user types a clear deliverable request
+     *  ("POWERPOINT report of X", "PDF on Y") we bypass the LLM tool-selection
+     *  step and call produceDeliverable directly. Description text alone has
+     *  proven unreliable at steering the model with 750+ tools in scope. */
+    @Autowired(required = false)
+    private com.minsbot.agent.DeliverableIntentInterceptor deliverableIntentInterceptor;
+
     @Value("${spring.ai.openai.chat.options.model:unknown}")
     private String chatModelName;
 
@@ -490,6 +503,25 @@ public class ChatService {
 
         // Auto-extract life facts from user message (async, never blocks chat)
         autoMemoryExtractor.analyzeAsync(trimmed);
+
+        // Pre-LLM intent router runs FIRST — before we push any "drafting a
+        // plan and capturing your screen…" ack message. Otherwise the user
+        // sees the bot say it's looking at their screen even when the request
+        // was a clean deliverable that needs no screen capture.
+        try {
+            if (deliverableIntentInterceptor != null) {
+                String dReply = deliverableIntentInterceptor.interceptIfDeliverable(trimmed);
+                if (dReply != null) {
+                    log.info("[ProcessUser] DeliverableIntentInterceptor matched — short-circuiting.");
+                    transcriptService.save("BOT", dReply);
+                    asyncMessages.push(dReply);
+                    autoSpeak(dReply);
+                    return;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[ProcessUser] DeliverableIntentInterceptor failed: {}", e.getMessage());
+        }
 
         // SSE on transcript.save pushes to the UI; don't also enqueue on asyncMessages
         // or the user sees each reply rendered twice.
@@ -771,7 +803,12 @@ public class ChatService {
                         // still surface a line so the user sees what happened instead of silence.
                         java.util.List<String> used = toolNotifier.drainTurnLog();
                         if (!used.isEmpty()) {
-                            String summary = "— used: " + String.join(" · ", used);
+                            // Machine-parseable marker — frontend detects this and renders a
+                            // "✦ tools used" button + modal instead of dumping the list inline.
+                            String summary = "(used " + used.size() + " tool"
+                                    + (used.size() == 1 ? "" : "s") + ")\n"
+                                    + "__TOOLS_USED__\n"
+                                    + String.join("\n", used);
                             log.info("[MainLoop] Empty reply; surfacing tool-usage summary instead.");
                             transcriptService.save("BOT", summary);
                             asyncMessages.push(summary);
@@ -931,8 +968,11 @@ public class ChatService {
     private String appendToolsFootnote(String reply) {
         java.util.List<String> used = toolNotifier.drainTurnLog();
         if (used.isEmpty()) return reply;
-        String footnote = "— used: " + String.join(" · ", used);
-        return reply + "\n\n" + footnote;
+        // Machine-parseable marker. Frontend strips this from rendered text and
+        // renders a "✦ tools used (N)" button that opens a modal with the list.
+        // Old `— used:` inline footnote was noisy and competed with the actual reply.
+        String marker = "__TOOLS_USED__\n" + String.join("\n", used);
+        return reply + "\n\n" + marker;
     }
 
     // ═══ Task planning ═══
@@ -1080,6 +1120,33 @@ public class ChatService {
         toolNotifier.clear();
         transcriptService.save("USER", trimmed);
 
+        // Passive feedback scan — if a deliverable was just produced and the user
+        // is reacting to it ("perfect", "you forgot prices", "drop the images"),
+        // record it to the preference store before the LLM call. Never blocks
+        // or alters the normal chat path.
+        try {
+            if (feedbackInterceptor != null) feedbackInterceptor.scan(trimmed);
+        } catch (Exception ignored) {}
+
+        // Pre-LLM intent router — if the message is a clear deliverable request
+        // ("POWERPOINT report of X", "PDF on Y"), call produceDeliverable directly
+        // and short-circuit the LLM round. Bypasses the tool-selection lottery
+        // that was sending us to createPdfDocument / openApp("powerpoint") etc.
+        try {
+            if (deliverableIntentInterceptor != null) {
+                String reply = deliverableIntentInterceptor.interceptIfDeliverable(trimmed);
+                if (reply != null) {
+                    log.info("[MainLoop] DeliverableIntentInterceptor matched — short-circuiting LLM round.");
+                    transcriptService.save("BOT", reply);
+                    asyncMessages.push(reply);
+                    autoSpeak(reply);
+                    return reply;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[MainLoop] DeliverableIntentInterceptor failed: {}", e.getMessage());
+        }
+
         // Cancel any pending 30-second quit when user sends a new message
         quitService.cancelPendingQuit();
 
@@ -1106,6 +1173,16 @@ public class ChatService {
         if (bypassReply != null) {
             transcriptService.save("BOT", bypassReply);
             return bypassReply;
+        }
+
+        // Pronoun-resolve: "open it" / "open the file" / "show that" → fill in a
+        // path/URL pulled from the most recent assistant message when the user's
+        // message has no concrete target. Without this, the planner asks for
+        // clarification right after producing a file (broken UX).
+        String resolved = resolvePronounTarget(trimmed);
+        if (resolved != null && !resolved.equals(trimmed)) {
+            log.info("[ChatService] Pronoun-resolved '{}' → '{}'", trimmed, resolved);
+            trimmed = resolved;
         }
 
         // Fast-lane: bypass the main-loop queue for stateless messages (greetings,
@@ -1503,13 +1580,17 @@ public class ChatService {
     }
 
     private static String prepAcknowledgement(boolean willPlan, boolean willScreen) {
-        if (willPlan && willScreen) {
-            return "One moment — drafting a quick plan and capturing your screen…";
-        }
+        // When a plan is being drafted, that's the message the user sees —
+        // any screen capture happens silently in parallel and doesn't need
+        // to be announced. Only mention "capturing your screen" when there's
+        // no plan and screen capture is the only prep work happening.
         if (willPlan) {
-            return "One moment — let me check…";
+            return "One moment — drafting a quick plan…";
         }
-        return "One moment — capturing your screen…";
+        if (willScreen) {
+            return "One moment — capturing your screen…";
+        }
+        return "One moment — let me check…";
     }
 
     /**
@@ -1740,6 +1821,79 @@ public class ChatService {
      * these should go straight to file tools (listDirectory / openPath) instead of
      * the planner writing visual "click here, double-click there" steps.
      */
+    /**
+     * Pronoun-resolution for follow-up commands. If the user message is a bare
+     * "open it" / "open this" / "open the file" / "show that" / etc. with no
+     * concrete target, scan the last few assistant transcript entries for a
+     * file path or URL and rewrite the message to point at it. Returns null
+     * when nothing needs to change.
+     */
+    private String resolvePronounTarget(String message) {
+        if (message == null || message.isBlank()) return null;
+        String m = message.trim().toLowerCase();
+        // Patterns we want to resolve: short bare commands referring to "it / that / this / the file".
+        boolean isPronounRef =
+                   m.matches("^(open|show|run|launch|view|read|play|preview)\\s+(it|that|this)\\.?$")
+                || m.matches("^(open|show|run|launch|view|read|play|preview)\\s+the\\s+(file|pdf|doc|docx|sheet|spreadsheet|image|photo|video|link|url|page|result|output)\\.?$");
+        if (!isPronounRef) return null;
+
+        // Prefer the most recent assistant message with an extractable target.
+        try {
+            var history = transcriptService.getStructuredHistory();
+            for (int i = history.size() - 1; i >= 0 && i >= history.size() - 5; i--) {
+                var entry = history.get(i);
+                Object role = entry.get("role");
+                Object text = entry.get("text");
+                if (role == null || text == null) continue;
+                String r = role.toString().toLowerCase();
+                if (!(r.contains("bot") || r.contains("assistant"))) continue;
+                String found = extractTargetFromText(text.toString());
+                if (found != null) {
+                    String verb = m.split("\\s+", 2)[0]; // open / show / etc.
+                    return verb + " " + found;
+                }
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    /**
+     * Pull the most recent file path or URL out of an assistant message. Looks
+     * for backticked tokens, Windows-style paths (C:\…), Unix-style paths (/…),
+     * and http(s) URLs. Returns the last match (most-recently-mentioned).
+     */
+    private static String extractTargetFromText(String text) {
+        if (text == null) return null;
+        // Try backticked tokens first — bot tends to wrap paths in backticks.
+        java.util.regex.Matcher tick = java.util.regex.Pattern.compile("`([^`]+)`").matcher(text);
+        String last = null;
+        while (tick.find()) {
+            String cand = tick.group(1).trim();
+            if (looksLikeTarget(cand)) last = cand;
+        }
+        if (last != null) return last;
+        // Windows path
+        java.util.regex.Matcher win = java.util.regex.Pattern.compile("[A-Za-z]:\\\\[^\\s\"<>|`]+").matcher(text);
+        while (win.find()) last = win.group();
+        if (last != null) return last;
+        // Unix path
+        java.util.regex.Matcher unix = java.util.regex.Pattern.compile("(?<![A-Za-z])/[A-Za-z0-9_.\\-/]+\\.[A-Za-z0-9]{1,6}").matcher(text);
+        while (unix.find()) last = unix.group();
+        if (last != null) return last;
+        // URL
+        java.util.regex.Matcher url = java.util.regex.Pattern.compile("https?://\\S+").matcher(text);
+        while (url.find()) last = url.group().replaceAll("[)\\].,;]+$", "");
+        return last;
+    }
+
+    private static boolean looksLikeTarget(String s) {
+        if (s == null || s.isBlank()) return false;
+        return s.matches("(?i)[A-Za-z]:\\\\.+")        // Windows path
+            || s.startsWith("/") || s.startsWith("./") // Unix path
+            || s.startsWith("http://") || s.startsWith("https://")
+            || s.matches(".+\\.(pdf|docx?|xlsx?|pptx?|txt|csv|png|jpe?g|gif|mp[34]|zip|html?|md)"); // bare filename
+    }
+
     private static boolean isSimpleFileOpenCommand(String message) {
         String m = message.trim().toLowerCase();
         if (m.isEmpty()) return false;

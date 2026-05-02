@@ -59,7 +59,7 @@ public class PrinterTools {
                 + "Start-Process -FilePath '" + path.toString().replace("'", "''") + "' -Verb Print");
     }
 
-    @Tool(description = "Get the default printer name.")
+    @Tool(description = "Return the user's current default Windows printer (the one used when no printer is specified). Use when the user asks 'what printer am I using' or before a print that doesn't name a target.")
     public String getDefaultPrinter() {
         notifier.notify("Getting default printer...");
         return systemControl.runPowerShell(

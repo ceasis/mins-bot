@@ -7,7 +7,12 @@
   <link rel="icon" type="image/png" href="bot-icon-32.png">
   <link rel="stylesheet" href="css/style.css?v={{v}}">
   <link rel="stylesheet" href="css/models.css?v={{v}}">
+  <link rel="stylesheet" href="css/sentry.css?v={{v}}">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <!-- Leaflet (used by Sentry Mode map panel for flight/ship overlays) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+        crossorigin="">
 </head>
 <body>
   <div id="root" class="expanded">
@@ -34,6 +39,12 @@
           <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
             <path d="M13 3.5h-8a1.5 1.5 0 0 0-1.5 1.5v5.5a1.5 1.5 0 0 0 1.5 1.5h2.5l2 2.5 2-2.5H13a1.5 1.5 0 0 0 1.5-1.5V5a1.5 1.5 0 0 0-1.5-1.5Z"/>
             <path d="M8 6v3.5M6.25 7.75h3.5"/>
+          </svg>
+        </button>
+        <button type="button" id="title-bar-copy-chat" class="title-bar-btn" data-tip="Copy entire chat to clipboard" data-tip-dir="down" aria-label="Copy chat">
+          <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="5" y="2" width="9" height="11" rx="1.5"/>
+            <path d="M2 5v8a1.5 1.5 0 0 0 1.5 1.5H10"/>
           </svg>
         </button>
         <button type="button" id="title-bar-refresh" class="title-bar-btn" data-tip="Reload UI" data-tip-dir="down" aria-label="Reload UI">
@@ -206,6 +217,7 @@
           <div class="quit-countdown-track"><div id="quit-countdown-fill" class="quit-countdown-fill"></div></div>
         </div>
         <div id="vision-status" class="vision-status" hidden></div>
+        <div id="progress-dock" class="progress-dock" aria-live="polite"></div>
         <div class="input-row">
           <textarea id="input" class="input" placeholder="Ask me anything..." autocomplete="off" spellcheck="true" rows="1" aria-label="Message input"></textarea>
           <button type="button" id="voice-btn" class="btn btn-voice" data-tip="Voice input" data-tip-align="right" aria-label="Toggle voice input">
@@ -1635,5 +1647,75 @@
   <script src="js/release-notifier.js?v={{v}}"></script>
   <script src="js/costs.js?v={{v}}"></script>
   <script src="js/watcher.js?v={{v}}"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+          crossorigin=""></script>
+  <script src="js/sentry.js?v={{v}}"></script>
+
+  <!-- ─── Sentry Mode overlay (full-screen, voice-driven) ─── -->
+  <div id="sentry-overlay" hidden>
+    <div class="sentry-grid"></div>
+
+    <div class="sentry-topbar">
+      <div class="sentry-status">IDLE</div>
+      <button type="button" class="sentry-exit-btn">Exit · Esc</button>
+    </div>
+
+    <div class="sentry-stage">
+      <div class="sentry-gear-wrap idle">
+        <svg class="sentry-gear sentry-gear-outer" viewBox="0 0 400 400" aria-hidden="true">
+          <circle cx="200" cy="200" r="158"/>
+          <circle cx="200" cy="200" r="140"/>
+          <g id="sentry-teeth-outer"></g>
+        </svg>
+        <svg class="sentry-gear sentry-gear-inner" viewBox="0 0 400 400" aria-hidden="true">
+          <circle cx="200" cy="200" r="84"/>
+          <circle cx="200" cy="200" r="70"/>
+          <g id="sentry-teeth-inner"></g>
+        </svg>
+        <div class="sentry-core"></div>
+      </div>
+
+      <div class="sentry-panel left" data-panel="map" hidden>
+        <div class="sentry-panel-head">
+          <span class="sentry-panel-title">Map</span>
+          <span class="sentry-panel-tools">
+            <button type="button" class="sentry-chip" data-toggle="flights" title="Live flights (OpenSky)">✈ Flights</button>
+          </span>
+          <button type="button" class="sentry-panel-close" data-panel="map">×</button>
+        </div>
+        <div class="sentry-panel-body"></div>
+      </div>
+
+      <div class="sentry-panel right" data-panel="images" hidden>
+        <div class="sentry-panel-head">
+          <span class="sentry-panel-title">Images</span>
+          <button type="button" class="sentry-panel-close" data-panel="images">×</button>
+        </div>
+        <div class="sentry-panel-body"></div>
+      </div>
+
+      <div class="sentry-panel right" data-panel="video" hidden>
+        <div class="sentry-panel-head">
+          <span class="sentry-panel-title">Video</span>
+          <button type="button" class="sentry-panel-close" data-panel="video">×</button>
+        </div>
+        <div class="sentry-panel-body"></div>
+      </div>
+    </div>
+
+    <div class="sentry-transcript"></div>
+
+    <div class="sentry-hints">
+      <span>open map</span>
+      <span>search images …</span>
+      <span>play video …</span>
+      <span>exit sentry</span>
+    </div>
+
+    <div class="sentry-input-row">
+      <input type="text" class="sentry-input" placeholder="speak or type a command…" autocomplete="off"/>
+    </div>
+  </div>
 </body>
 </html>

@@ -97,12 +97,20 @@ final class SkillManifestParser {
             }
         }
 
+        // Optional deliverable hints — let a skill declare its output format,
+        // deliverable style, and preferred model so the interceptor can dispatch
+        // through the right path without LLM tool-pick guesswork.
+        String output = str(oc.get("output"));
+        String format = str(oc.get("format"));
+        String model = str(oc.get("model"));
+
         return new SkillManifest(
                 name, description, homepage, emoji,
                 osList, requiredBins, anyOfBins, requiredEnv, primaryEnv,
                 Collections.unmodifiableList(installs),
                 skillMd.getParent(),
-                body
+                body,
+                output, format, model
         );
     }
 

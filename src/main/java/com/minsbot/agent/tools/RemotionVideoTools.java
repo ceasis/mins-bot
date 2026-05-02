@@ -228,7 +228,7 @@ public class RemotionVideoTools {
         }
     }
 
-    @Tool(description = "Delete a video composition.")
+    @Tool(description = "Permanently delete a saved Remotion video composition by name. Use when the user says 'delete the X video', 'remove that composition', 'get rid of <name>'. Cannot be undone — confirm intent if the name is ambiguous.")
     public String deleteComposition(
             @ToolParam(description = "Name of the composition to delete") String name) {
         notifier.notify("Deleting composition: " + name + "...");

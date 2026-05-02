@@ -37,8 +37,14 @@ public class SoraVideoTools {
     public SoraVideoTools(ToolExecutionNotifier notifier) { this.notifier = notifier; }
 
     @com.minsbot.offline.RequiresOnline("OpenAI Sora video generation")
-    @Tool(description = "Generate an AI video with OpenAI Sora 2 from a text prompt. Returns a job ID; "
-            + "poll with getSoraVideoStatus. Use when user says 'sora video', 'openai video', 'make a sora clip'.")
+    @Tool(description = "CANONICAL way to generate an AI video from a text prompt (cinematic / "
+            + "scene / motion video). Uses OpenAI Sora 2. Returns a job ID; poll with "
+            + "getSoraVideoStatus. Use whenever the user says 'make a video of X', 'generate a "
+            + "video', 'AI video of cat surfing', 'create a cinematic clip', etc. "
+            + "DO NOT use for talking-head / avatar videos — use heyGenTools.generateHeyGenVideo. "
+            + "DO NOT use for programmatic React/text-overlay videos — use remotionVideoTools. "
+            + "Other providers (Veo, Runway, Luma, Kling, Hailuo, Pika, Fal) exist as Java beans "
+            + "but are not exposed to the LLM — re-promote one if a user explicitly prefers it.")
     public String generateSoraVideo(
             @ToolParam(description = "Text prompt describing the video") String prompt,
             @ToolParam(description = "Resolution, e.g. '1280x720' or '1920x1080'") String size,

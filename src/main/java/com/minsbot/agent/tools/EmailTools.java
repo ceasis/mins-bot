@@ -61,9 +61,9 @@ public class EmailTools {
     @com.minsbot.approval.RequiresApproval(
             value = com.minsbot.approval.RiskLevel.SIDE_EFFECT,
             summary = "Send email to {to} — subject: {subject}")
-    @Tool(description = "Send an email to a recipient. Tries SMTP first; if not configured, "
-            + "opens Gmail compose in the browser with fields pre-filled and auto-sends via Ctrl+Enter. "
-            + "Fully autonomous — no manual steps needed.")
+    // @Tool removed — gmailApiTools.sendEmail (OAuth) is the canonical sender. This
+    // SMTP-then-browser fallback was unreliable (browser autosend is fragile). Bean
+    // retained for non-LLM callers and for users without Gmail configured.
     public String sendEmail(
             @ToolParam(description = "Recipient email address") String to,
             @ToolParam(description = "Email subject line") String subject,
@@ -130,8 +130,7 @@ public class EmailTools {
         return openGmailComposeWithAttachment(to, subject, body, attachment);
     }
 
-    @Tool(description = "Send an HTML email to a recipient. Tries SMTP first; if not configured, "
-            + "opens Gmail compose in the browser and auto-sends. Fully autonomous.")
+    // @Tool removed — duplicate of gmailApiTools.sendEmail (which accepts HTML body).
     public String sendHtmlEmail(
             @ToolParam(description = "Recipient email address") String to,
             @ToolParam(description = "Email subject line") String subject,
@@ -410,8 +409,8 @@ public class EmailTools {
         }
     }
 
-    @Tool(description = "Read recent emails from the inbox via IMAP. Returns the latest messages " +
-            "with sender, subject, and date. Requires IMAP to be configured.")
+    // @Tool removed — gmailApiTools.getRecentEmails / getUnreadEmails (OAuth) are
+    // the canonical inbox readers. IMAP path retained as Java for non-Gmail users.
     public String readInbox(
             @ToolParam(description = "Maximum number of emails to read (1-50)") double maxMessagesRaw) {
         notifier.notify("Reading inbox...");

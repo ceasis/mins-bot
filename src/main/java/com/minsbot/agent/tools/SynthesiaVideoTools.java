@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -40,8 +39,7 @@ public class SynthesiaVideoTools {
 
     public SynthesiaVideoTools(ToolExecutionNotifier notifier) { this.notifier = notifier; }
 
-    @Tool(description = "Generate a Synthesia AI presenter video from a script. Returns a video id; "
-            + "poll with getSynthesiaVideo. Use when user says 'synthesia', 'corporate avatar video'.")
+    // @Tool removed - duplicate provider; canonical SoraVideoTools.
     public String generateSynthesiaVideo(
             @ToolParam(description = "Title for the video") String title,
             @ToolParam(description = "Script text the avatar should speak") String scriptText,
@@ -80,7 +78,7 @@ public class SynthesiaVideoTools {
         }
     }
 
-    @Tool(description = "Check status of a Synthesia video by id.")
+    // @Tool removed - duplicate provider; canonical SoraVideoTools.
     public String getSynthesiaVideo(@ToolParam(description = "Synthesia video id") String id) {
         if (!configured()) return notConfig();
         if (id == null || id.isBlank()) return "Provide an id.";

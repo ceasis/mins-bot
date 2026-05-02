@@ -53,12 +53,14 @@ public class RemindersTools {
 
     // ─── Create ─────────────────────────────────────────────────────────────
 
-    @Tool(description = "Create a DAILY reminder that fires at the same time every day. "
-            + "USE WHEN the user says 'remind me every day at <time> to <thing>', or as part "
-            + "of a set when the user says 'help me <goal>' (pair with createWeeklyReminder for "
-            + "the progress check-in). The bot generates the reminder text via AI at fire time "
-            + "using the prompt you provide; delivery is held until the user is actively at the "
-            + "keyboard. Returns the saved file path.")
+    @Tool(description = "CANONICAL way to create a DAILY recurring reminder. Persistent (file-backed, "
+            + "survives restart), delivered in chat. Use whenever the user says 'remind me every day at "
+            + "<time> to <thing>', 'every morning at 7 do X', 'each evening ask me Y'. Also pair with "
+            + "createWeeklyReminder when the user says 'help me <goal>' (e.g. lose weight, sleep better) — "
+            + "spawn 1-2 daily check-ins plus a weekly progress review. The bot generates fresh text via AI "
+            + "at fire time from the prompt you provide; delivery is held until the user is at the keyboard. "
+            + "Prefer this over TimerTools (one-shot OS popup, lost on restart), CronConfigTools, or any "
+            + "*Recurring* / *Scheduled* tool.")
     public String createDailyReminder(
             @ToolParam(description = "Short human-readable name, e.g. 'Morning weight log'") String name,
             @ToolParam(description = "Time of day in 24-hour HH:MM format, e.g. '07:00' or '21:30'") String time,
@@ -87,9 +89,11 @@ public class RemindersTools {
         }
     }
 
-    @Tool(description = "Create a WEEKLY reminder that fires on a specific day of the week at a specific time. "
-            + "USE FOR weekly check-ins, progress reviews, planning sessions, etc. Pair with one or two "
-            + "createDailyReminder calls when setting up a goal-tracking system. Returns the saved file path.")
+    @Tool(description = "CANONICAL way to create a WEEKLY recurring reminder. Persistent (file-backed, "
+            + "survives restart). Use whenever the user says 'every Monday at 9am do X', 'every Friday "
+            + "review my week', 'each Sunday plan the week'. Pair with createDailyReminder for goal "
+            + "tracking (daily logging + weekly review). Prefer this over CronConfigTools or any "
+            + "*Recurring* / *Scheduled* tool.")
     public String createWeeklyReminder(
             @ToolParam(description = "Short human-readable name, e.g. 'Weekly weight progress'") String name,
             @ToolParam(description = "Day of week — one of: MON, TUE, WED, THU, FRI, SAT, SUN") String dayOfWeek,
@@ -105,10 +109,12 @@ public class RemindersTools {
                 "weekly on " + dow + " at " + t);
     }
 
-    @Tool(description = "Create a recurring reminder using a Spring cron expression for full flexibility "
-            + "(every weekday, every 2 hours during work hours, first of the month, etc.). "
-            + "Use this only when daily/weekly aren't enough. Format: '<sec> <min> <hour> <day> <month> <dow>'. "
-            + "Examples: '0 0 9 * * MON-FRI' = weekdays 9 AM. '0 0 */2 9-17 * MON-FRI' = every 2 hours, 9am–5pm, weekdays.")
+    @Tool(description = "CANONICAL way to create a recurring reminder with a custom cron schedule. "
+            + "Persistent (file-backed, survives restart). Use ONLY when createDailyReminder / "
+            + "createWeeklyReminder aren't expressive enough — weekdays only, every N hours during a window, "
+            + "first of the month, etc. Format: '<sec> <min> <hour> <day> <month> <dow>'. "
+            + "Examples: '0 0 9 * * MON-FRI' = weekdays 9 AM. '0 0 */2 9-17 * MON-FRI' = every 2 hours, "
+            + "9am–5pm, weekdays. Prefer this over any *Recurring* / *Scheduled* / cron tool.")
     public String createCronReminder(
             @ToolParam(description = "Short human-readable name") String name,
             @ToolParam(description = "Spring cron expression (6 fields)") String cron,
@@ -147,9 +153,10 @@ public class RemindersTools {
 
     // ─── List / inspect ─────────────────────────────────────────────────────
 
-    @Tool(description = "List all reminders the bot has scheduled — daily ones from "
-            + "scheduled_reports/ AND cron/weekly ones from mins_recurring_tasks/. Use when the user asks "
-            + "'what reminders do I have', 'show me my reminders', or before suggesting a new one to avoid duplicates.")
+    @Tool(description = "CANONICAL list of all reminders — daily (scheduled_reports/) AND cron/weekly "
+            + "(mins_recurring_tasks/). Use whenever the user asks 'what reminders do I have', 'show my "
+            + "scheduled tasks', 'list my recurring tasks'. Also call before creating a new reminder to "
+            + "avoid duplicates. Prefer this over any *Recurring* / *Scheduled* / *Cron* list tool.")
     public String listReminders() {
         notifier.notify("Listing reminders...");
         StringBuilder sb = new StringBuilder();

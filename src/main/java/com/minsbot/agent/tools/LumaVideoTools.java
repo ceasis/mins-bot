@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -37,8 +36,7 @@ public class LumaVideoTools {
 
     public LumaVideoTools(ToolExecutionNotifier notifier) { this.notifier = notifier; }
 
-    @Tool(description = "Generate a video with Luma Dream Machine (Ray 2). Best-in-class motion and physics. "
-            + "Returns a generation id; poll with getLumaVideoStatus. Use when user says 'luma video', 'dream machine', 'ray 2'.")
+    // @Tool removed — duplicate text-to-video provider. Canonical: SoraVideoTools.
     public String generateLumaVideo(
             @ToolParam(description = "Prompt describing the video") String prompt,
             @ToolParam(description = "Aspect ratio: '16:9','9:16','1:1','4:3','3:4','21:9','9:21'") String aspectRatio,
@@ -74,7 +72,7 @@ public class LumaVideoTools {
         }
     }
 
-    @Tool(description = "Check status of a Luma Dream Machine generation by id.")
+    // @Tool removed — companion to demoted generateLumaVideo.
     public String getLumaVideoStatus(@ToolParam(description = "Luma generation id") String id) {
         if (!configured()) return notConfig();
         if (id == null || id.isBlank()) return "Provide an id.";

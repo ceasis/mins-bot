@@ -1,6 +1,7 @@
 package com.minsbot;
 
 import javafx.application.Platform;
+import javafx.scene.input.KeyCombination;
 import javafx.stage.Stage;
 
 import java.awt.Desktop;
@@ -21,6 +22,13 @@ public class WindowBridge {
     private final NativeVoiceService nativeVoiceService;
     private final int serverPort;
     private volatile boolean expanded;
+
+    // Pre-fullscreen snapshot — used to faithfully restore the window when
+    // exiting Sentry Mode. JavaFX's built-in restore is unreliable on Windows.
+    private double preFsX = Double.NaN;
+    private double preFsY = Double.NaN;
+    private double preFsW = Double.NaN;
+    private double preFsH = Double.NaN;
 
     public WindowBridge(Stage stage, int collapsedWidth, int collapsedHeight,
                         int expandedWidth, int expandedHeight,
@@ -58,6 +66,48 @@ public class WindowBridge {
     }
 
     /**
+     * Copy text to the system clipboard. Used by the in-WebView "Copy chat"
+     * button — JavaFX's embedded WebView has flaky support for both
+     * {@code navigator.clipboard.writeText} (returns rejected Promise) and
+     * {@code document.execCommand('copy')} (silently fails on hidden
+     * textareas), so the most reliable path is a JS → Java bridge to the
+     * real native clipboard.
+     *
+     * @return true if the copy succeeded
+     */
+    public boolean copyToClipboard(String text) {
+        if (text == null) text = "";
+        final String payload = text;
+        try {
+            final boolean[] ok = {false};
+            Runnable copy = () -> {
+                try {
+                    javafx.scene.input.Clipboard cb =
+                            javafx.scene.input.Clipboard.getSystemClipboard();
+                    javafx.scene.input.ClipboardContent content =
+                            new javafx.scene.input.ClipboardContent();
+                    content.putString(payload);
+                    cb.setContent(content);
+                    ok[0] = true;
+                } catch (Exception e) {
+                    System.err.println("[WindowBridge] copyToClipboard failed: " + e.getMessage());
+                }
+            };
+            // Clipboard access must run on the JavaFX Application Thread.
+            if (Platform.isFxApplicationThread()) {
+                copy.run();
+            } else {
+                java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
+                Platform.runLater(() -> { try { copy.run(); } finally { done.countDown(); } });
+                done.await(2, java.util.concurrent.TimeUnit.SECONDS);
+            }
+            return ok[0];
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
      * Open an arbitrary URL in the user's default system browser.
      * Used for OAuth flows so the user has real back/forward/close controls
      * instead of being trapped inside the WebView.
@@ -83,6 +133,60 @@ public class WindowBridge {
     /** Minimize window to taskbar. */
     public void minimize() {
         Platform.runLater(() -> stage.setIconified(true));
+    }
+
+    /**
+     * Enter exclusive full-screen mode for Sentry Mode (covers taskbar).
+     *
+     * <p>Snaps the stage to expanded chat dimensions first — JavaFX restores those
+     * bounds on fullscreen exit, so without this the user could end up back at the
+     * collapsed-ball size if they triggered Sentry while the bot was a ball.
+     *
+     * <p>Disables JavaFX's built-in Esc-to-exit so the JS Esc handler in sentry.js
+     * fires (otherwise JavaFX swallows the key and the overlay stays visible while
+     * the window leaves fullscreen).
+     */
+    public void enterFullscreen() {
+        Platform.runLater(() -> {
+            // Snapshot the pre-fullscreen geometry so we can restore it precisely on exit.
+            preFsX = stage.getX();
+            preFsY = stage.getY();
+            preFsW = stage.getWidth();
+            preFsH = stage.getHeight();
+            if (!expanded) {
+                stage.setWidth(expandedWidth);
+                stage.setHeight(expandedHeight);
+                expanded = true;
+            }
+            stage.setFullScreenExitHint("");
+            stage.setFullScreenExitKeyCombination(KeyCombination.NO_MATCH);
+            stage.setFullScreen(true);
+        });
+    }
+
+    /** Exit full-screen mode (called from JS when leaving Sentry Mode). */
+    public void exitFullscreen() {
+        Platform.runLater(() -> {
+            stage.setFullScreen(false);
+            // JavaFX's auto-restore is unreliable on Windows — apply the snapshot
+            // ourselves and force the window to expanded chat dimensions if the
+            // snapshot is missing or smaller than the chat needs.
+            double targetW = !Double.isNaN(preFsW) && preFsW >= expandedWidth ? preFsW : expandedWidth;
+            double targetH = !Double.isNaN(preFsH) && preFsH >= expandedHeight ? preFsH : expandedHeight;
+            stage.setWidth(targetW);
+            stage.setHeight(targetH);
+            if (!Double.isNaN(preFsX) && !Double.isNaN(preFsY)) {
+                stage.setX(preFsX);
+                stage.setY(preFsY);
+            }
+            expanded = true;
+            stage.toFront();
+            stage.requestFocus();
+        });
+    }
+
+    public boolean isFullscreen() {
+        return stage.isFullScreen();
     }
 
     /**

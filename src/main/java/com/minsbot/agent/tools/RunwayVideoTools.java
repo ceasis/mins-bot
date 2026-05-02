@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -37,8 +36,7 @@ public class RunwayVideoTools {
 
     public RunwayVideoTools(ToolExecutionNotifier notifier) { this.notifier = notifier; }
 
-    @Tool(description = "Generate a video with Runway Gen-4 from a prompt + starting image URL. Returns a task id; "
-            + "poll with getRunwayVideoStatus. Use when user says 'runway video', 'gen-4', 'filmmaker AI video'.")
+    // @Tool removed — duplicate text-to-video provider. Canonical: SoraVideoTools.
     public String generateRunwayVideo(
             @ToolParam(description = "Text prompt describing motion/scene") String prompt,
             @ToolParam(description = "Public image URL to animate (Runway Gen-4 requires an image input)") String imageUrl,
@@ -74,7 +72,7 @@ public class RunwayVideoTools {
         }
     }
 
-    @Tool(description = "Check status of a Runway video task by id.")
+    // @Tool removed — companion to demoted generateRunwayVideo.
     public String getRunwayVideoStatus(@ToolParam(description = "Runway task id") String id) {
         if (!configured()) return notConfig();
         if (id == null || id.isBlank()) return "Provide an id.";

@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -38,8 +37,7 @@ public class HailuoVideoTools {
 
     public HailuoVideoTools(ToolExecutionNotifier notifier) { this.notifier = notifier; }
 
-    @Tool(description = "Generate a video with MiniMax Hailuo from a prompt. Strong motion quality. "
-            + "Returns a task id; poll with getHailuoVideoStatus. Use when user says 'hailuo', 'minimax video'.")
+    // @Tool removed - duplicate provider; canonical SoraVideoTools.
     public String generateHailuoVideo(
             @ToolParam(description = "Text prompt describing the video") String prompt,
             @ToolParam(description = "Optional first-frame image URL for I2V") String firstFrameImage,
@@ -73,7 +71,7 @@ public class HailuoVideoTools {
         }
     }
 
-    @Tool(description = "Check status of a Hailuo video task. Returns the file_id which can be fetched via MiniMax Files API.")
+    // @Tool removed - duplicate provider; canonical SoraVideoTools.
     public String getHailuoVideoStatus(@ToolParam(description = "Hailuo task_id") String taskId) {
         if (!configured()) return notConfig();
         if (taskId == null || taskId.isBlank()) return "Provide a task_id.";

@@ -130,15 +130,29 @@ public class ChatController {
     @PostMapping(value = "/explorer/show", produces = MediaType.APPLICATION_JSON_VALUE)
     public Map<String, Object> showInExplorer(@org.springframework.web.bind.annotation.RequestParam String path) {
         try {
-            java.nio.file.Path p = java.nio.file.Paths.get(path).toAbsolutePath().normalize();
+            // Strip trailing punctuation that often slips in from prose ("see C:\foo\bar.")
+            String cleaned = path == null ? "" : path.trim().replaceAll("[\\s.,;:!?\\])>]+$", "");
+            if (cleaned.isEmpty()) {
+                return Map.of("ok", false, "error", "empty path");
+            }
+            java.nio.file.Path p = java.nio.file.Paths.get(cleaned).toAbsolutePath().normalize();
             if (!java.nio.file.Files.exists(p)) {
                 return Map.of("ok", false, "error", "path not found: " + p);
             }
             boolean isDir = java.nio.file.Files.isDirectory(p);
             String os = System.getProperty("os.name", "").toLowerCase();
+
             if (os.contains("win")) {
-                if (isDir) new ProcessBuilder("explorer.exe", p.toString()).start();
-                else       new ProcessBuilder("explorer.exe", "/select,", p.toString()).start();
+                // explorer.exe's /select syntax requires the comma to be part of the
+                // SAME argument as the path (no space between). Passing them as two
+                // separate args like ["/select,", "C:\\path"] silently fails on
+                // many Windows builds — that was the bug. Concatenate.
+                String win = p.toString().replace('/', '\\');
+                if (isDir) {
+                    new ProcessBuilder("explorer.exe", win).start();
+                } else {
+                    new ProcessBuilder("explorer.exe", "/select," + win).start();
+                }
             } else if (os.contains("mac")) {
                 if (isDir) new ProcessBuilder("open", p.toString()).start();
                 else       new ProcessBuilder("open", "-R", p.toString()).start();
@@ -170,7 +184,8 @@ public class ChatController {
         String os = System.getProperty("os.name", "").toLowerCase();
         try {
             if (os.contains("win")) {
-                new ProcessBuilder("explorer.exe", "/select,", file.toString()).start();
+                // /select, must be in the same argument as the path on Windows.
+                new ProcessBuilder("explorer.exe", "/select," + file.toString().replace('/', '\\')).start();
             } else if (os.contains("mac")) {
                 new ProcessBuilder("open", "-R", file.toString()).start();
             } else {

@@ -40,6 +40,28 @@ public class WebSearchTools {
     private final String serperApiKey;
     private final String serpApiKey;
 
+    /** Local headless browser. When present, used as the primary text-search
+     *  provider so we don't spend money on Serper/SerpAPI for every query. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private PlaywrightService playwright;
+
+    // Circuit breaker: after 2 consecutive Playwright failures, skip it for
+    // 5 minutes. Prevents wasting ~10s per query when Chromium is wedged.
+    private final java.util.concurrent.atomic.AtomicInteger consecutivePlaywrightFails =
+            new java.util.concurrent.atomic.AtomicInteger();
+    private volatile long playwrightSkipUntilEpochMs = 0L;
+    private static final int PLAYWRIGHT_FAIL_THRESHOLD = 2;
+    private static final long PLAYWRIGHT_COOLDOWN_MS = 5 * 60 * 1000L;
+
+    private void tripPlaywrightBreaker() {
+        int n = consecutivePlaywrightFails.incrementAndGet();
+        if (n >= PLAYWRIGHT_FAIL_THRESHOLD) {
+            playwrightSkipUntilEpochMs = System.currentTimeMillis() + PLAYWRIGHT_COOLDOWN_MS;
+            consecutivePlaywrightFails.set(0);
+            log.warn("[WebSearch] Playwright circuit breaker tripped — skipping for 5 min");
+        }
+    }
+
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(15))
             .followRedirects(HttpClient.Redirect.NORMAL)
@@ -70,10 +92,13 @@ public class WebSearchTools {
                 p, hasSerper, hasSerp);
     }
 
-    @Tool(description = "Search the web and return text results (titles, snippets, links). "
-            + "Use for facts, news, prices, how-tos, etc. When Serper or SerpAPI keys are configured (app.web-search.*), "
-            + "Google-quality results are used; otherwise DuckDuckGo HTML. "
-            + "For image downloads use searchAndDownloadImages instead.")
+    @Tool(description = "CANONICAL way to ANSWER from the web — returns text results (titles, snippets, "
+            + "links) directly in chat. Cheap, fast, no browser opens. Use whenever the user asks a "
+            + "factual / how-to / news / price question — 'what's the weather in X', 'who won Y', "
+            + "'how do I Z', 'find articles on Q'. "
+            + "Backed by Serper / SerpAPI when configured, else DuckDuckGo HTML. "
+            + "DO NOT use to OPEN search results in the user's browser — that's browserTools.searchGoogle. "
+            + "DO NOT use for image downloads — that's webScraperTools.searchAndDownloadImages.")
     public String searchWeb(
             @ToolParam(description = "Search query, e.g. 'weather Tokyo April 2026'") String query) {
         if (offlineMode != null && offlineMode.isOffline()) {
@@ -96,7 +121,29 @@ public class WebSearchTools {
                 return fallbackDuckAndGoogle(query);
             }
 
-            // auto (default): Serper → SerpAPI → DDG → Google scrape
+            // auto (default): LOCAL browser first (free, no API), Serper/SerpAPI only as fallbacks.
+            //   1. Playwright Bing (headless, local, no key)
+            //   2. Serper API (paid, only if configured)
+            //   3. SerpAPI (paid, only if configured)
+            //   4. DDG / Google HTML scrape via plain HTTP
+            if (playwright != null && System.currentTimeMillis() >= playwrightSkipUntilEpochMs) {
+                try {
+                    String r = playwright.searchTextResults(query, 10);
+                    if (r != null && !r.isBlank()) {
+                        consecutivePlaywrightFails.set(0);
+                        log.info("[WebSearch] Playwright(Bing) returned results for '{}'",
+                                query.length() <= 60 ? query : query.substring(0, 60) + "…");
+                        return r;
+                    }
+                    tripPlaywrightBreaker();
+                } catch (Exception e) {
+                    log.warn("[WebSearch] Playwright text search failed: {}", e.getMessage());
+                    tripPlaywrightBreaker();
+                }
+            } else if (playwright != null) {
+                log.debug("[WebSearch] Skipping Playwright (circuit breaker open until {})",
+                        playwrightSkipUntilEpochMs);
+            }
             if (!serperApiKey.isBlank()) {
                 String r = searchSerper(query);
                 if (r != null) return r;
@@ -112,8 +159,8 @@ public class WebSearchTools {
         }
     }
 
-    @Tool(description = "Fetch a specific web page and return its readable text content. "
-            + "Use this after searchWeb to read the full content of a specific result page.")
+    // @Tool removed — duplicate of webScraperTools.fetchPageText. Method retained for any
+    // Java-side caller still depending on it. The LLM should use webScraperTools.fetchPageText.
     public String readWebPage(
             @ToolParam(description = "Full URL, e.g. 'https://example.com/article'") String url) {
         if (offlineMode != null && offlineMode.isOffline()) {

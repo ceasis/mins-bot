@@ -34,21 +34,34 @@ public class BrowserTools {
         this.notifier = notifier;
     }
 
-    @Tool(description = "Open a URL in the default web browser")
+    @Tool(description = "CANONICAL way to open a URL for the USER to view. Launches the URL in their "
+            + "default browser as a visible window/tab. Use whenever the user says 'open <site>', "
+            + "'go to <url>', 'show me <site>', 'take me to X'. "
+            + "DO NOT use to extract page content for the bot — use webScraperTools.fetchPageText (cheap, "
+            + "no browser) or playwrightTools.browseAndGetLinks (JS-heavy pages). "
+            + "DO NOT use when the user says 'in-browser' or 'chat browser' — use playwrightTools.openInBrowserTab. "
+            + "DO NOT use to drive the user's already-open Chrome — use chromeCdpTools.browserOpenNewTab.")
     public String openUrl(
             @ToolParam(description = "The URL to open, e.g. 'google.com' or 'https://example.com'") String url) {
         notifier.notify("Opening " + url + "...");
         return browserControl.openInBrowser("default", url);
     }
 
-    @Tool(description = "Search Google for a query and open results in the browser")
+    @Tool(description = "Open Google search results IN THE USER'S BROWSER (visible window). "
+            + "Use ONLY when the user wants to BROWSE results themselves — 'google X for me', "
+            + "'open google for X', 'show me search results for Y'. "
+            + "DO NOT use when the user wants the bot to ANSWER from search — use webSearchTools.searchWeb "
+            + "(returns text results in chat, no browser opens, faster).")
     public String searchGoogle(
             @ToolParam(description = "The search query") String query) {
         notifier.notify("Searching Google: " + query);
         return browserControl.searchGoogle(query);
     }
 
-    @Tool(description = "Search YouTube for videos and open results in the browser")
+    @Tool(description = "Open YouTube search results IN THE USER'S BROWSER (visible window). "
+            + "Use when the user wants to BROWSE/PICK a video themselves — 'open youtube for X', "
+            + "'find me videos about Y on youtube'. "
+            + "For PLAYING a video inside Sentry Mode use that mode's 'play video' command instead.")
     public String searchYouTube(
             @ToolParam(description = "The YouTube search query") String query) {
         notifier.notify("Searching YouTube: " + query);
@@ -61,7 +74,7 @@ public class BrowserTools {
         return browserControl.closeAllBrowsers();
     }
 
-    @Tool(description = "List currently open browser windows with their titles")
+    // @Tool removed — chromeCdpTools.browserListOpenTabs is more reliable (CDP vs PowerShell window-title scrape).
     public String listBrowserTabs() {
         notifier.notify("Listing browser tabs...");
         return browserControl.listBrowserTabs();

@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -51,11 +50,8 @@ public class VeoVideoTools {
 
     // ─── Generation ─────────────────────────────────────────────────
 
-    @Tool(description = "Generate an AI video with Google Veo from a text prompt. Uses your Gemini API key "
-            + "and Gemini credits. USE THIS when the user says 'generate a video of X', 'make a veo video', "
-            + "'create an AI video of a cat riding a skateboard', 'text to video'. "
-            + "Returns an operation name — poll with getVeoVideoStatus to get the final MP4 URL. "
-            + "Generation usually takes 60-180 seconds. No avatar, no voice — this is cinematic AI video.")
+    // @Tool removed — duplicate text-to-video provider. Canonical: SoraVideoTools.
+    // Re-promote by restoring @Tool if/when the user explicitly prefers Veo.
     @com.minsbot.offline.RequiresOnline("Google Veo video generation")
     public String generateVeoVideo(
             @ToolParam(description = "Prompt describing the video. Be cinematic and specific (subject, action, setting, camera movement, lighting, style).") String prompt,
@@ -106,8 +102,7 @@ public class VeoVideoTools {
         }
     }
 
-    @Tool(description = "Check the status of a Veo video generation job. Returns 'processing', "
-            + "'completed' with the MP4 URL, or 'failed' with reason. Use after generateVeoVideo.")
+    // @Tool removed — companion to demoted generateVeoVideo. Bean retained.
     public String getVeoVideoStatus(
             @ToolParam(description = "Operation name returned by generateVeoVideo (looks like 'models/veo-3.0.../operations/...')") String operationName) {
         if (!isConfigured()) return notConfigured();
@@ -160,8 +155,7 @@ public class VeoVideoTools {
         }
     }
 
-    @Tool(description = "Download a Veo-generated video to a local file. The video URI from Veo is "
-            + "authenticated — this tool adds the API key and saves the MP4 to disk.")
+    // @Tool removed — companion to demoted generateVeoVideo. Bean retained.
     public String downloadVeoVideo(
             @ToolParam(description = "Video URI returned by getVeoVideoStatus") String videoUri,
             @ToolParam(description = "Absolute local path to save the MP4 file") String savePath) {

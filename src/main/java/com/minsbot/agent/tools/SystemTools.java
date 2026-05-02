@@ -127,7 +127,14 @@ public class SystemTools {
     @Tool(description = "Launch or open an application by name (chrome, calculator, terminal, spotify, etc.). "
             + "For File Explorer specifically, prefer backend file tools (listDirectory, countDirectoryContents, "
             + "searchInDirectory) to answer filesystem questions in chat. "
-            + "Only use openFolderInExplorer if the user explicitly asks to SEE a folder in Explorer.")
+            + "Only use openFolderInExplorer if the user explicitly asks to SEE a folder in Explorer. "
+            + "CRITICAL — DO NOT use this to CREATE files in productivity apps. "
+            + "If the user asks for a 'PowerPoint', 'PPT', 'deck', 'slides', 'Word doc', 'docx', "
+            + "'PDF report', 'memo', or any researched deliverable, call produceDeliverable instead "
+            + "(it generates the actual .pptx/.docx/.pdf file directly via pure-Java writers — "
+            + "no need to open the productivity app). Only openApp(\"powerpoint\")/openApp(\"word\")/"
+            + "openApp(\"excel\") when the user explicitly says 'open the X app' to view or edit "
+            + "manually.")
     public String openApp(
             @ToolParam(description = "Name of the application to open, e.g. 'chrome', 'calculator', 'terminal'") String appName) {
         // Soft guard: when the AI asks for Explorer, redirect it toward the right tools
@@ -142,6 +149,22 @@ public class SystemTools {
                         + "To show a specific folder to the user in a window, use openFolderInExplorer(fullFolderPath). "
                         + "To open a file in its default app, use openDocument(name) or openPath(fullFilePath).";
             }
+            // Hard guard for productivity apps when the LLM is mid-deliverable: the
+            // bot was opening PowerPoint and taking screenshots instead of generating
+            // a real .pptx via produceDeliverable. Refuse and route correctly.
+            if (n.equals("powerpoint") || n.equals("powerpnt") || n.equals("powerpnt.exe")
+                    || n.equals("ppt") || n.equals("pptx")
+                    || n.equals("word") || n.equals("winword") || n.equals("winword.exe")
+                    || n.equals("docx") || n.equals("excel") || n.equals("excel.exe")
+                    || n.equals("xlsx")) {
+                return "REFUSED: do not open " + appName + " to create a file. "
+                        + "Use produceDeliverable(goal, format, output) to generate the actual "
+                        + ".pptx / .docx / .pdf directly. Map: PowerPoint/PPT/slides → "
+                        + "format='slides', output='pptx'. Word/docx → format='memo' or 'report', "
+                        + "output='docx'. PDF → output='pdf'. ONLY call openApp('" + appName + "') "
+                        + "if the user explicitly says 'open <app>' to view or edit something "
+                        + "manually — and confirm with the user first that's what they meant.";
+            }
         }
         notifier.notify("Opening " + appName + "...");
         return systemControl.openApp(appName);
@@ -153,7 +176,7 @@ public class SystemTools {
         return systemControl.minimizeAll();
     }
 
-    @Tool(description = "Lock the computer screen")
+    @Tool(description = "Lock the Windows screen (same as Win+L). Use when the user says 'lock my computer', 'lock the screen', 'I'm stepping away', 'lock me out'. Reversible: user just signs back in.")
     public String lockScreen() {
         notifier.notify("Locking screen...");
         return systemControl.lockScreen();
@@ -578,7 +601,7 @@ public class SystemTools {
         return systemControl.runCmd("rundll32.exe powrprof.dll,SetSuspendState 0,1,0");
     }
 
-    @Tool(description = "Hibernate the computer.")
+    @Tool(description = "Put the computer into hibernate (writes RAM to disk, then powers off — slower than sleep but uses zero power and resumes the exact session). Use when the user says 'hibernate', 'deep sleep', 'shut down but save my work'. For a quick power-saving sleep use sleepComputer instead.")
     public String hibernate() {
         notifier.notify("Hibernating...");
         return systemControl.runCmd("shutdown /h");

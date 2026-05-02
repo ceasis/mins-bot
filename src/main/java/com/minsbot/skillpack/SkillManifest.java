@@ -39,7 +39,16 @@ public record SkillManifest(
         Path folder,
 
         /** Raw markdown body — everything after the closing YAML {@code ---}. Loaded on demand. */
-        String body
+        String body,
+
+        /** Optional: output extension this skill produces (e.g. "pdf", "pptx", "docx"). null when n/a. */
+        String output,
+
+        /** Optional: deliverable style this skill targets (e.g. "report", "slides", "memo"). null when n/a. */
+        String format,
+
+        /** Optional: model id this skill prefers (e.g. "gpt-5.1", "gpt-4o-mini"). null = use app default. */
+        String model
 ) {
     public boolean supportsOs(String osId) {
         if (osList == null || osList.isEmpty()) return true;
