@@ -722,7 +722,7 @@
                 <option value="Reminders">Reminders</option>
                 <option value="Other schedule">Other schedule</option>
               </select>
-              <input type="text" id="sched-entry-input" class="tab-input" placeholder="Schedule entry (e.g. Check email at 9:00 AM)">
+              <textarea id="sched-entry-input" class="tab-input sched-entry-textarea" rows="4" placeholder="Schedule entry (e.g. Check email at 9:00 AM)"></textarea>
               <div class="sched-editor-actions">
                 <button id="sched-save-btn" class="action-btn publish">Save</button>
                 <button id="sched-cancel-btn" class="action-btn" hidden>Cancel</button>
@@ -730,7 +730,7 @@
             </div>
             <div id="sched-detail" class="sched-detail" hidden>
               <div class="sched-detail-section" id="sched-detail-section"></div>
-              <input type="text" id="sched-detail-entry" class="tab-input" placeholder="Edit entry...">
+              <textarea id="sched-detail-entry" class="tab-input sched-entry-textarea" rows="4" placeholder="Edit entry..."></textarea>
               <div class="sched-detail-actions">
                 <button id="sched-update-btn" class="action-btn publish">Update</button>
                 <button id="sched-delete-btn" class="action-btn" style="color:#f87171;border-color:rgba(248,113,113,0.3)">Delete</button>

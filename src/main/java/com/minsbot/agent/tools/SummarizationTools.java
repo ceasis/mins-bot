@@ -21,7 +21,7 @@ public class SummarizationTools {
 
     private static final Logger log = LoggerFactory.getLogger(SummarizationTools.class);
     private static final Path BASE_DIR =
-            Paths.get(System.getProperty("user.home"), "mins_bot_data");
+            Paths.get(System.getProperty("user.home"), "mins_bot_data", "mins_workfolder");
 
     private final ToolExecutionNotifier notifier;
 

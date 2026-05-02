@@ -32,8 +32,10 @@ public class DashboardController {
         return analyticsService.getStats();
     }
 
+    // Dashboard scans for directive_* folders inside mins_workfolder (where
+    // every research / deliverable scratchpad now lives).
     private static final Path BASE_DIR =
-            Paths.get(System.getProperty("user.home"), "mins_bot_data");
+            Paths.get(System.getProperty("user.home"), "mins_bot_data", "mins_workfolder");
     private static final DateTimeFormatter FMT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault());
 

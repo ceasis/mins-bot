@@ -57,6 +57,12 @@ public class DeliverableFormatter {
     @Autowired(required = false)
     private com.minsbot.agent.tools.PlaywrightService playwright;
 
+    /** Surfaces image-search queries + picked URLs to the chat status feed
+     *  so the user can audit relevance ("why is there a telescope photo on
+     *  the MacBook slide?"). Optional — formatter still works without it. */
+    @Autowired(required = false)
+    private com.minsbot.agent.tools.ToolExecutionNotifier notifier;
+
     @Autowired
     public DeliverableFormatter(PdfTools pdfTools, WordDocTools wordDocTools) {
         this.pdfTools = pdfTools;
@@ -87,9 +93,22 @@ public class DeliverableFormatter {
             // Serper's Google Images results keyed on section headings.
             body = stripAllImageRefs(body);
             // Inject images into every section that warrants one. Skip for raw md.
-            if (!"md".equalsIgnoreCase(fmt) && !"markdown".equalsIgnoreCase(fmt)) {
-                body = injectImagesForBareSections(body);
+            // The task's images/ subfolder lives next to the markdown so the user
+            // can audit every image the bot picked (and replace any they dislike).
+            Path imagesDir = markdownPath.getParent() == null
+                    ? null : markdownPath.getParent().resolve("images");
+            if (imagesDir != null) {
+                try { java.nio.file.Files.createDirectories(imagesDir); }
+                catch (Exception ignored) {}
             }
+            if (!"md".equalsIgnoreCase(fmt) && !"markdown".equalsIgnoreCase(fmt)) {
+                body = injectImagesForBareSections(body, imagesDir);
+            }
+            // Final scrub: kill any LLM-emitted "Hero image URL:" lines, bracketed
+            // "embed failed" debug strings, and stray H1s the synthesizer wrote
+            // mid-body. The synthesize prompt forbids these but the model still
+            // smuggles them through about a third of the time.
+            body = scrubLeftoverPlaceholders(body);
 
             return switch (fmt) {
                 case "pdf"  -> writePdf(markdownPath, title, body);
@@ -165,7 +184,8 @@ public class DeliverableFormatter {
                                           font-size: 9pt; color: #8a93a6; } }
                   html, body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
                                color: #1a1f2c; line-height: 1.55; font-size: 11pt; margin: 0; }
-                  h1 { font-size: 28pt; font-weight: 700; color: #1e3c70; margin: 0 0 .3em; }
+                  h1 { font-size: 28pt; font-weight: 700; color: #1e3c70; margin: 0 0 .3em;
+                       overflow-wrap: break-word; word-break: normal; hyphens: auto; }
                   h2 { font-size: 16pt; font-weight: 700; color: #1e3c70; margin: 1.6em 0 .25em;
                        padding-bottom: 6px; border-bottom: 1px solid #c0c8d8; }
                   h3 { font-size: 13pt; font-weight: 700; margin: 1em 0 .25em; color: #2a4070; }
@@ -181,7 +201,12 @@ public class DeliverableFormatter {
                   .title-page { page-break-after: always; min-height: 9.2in; display: flex;
                                 flex-direction: column; align-items: center; justify-content: center;
                                 text-align: center; }
-                  .title-page h1 { font-size: 32pt; max-width: 5.5in; line-height: 1.2; }
+                  /* Title page H1: cap font when long titles would clip. CSS
+                     can't do "shrink to fit" without JS, so allow wrap and
+                     softer max-width. Shorter titles still center cleanly. */
+                  .title-page h1 { font-size: 28pt; max-width: 6.5in; line-height: 1.2;
+                                    overflow-wrap: break-word; word-break: normal;
+                                    hyphens: auto; padding: 0 .25in; }
                   .title-page .accent { width: 200px; border-top: 2px solid #c0c8d8;
                                          margin: 1em 0 1.2em; }
                   .title-page .meta { color: #6c7588; font-size: 12pt; margin: .25em 0; }
@@ -882,7 +907,7 @@ public class DeliverableFormatter {
      * summary, recommendation, conclusion, or other meta — those don't need
      * a hero image.
      */
-    private String injectImagesForBareSections(String md) {
+    private String injectImagesForBareSections(String md, Path imagesDir) {
         if (md == null || md.isBlank()) return md;
         if (serperApiKey == null || serperApiKey.isBlank()) {
             log.info("[Formatter] Serper key not configured — skipping image injection");
@@ -952,8 +977,16 @@ public class DeliverableFormatter {
                 String query = buildPhotoQuery(sec.heading);
                 String url = searchVerifiedImage(query, pool);
                 if (url != null) {
-                    injectAt.put(sec.headingLine, "![" + sec.heading + "](" + url + ")");
-                    log.info("[Formatter] image inject for section \"{}\" → {}", sec.heading, url);
+                    // Save the picked image into the task's images/ folder so
+                    // the user can audit it after the fact. Use a numbered slug
+                    // (01-macbook-pro.jpg) so file order matches section order.
+                    Path saved = saveImageLocally(imagesDir, sectionsProcessed + 1, sec.heading, url, query);
+                    String mdRef = (saved != null)
+                            ? "![" + sec.heading + "](" + saved.toAbsolutePath().toUri() + ")"
+                            : "![" + sec.heading + "](" + url + ")";
+                    injectAt.put(sec.headingLine, mdRef);
+                    log.info("[Formatter] image inject for section \"{}\" → {} (local: {})",
+                            sec.heading, url, saved);
                 } else {
                     log.warn("[Formatter] image inject — no verified result for section \"{}\"", sec.heading);
                 }
@@ -1092,6 +1125,7 @@ public class DeliverableFormatter {
      */
     private String searchVerifiedImage(String topic, java.util.concurrent.ExecutorService pool) {
         if (topic == null || topic.isBlank()) return null;
+        if (notifier != null) notifier.notify("🖼  image search: \"" + topic + "\"");
 
         // PRIMARY: local headless browser via Playwright. Free, no API key,
         // works offline of any paid service. Try Google Images first then
@@ -1151,6 +1185,10 @@ public class DeliverableFormatter {
         for (String c : candidates) {
             if (Boolean.TRUE.equals(verdicts.get(c))) {
                 log.info("[Formatter] picked verified candidate for \"{}\": {}", topic, c);
+                if (notifier != null) {
+                    String shortUrl = c.length() <= 90 ? c : c.substring(0, 87) + "…";
+                    notifier.notify("🖼  picked: " + shortUrl);
+                }
                 return c;
             }
         }
@@ -1440,5 +1478,171 @@ public class DeliverableFormatter {
             out.append(line).append("\n");
         }
         return out.toString().stripLeading();
+    }
+
+    /**
+     * Download a picked image into the task's {@code images/} folder so the
+     * user has a transparent record of what the bot chose for each section.
+     * File names are numbered ({@code 01-macbook-pro-2026.jpg}) so directory
+     * order matches section order. Also appends a line to {@code _search-log.txt}
+     * mapping the search query to the chosen URL — that's the audit trail
+     * the user wanted ("show me what the bot searched for").
+     *
+     * <p>Returns the saved path, or {@code null} when the directory wasn't
+     * provided / the download failed (caller falls back to the remote URL).
+     */
+    private Path saveImageLocally(Path imagesDir, int idx, String heading, String url, String query) {
+        if (imagesDir == null || url == null || url.isBlank()) return null;
+        try {
+            java.nio.file.Files.createDirectories(imagesDir);
+            // Slugify the heading for the filename. Cap at 40 chars so paths
+            // don't blow past Windows' 260-char limit on deeply nested users.
+            String slug = heading == null ? "section" : heading.toLowerCase()
+                    .replaceAll("[^a-z0-9]+", "-")
+                    .replaceAll("^-+|-+$", "");
+            if (slug.isBlank()) slug = "section";
+            if (slug.length() > 40) slug = slug.substring(0, 40);
+
+            // Pull bytes with a real UA + no-referrer (same trick the HTML uses
+            // — most CDNs serve fine when the referer isn't a sketchy file://).
+            java.net.http.HttpClient http = java.net.http.HttpClient.newBuilder()
+                    .connectTimeout(java.time.Duration.ofSeconds(8))
+                    .followRedirects(java.net.http.HttpClient.Redirect.NORMAL)
+                    .build();
+            java.net.http.HttpRequest req = java.net.http.HttpRequest.newBuilder()
+                    .uri(java.net.URI.create(url))
+                    .timeout(java.time.Duration.ofSeconds(15))
+                    .header("User-Agent",
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                            + "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
+                    .header("Referer", "")
+                    .GET().build();
+            java.net.http.HttpResponse<byte[]> resp = http.send(req,
+                    java.net.http.HttpResponse.BodyHandlers.ofByteArray());
+            if (resp.statusCode() / 100 != 2) {
+                log.warn("[Formatter] image download HTTP {} for {}", resp.statusCode(), url);
+                return null;
+            }
+            byte[] bytes = resp.body();
+            if (bytes == null || bytes.length < 2_000) {
+                log.warn("[Formatter] image too small ({} bytes) for {}", bytes == null ? 0 : bytes.length, url);
+                return null;
+            }
+            String ext = guessImageExt(bytes, url);
+            // Transcode WEBP → JPEG at save time. PDFBox's embedder rejects
+            // anything beyond JPG/PNG/GIF — when it gets a webp it emits
+            // "Image type UNKNOWN not supported" inline in the PDF. Decoding
+            // here (via the TwelveMonkeys imageio plugin) guarantees every
+            // file on disk is PDFBox-safe AND Chromium-safe.
+            if ("webp".equals(ext)) {
+                byte[] jpg = transcodeToJpeg(bytes);
+                if (jpg != null) {
+                    bytes = jpg;
+                    ext = "jpg";
+                } else {
+                    log.warn("[Formatter] webp → jpeg transcode failed for {}; keeping raw webp", url);
+                }
+            }
+            String name = String.format("%02d-%s.%s", idx, slug, ext);
+            Path target = imagesDir.resolve(name);
+            java.nio.file.Files.write(target, bytes);
+
+            // Append to the per-task search log.
+            try {
+                Path logFile = imagesDir.resolve("_search-log.txt");
+                String line = String.format("[%02d] section=\"%s\"  query=\"%s\"  url=%s  saved=%s%n",
+                        idx, heading, query, url, name);
+                java.nio.file.Files.writeString(logFile, line,
+                        java.nio.file.StandardOpenOption.CREATE,
+                        java.nio.file.StandardOpenOption.APPEND);
+            } catch (Exception ignored) {}
+            return target;
+        } catch (Exception e) {
+            log.warn("[Formatter] saveImageLocally failed for {}: {}", url, e.getMessage());
+            return null;
+        }
+    }
+
+    /** Last-pass scrub for prose the LLM smuggles through despite the synthesize
+     *  prompt forbidding it: "Hero image URL: …", bracketed "[embed failed: …]"
+     *  debug strings, "Image: … (check latest…)" placeholders, and any second
+     *  body-level H1 that {@link #stripLeadingH1} couldn't reach because it
+     *  wasn't the very first line. */
+    private static String scrubLeftoverPlaceholders(String md) {
+        if (md == null || md.isEmpty()) return md;
+        String[] lines = md.split("\n", -1);
+        StringBuilder out = new StringBuilder(md.length());
+        java.util.regex.Pattern placeholder = java.util.regex.Pattern.compile(
+                "(?i)^\\s*[*_>\\-]*\\s*\\**\\s*(hero\\s+image|image\\s+url|product\\s+image|"
+              + "press\\s+image|official\\s+image|reference\\s+image|figure)\\s*[:\\-]\\s*.*$");
+        java.util.regex.Pattern embedFail = java.util.regex.Pattern.compile(
+                "\\[[^\\]]*\\bembed\\s+failed\\b[^\\]]*\\]\\s*\\S*");
+        for (String raw : lines) {
+            String line = raw;
+            // Drop "Hero image URL: …" / "Image: …" placeholder lines outright.
+            if (placeholder.matcher(line).matches()) continue;
+            // Strip inline "[image — embed failed: …]" debug fragments left by
+            // a previous PDFBox-fallback render that ended up back in the md.
+            line = embedFail.matcher(line).replaceAll("").trim();
+            // Drop the line entirely if scrubbing emptied it.
+            if (line.isEmpty() && !raw.isEmpty()) continue;
+            // Drop ALL body-level H1s — the title page already renders the doc
+            // title; any in-body H1 is a duplicate the synthesizer left behind.
+            if (line.startsWith("# ")) continue;
+            out.append(line).append('\n');
+        }
+        return out.toString();
+    }
+
+    /** Decode arbitrary image bytes via {@code javax.imageio} (TwelveMonkeys
+     *  plugins on the classpath give us WEBP/AVIF/HEIC support) and re-encode
+     *  as JPEG so PDFBox's embedder accepts them. Returns null if no decoder
+     *  on the classpath can read the bytes — caller falls back to writing the
+     *  raw bytes untouched. */
+    private static byte[] transcodeToJpeg(byte[] bytes) {
+        if (bytes == null || bytes.length == 0) return null;
+        try {
+            java.awt.image.BufferedImage img = javax.imageio.ImageIO.read(
+                    new java.io.ByteArrayInputStream(bytes));
+            if (img == null) return null;
+            // Strip alpha — JPEG can't carry it, otherwise ImageIO writes a
+            // dim/black image. Paint onto an opaque RGB canvas first.
+            java.awt.image.BufferedImage rgb = new java.awt.image.BufferedImage(
+                    img.getWidth(), img.getHeight(), java.awt.image.BufferedImage.TYPE_INT_RGB);
+            java.awt.Graphics2D g = rgb.createGraphics();
+            g.setColor(java.awt.Color.WHITE);
+            g.fillRect(0, 0, img.getWidth(), img.getHeight());
+            g.drawImage(img, 0, 0, null);
+            g.dispose();
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            javax.imageio.ImageIO.write(rgb, "jpg", out);
+            return out.toByteArray();
+        } catch (Exception e) {
+            log.warn("[Formatter] transcodeToJpeg failed: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /** Pick a sensible extension from magic bytes; fall back to URL suffix. */
+    private static String guessImageExt(byte[] bytes, String url) {
+        if (bytes != null && bytes.length >= 12) {
+            int b0 = bytes[0] & 0xff, b1 = bytes[1] & 0xff, b2 = bytes[2] & 0xff, b3 = bytes[3] & 0xff;
+            if (b0 == 0xFF && b1 == 0xD8) return "jpg";
+            if (b0 == 0x89 && b1 == 0x50 && b2 == 0x4E && b3 == 0x47) return "png";
+            if (b0 == 0x47 && b1 == 0x49 && b2 == 0x46) return "gif";
+            // RIFF....WEBP
+            if (b0 == 0x52 && b1 == 0x49 && b2 == 0x46 && b3 == 0x46
+                    && bytes[8] == 0x57 && bytes[9] == 0x45 && bytes[10] == 0x42 && bytes[11] == 0x50) return "webp";
+        }
+        if (url != null) {
+            String low = url.toLowerCase();
+            int q = low.indexOf('?');
+            if (q > 0) low = low.substring(0, q);
+            if (low.endsWith(".png"))  return "png";
+            if (low.endsWith(".gif"))  return "gif";
+            if (low.endsWith(".webp")) return "webp";
+            if (low.endsWith(".jpeg") || low.endsWith(".jpg")) return "jpg";
+        }
+        return "jpg";
     }
 }

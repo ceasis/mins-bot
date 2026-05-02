@@ -25,7 +25,13 @@ A multi-phase deliverable. Plan → parallel research → synthesize → self-cr
    - `format` = `"slides"`
    - `output` = `"pptx"`
 3. The tool runs the plan→execute→synthesize→critique→refine loop internally and returns a path. Do NOT call `openApp("powerpoint")`, do NOT take screenshots of the desktop PowerPoint app, do NOT call `createPdfDocument` and ask the user to convert. The pure-Java POI writer is the only correct path.
-4. When the tool returns, reply with: file path, the critic's final score, and the number of refine cycles.
+4. When the tool returns, reply with: file path, the critic's final score, and the number of refine cycles. Also point the user at the **task folder** alongside the .pptx — it contains:
+   - `plan.md` — the planner's decomposition
+   - `scratchpad.md` — every research finding
+   - `draft-N.md` / `critique-N.md` — every revision cycle
+   - `images/` — every slide image picked, numbered to match slide order, plus `_search-log.txt` showing the search query → chosen URL for each
+   - `FINAL.md` — the source markdown
+   If a slide image looks wrong, the user can replace the file in `images/` and re-render, or read the log to see what the bot searched for.
 
 ## Quality bar
 

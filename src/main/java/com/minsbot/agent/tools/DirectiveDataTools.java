@@ -26,8 +26,11 @@ import java.util.List;
 @Component
 public class DirectiveDataTools {
 
+    // All directive scratchpads live under mins_workfolder so the user's
+    // mins_bot_data root stays clean (config + memory only). The 30-day
+    // prune in DeliverableExecutor sweeps stale dirs here too.
     private static final Path BASE_DIR =
-            Paths.get(System.getProperty("user.home"), "mins_bot_data");
+            Paths.get(System.getProperty("user.home"), "mins_bot_data", "mins_workfolder");
     private static final DateTimeFormatter TS_FMT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
 

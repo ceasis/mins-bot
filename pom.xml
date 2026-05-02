@@ -99,6 +99,19 @@
             <artifactId>pdfbox</artifactId>
             <version>3.0.3</version>
         </dependency>
+        <!-- TwelveMonkeys ImageIO plugins — adds WEBP/AVIF/HEIC decoders to
+             javax.imageio so PDFBox can embed modern image formats without
+             choking on "Image type UNKNOWN not supported". -->
+        <dependency>
+            <groupId>com.twelvemonkeys.imageio</groupId>
+            <artifactId>imageio-webp</artifactId>
+            <version>3.12.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.twelvemonkeys.imageio</groupId>
+            <artifactId>imageio-jpeg</artifactId>
+            <version>3.12.0</version>
+        </dependency>
         <!-- Spring Boot Mail — SMTP email sending -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

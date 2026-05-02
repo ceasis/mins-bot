@@ -42,7 +42,10 @@ public class DeliverableTools {
             + "owns the markdown→pdf/docx/pptx conversion path end-to-end. "
             + "DO NOT use for quick one-liner answers (use chat directly) or raw search results "
             + "(use webSearchTools.searchWeb / researchTool.research). "
-            + "Slow on purpose — multiple LLM round-trips. Returns the file path + score + cycles.")
+            + "Slow on purpose — multiple LLM round-trips. Returns the file path + score + cycles. "
+            + "AFTER this tool returns, STOP. Reply with the file path verbatim — do NOT call "
+            + "searchWeb, fetchPageText, saveFinding, or any other research/tool. The deliverable "
+            + "ran its own research; further tool calls just confuse the user with extra noise.")
     public String produceDeliverable(
             @ToolParam(description = "Concrete description of what the user wants. "
                     + "Be specific: include subject, scope, audience if known. "
@@ -72,6 +75,7 @@ public class DeliverableTools {
             sb.append("\n\n(Hit the iteration cap before reaching the 8/10 ship bar — review and "
                     + "ask me to refine further if needed.)");
         }
+        sb.append("\n\n[STOP — present this file path to the user. Do not call any more tools.]");
         return sb.toString();
     }
 

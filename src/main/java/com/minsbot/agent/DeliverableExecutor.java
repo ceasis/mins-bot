@@ -145,12 +145,17 @@ public class DeliverableExecutor {
         }
         String fmt = (format == null || format.isBlank()) ? "report" : format.trim().toLowerCase();
         String taskId = STAMP.format(LocalDateTime.now()) + "-" + slug(goal);
-        Path workDir = resolveDesktopFolder()
-                .resolve("MinsBot Deliverables")
-                .resolve(taskId);
+        // Hard-coded scratch root: ~/mins_bot_data/workfolder/<task-id>/. NOT
+        // user-configurable on purpose — every task is a temp workspace, not a
+        // long-term home for the document. Old runs are pruned after 30 days
+        // by purgeOldWorkfolders(); the user-visible final lives elsewhere.
+        Path workDir = resolveWorkfolderRoot().resolve(taskId);
 
         try {
             Files.createDirectories(workDir);
+            // Best-effort cleanup of >30-day-old siblings. Cheap (≈1 dir scan)
+            // and runs once per task instead of on a timer so it can't drift.
+            purgeOldWorkfolders(workDir.getParent(), 30);
         } catch (Exception e) {
             return Result.fail("Could not create work dir: " + e.getMessage());
         }
@@ -296,6 +301,11 @@ public class DeliverableExecutor {
                 notifier.notify("📄 converting → " + output.toLowerCase() + "…");
                 delivered = formatter.convert(finalPath, output, goal);
             }
+            // Publish: copy the final out of the temp workfolder into the
+            // user's visible destination (Desktop\MinsBot Deliverables\).
+            // Workfolder stays around for 30 days for audit, then auto-prunes.
+            Path published = publishFinal(delivered, taskId);
+            if (published != null) delivered = published;
 
             String budgetLine = "calls=" + state.callCount.get() + "/" + MAX_LLM_CALLS
                     + ", chars=" + state.totalChars.get() + "/" + MAX_TOTAL_CHARS
@@ -928,6 +938,74 @@ public class DeliverableExecutor {
      * Microsoft account), the standard Desktop, the {@code USERPROFILE}
      * Desktop, and finally {@code user.home} as a last resort.
      */
+    /**
+     * Hard-coded scratch root for every deliverable task:
+     * {@code ~/mins_bot_data/workfolder/}. Not user-configurable — this is a
+     * temporary workspace, not a publishing destination. Final outputs are
+     * copied out to the user's chosen folder by {@link #publishFinal}.
+     */
+    private static Path resolveWorkfolderRoot() {
+        String home = System.getProperty("user.home");
+        Path root = Paths.get(home == null ? "." : home, "mins_bot_data", "mins_workfolder");
+        try { Files.createDirectories(root); } catch (Exception ignored) {}
+        return root;
+    }
+
+    /**
+     * Best-effort prune of task folders under {@code parent} whose last-modified
+     * time is older than {@code days} days. Runs once per task on entry. Silent
+     * on failure — pruning is hygiene, never load-bearing.
+     */
+    private static void purgeOldWorkfolders(Path parent, int days) {
+        if (parent == null || !Files.isDirectory(parent) || days <= 0) return;
+        long cutoff = System.currentTimeMillis() - (days * 24L * 60L * 60L * 1000L);
+        try (var stream = Files.list(parent)) {
+            stream.filter(Files::isDirectory).forEach(dir -> {
+                try {
+                    long mtime = Files.getLastModifiedTime(dir).toMillis();
+                    if (mtime < cutoff) {
+                        deleteRecursive(dir);
+                        log.info("[Deliverable] purged old workfolder: {}", dir.getFileName());
+                    }
+                } catch (Exception ignored) {}
+            });
+        } catch (Exception ignored) {}
+    }
+
+    private static void deleteRecursive(Path dir) {
+        try (var stream = Files.walk(dir)) {
+            stream.sorted(java.util.Comparator.reverseOrder()).forEach(p -> {
+                try { Files.deleteIfExists(p); } catch (Exception ignored) {}
+            });
+        } catch (Exception ignored) {}
+    }
+
+    /**
+     * Copy the final deliverable out of the temp workfolder and into the user-
+     * visible destination ({@code <Desktop>/MinsBot Deliverables/<task-id>.<ext>}).
+     * The workfolder still holds the full audit trail (plan, drafts, critiques,
+     * images/) until the 30-day prune sweeps it. Returns the published path,
+     * or {@code null} if the copy failed (caller falls back to the workfolder
+     * path so the user can still find the file).
+     */
+    private static Path publishFinal(Path source, String taskId) {
+        if (source == null || !Files.isRegularFile(source)) return null;
+        try {
+            Path destDir = resolveDesktopFolder().resolve("MinsBot Deliverables");
+            Files.createDirectories(destDir);
+            String fname = source.getFileName().toString();
+            int dot = fname.lastIndexOf('.');
+            String ext = (dot > 0) ? fname.substring(dot) : "";
+            Path dest = destDir.resolve(taskId + ext);
+            Files.copy(source, dest, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            log.info("[Deliverable] published {} → {}", source.getFileName(), dest);
+            return dest;
+        } catch (Exception e) {
+            log.warn("[Deliverable] publishFinal failed: {}", e.getMessage());
+            return null;
+        }
+    }
+
     private static Path resolveDesktopFolder() {
         String home = System.getProperty("user.home");
         String userProfile = System.getenv("USERPROFILE");

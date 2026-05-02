@@ -97,7 +97,7 @@ public class BrowserTools {
                         .replaceAll("[^a-z0-9]+", "-")
                         .replaceAll("^-+|-+$", "");
                 if (safeName.isEmpty()) safeName = "unnamed";
-                saveDir = Paths.get(System.getProperty("user.home"), "mins_bot_data", "directive_" + safeName);
+                saveDir = Paths.get(System.getProperty("user.home"), "mins_bot_data", "mins_workfolder", "directive_" + safeName);
             } else {
                 saveDir = DOWNLOADS_DIR;
             }

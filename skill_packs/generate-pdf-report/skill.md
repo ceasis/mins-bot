@@ -25,7 +25,13 @@ A multi-phase deliverable. Plan → parallel research → synthesize → self-cr
    - `format` = `"report"` (use `"memo"` only if the user said "memo"; `"brief"` if they said "brief")
    - `output` = `"pdf"`
 3. The tool runs the plan→execute→synthesize→critique→refine loop internally and returns a path. Do NOT also call `createPdfDocument`, `openApp("word")`, or take any screenshots — that's the wrong path and will produce a worse result.
-4. When the tool returns, reply with: file path, the critic's final score, and the number of refine cycles. One short paragraph max.
+4. When the tool returns, reply with: file path, the critic's final score, and the number of refine cycles. Also tell the user that the **task folder** alongside the PDF contains:
+   - `plan.md` — the planner's decomposition
+   - `scratchpad.md` — every research finding gathered
+   - `draft-N.md` / `critique-N.md` — every revision cycle
+   - `images/` — every image picked, numbered to match section order, plus `_search-log.txt` mapping the search query to the chosen URL for each one
+   - `FINAL.md` — the markdown the PDF was rendered from
+   So if any image looks wrong, the user can swap the file in `images/` and re-render, or look at the search log to see why the bot picked it.
 
 ## Quality bar
 

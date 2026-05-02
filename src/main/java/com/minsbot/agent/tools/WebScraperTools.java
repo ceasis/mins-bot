@@ -34,7 +34,7 @@ import java.util.regex.Pattern;
 public class WebScraperTools {
 
     private static final Path BASE_DIR =
-            Paths.get(System.getProperty("user.home"), "mins_bot_data");
+            Paths.get(System.getProperty("user.home"), "mins_bot_data", "mins_workfolder");
     private static final DateTimeFormatter TS_FMT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
 

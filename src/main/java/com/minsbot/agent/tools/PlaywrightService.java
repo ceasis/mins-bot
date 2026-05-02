@@ -25,8 +25,10 @@ import java.util.regex.Pattern;
 public class PlaywrightService {
 
     private static final Logger log = LoggerFactory.getLogger(PlaywrightService.class);
+    // Screenshots / image downloads land inside mins_workfolder/directive_*
+    // so the mins_bot_data root only holds long-lived state (config, memory).
     private static final Path BASE_DIR =
-            Paths.get(System.getProperty("user.home"), "mins_bot_data");
+            Paths.get(System.getProperty("user.home"), "mins_bot_data", "mins_workfolder");
 
     private Playwright playwright;
     private Browser browser;

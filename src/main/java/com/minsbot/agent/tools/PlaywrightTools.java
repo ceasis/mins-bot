@@ -29,8 +29,10 @@ import java.util.Set;
 @Component
 public class PlaywrightTools {
 
+    // Directive scratch (downloaded images, page screenshots) lives under
+    // mins_workfolder so it auto-prunes after 30 days.
     private static final Path BASE_DIR =
-            Paths.get(System.getProperty("user.home"), "mins_bot_data");
+            Paths.get(System.getProperty("user.home"), "mins_bot_data", "mins_workfolder");
     private static final DateTimeFormatter TS_FMT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
 
