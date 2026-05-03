@@ -516,6 +516,33 @@ public class TtsTools {
     }
 
     /**
+     * Narration variant — speaks text at a slower pace (length-scale 1.35) for
+     * stories, recitations, bedtime reads. Only the local Piper engine honours
+     * the slower rate; cloud engines speak at their normal pace.
+     */
+    public void speakNarrationAsync(String text) {
+        if (text == null || text.isBlank()) return;
+        if (!autoSpeak) return;
+        if (MusicControlTools.MUSIC_ACTIVE.get()) return;
+        String clean = cleanForSpeech(text);
+        if (clean.isBlank()) return;
+        ttsExecutor.submit(() -> {
+            try {
+                if (localTts != null && localTts.isEnabled()) {
+                    double scale = localTts.getNarrationLengthScale();
+                    log.info("[TTS] Narration mode (length-scale={}), local Piper voice={}", scale, localTts.getSelectedVoice());
+                    java.io.InputStream in = localTts.textToSpeechStream(clean, scale);
+                    if (in != null && streamAndPlay(in, cacheKeyForProvider(clean, "piper-narration"), clean, "Piper")) return;
+                }
+                // Fallback to normal chain at standard rate
+                doSpeak(clean);
+            } catch (Exception e) {
+                log.debug("[TTS] Async narration speak failed: {}", e.getMessage());
+            }
+        });
+    }
+
+    /**
      * Speak text with a gender-matched ElevenLabs voice on a background thread.
      * Used by vocal/mouth mode to speak translations aloud with matching voice.
      *

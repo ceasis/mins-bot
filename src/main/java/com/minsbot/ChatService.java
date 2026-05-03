@@ -32,6 +32,7 @@ import java.net.http.HttpResponse;
 import java.net.http.HttpClient.Version;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -1060,6 +1061,8 @@ public class ChatService {
     private volatile java.awt.Point lastCheckedMousePos = null;
     /** Last message pushed from autonomous mode; cleared on user input so we don't repeat when idle. */
     private volatile String lastAutonomousMessageSent = null;
+    /** Most recent user message — used by autoSpeak() to detect narration intent and skip summarization. */
+    private volatile String lastUserMessage = null;
     /** True after autonomous concluded "all directives addressed"; cleared on user input. */
     private volatile boolean autonomousConcludedAllAddressed = false;
 
@@ -1294,6 +1297,7 @@ public class ChatService {
 
         // ═══ Queue message for the main loop thread ═══
         userMessageQueue.add(trimmed);
+        lastUserMessage = trimmed;
         log.info("[ChatService] Queued user message for main loop: {}",
                 trimmed.substring(0, Math.min(trimmed.length(), 80)));
 
@@ -1302,32 +1306,65 @@ public class ChatService {
     }
 
     /** Auto-speak the reply if TTS auto_speak is enabled. Non-blocking (runs on background thread).
-     *  Long replies (>50 chars) are summarized first so TTS doesn't read a wall of text. */
+     *  Long replies (>50 chars) are summarized first so TTS doesn't read a wall of text —
+     *  EXCEPT when the user explicitly asked for narration (story, recite, read aloud, etc.),
+     *  in which case the full reply is spoken verbatim. */
     private void autoSpeak(String reply) {
+        autoSpeak(reply, lastUserMessage);
+    }
+
+    private void autoSpeak(String reply, String userMessage) {
         if (!ttsTools.isAutoSpeak() || reply == null || reply.isBlank()) return;
 
-        if (reply.length() > 50 && chatClient != null) {
-            // Summarize long replies before speaking — runs in background to avoid blocking
-            Thread t = new Thread(() -> {
-                try {
-                    String summary = chatClient.prompt()
-                            .user("Summarize this chatbot response in 1-2 short sentences for text-to-speech. "
-                                    + "Be concise and conversational. Only output the summary, nothing else:\n\n" + reply)
-                            .call()
-                            .content();
-                    if (summary != null && !summary.isBlank()) {
-                        ttsTools.speakAsync(summary);
-                    }
-                } catch (Exception e) {
-                    log.debug("[TTS] Summarization failed, speaking truncated: {}", e.getMessage());
-                    ttsTools.speakAsync(reply.substring(0, Math.min(reply.length(), 100)));
-                }
-            }, "tts-summarize");
-            t.setDaemon(true);
-            t.start();
-        } else {
-            ttsTools.speakAsync(reply);
+        boolean narrate = isNarrationIntent(userMessage);
+        if (narrate) {
+            // Speak verbatim AT A SLOWER PACE for stories/recitations/bedtime reads
+            ttsTools.speakNarrationAsync(reply);
+            return;
         }
+        if (reply.length() <= 50 || chatClient == null) {
+            ttsTools.speakAsync(reply);
+            return;
+        }
+
+        // Summarize long replies before speaking — runs in background to avoid blocking
+        Thread t = new Thread(() -> {
+            try {
+                String summary = chatClient.prompt()
+                        .user("Summarize this chatbot response in 1-2 short sentences for text-to-speech. "
+                                + "Be concise and conversational. Only output the summary, nothing else:\n\n" + reply)
+                        .call()
+                        .content();
+                if (summary != null && !summary.isBlank()) {
+                    ttsTools.speakAsync(summary);
+                }
+            } catch (Exception e) {
+                log.debug("[TTS] Summarization failed, speaking truncated: {}", e.getMessage());
+                ttsTools.speakAsync(reply.substring(0, Math.min(reply.length(), 100)));
+            }
+        }, "tts-summarize");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /** Detect whether the user explicitly asked for spoken-word output (narration, recitation,
+     *  storytelling, reading aloud) — so the TTS layer should speak the full reply verbatim
+     *  instead of summarizing it. */
+    private static boolean isNarrationIntent(String userMessage) {
+        if (userMessage == null) return false;
+        String s = userMessage.toLowerCase(Locale.ROOT);
+        return s.contains("narrate")
+                || s.contains("read it aloud") || s.contains("read aloud") || s.contains("read this aloud") || s.contains("read out loud")
+                || s.contains("read it to me") || s.contains("read to me") || s.contains("read me ")
+                || s.contains("tell me a story") || s.contains("tell a story") || s.contains("bedtime story") || s.contains("bedtime tale")
+                || s.contains("recite") || s.contains("read aloud") || s.contains("read it back")
+                || s.contains("speak the whole") || s.contains("say the whole") || s.contains("speak it all") || s.contains("say it all")
+                || s.contains("don't summarize") || s.contains("do not summarize") || s.contains("no summary")
+                || s.contains("verbatim") || s.contains("word for word") || s.contains("read verbatim")
+                || s.contains(" sing ") || s.startsWith("sing ")
+                || s.contains("speech") || s.contains("monologue") || s.contains("dialogue read")
+                || s.contains("audiobook") || s.contains("voice over") || s.contains("voiceover")
+                || s.contains("read the text") || s.contains("speak the text") || s.contains("dictate");
     }
 
     /** True if the user message is a request to open the command center in Chrome. */

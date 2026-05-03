@@ -47,21 +47,30 @@ public class MarketingCampaignTools {
     @Autowired(required = false) private BlogWriterConfig.BlogWriterProperties blogWriterProps;
     @Autowired(required = false) private ToolExecutionNotifier notifier;
 
-    @Tool(description = "Run a complete marketing campaign / playbook for the configured app "
-            + "(default: Mins Bot at mins.io). Use when the user says 'market the app', "
-            + "'market yourself', 'market mins bot', 'do marketing', 'launch a campaign', "
-            + "'market our product'. Generates: today's social posts (per-platform, length-checked), "
-            + "ad copy headlines, landing-page audit with prioritized fixes, review reply drafts, "
-            + "and a 'todayActions' checklist. Note: generates the playbook only — does NOT auto-post "
-            + "or buy ads. Returns a formatted summary the user can act on.")
+    @Tool(description = "Run a complete marketing campaign for the configured app (default: Mins Bot "
+            + "at mins.io) AND ACTUALLY EXECUTE IT — publishes social posts to configured providers "
+            + "(Bluesky/Mastodon/webhook) and sends outreach emails via Resend/SMTP. Use when the user "
+            + "says 'market the app', 'market yourself', 'market mins bot', 'do marketing', 'launch a "
+            + "campaign'. If providers aren't configured, those steps skip with a clear message — "
+            + "nothing is generated and lost. Returns: what got published, what got sent, and what "
+            + "still needs the user (e.g. landing-page fixes).")
     public String marketTheApp() {
-        return runCampaign(null, null, null, null);
+        return runCampaign(null, null, null, null, true);
     }
 
-    @Tool(description = "Run a complete marketing campaign / playbook for any product (not just the bot). "
-            + "Use when the user says 'market <product>', 'create a marketing campaign for <product>', "
-            + "'do marketing for <product> with landing page <url>'. Returns today's social posts, "
-            + "ad copy, landing-page audit, and an action checklist tailored to that product.")
+    @Tool(description = "PREVIEW the marketing campaign WITHOUT publishing or sending anything. "
+            + "Use when the user says 'preview the marketing', 'show me what you'd post', 'dry-run "
+            + "the campaign', 'draft only'. Returns the same playbook as 'market the app' but nothing "
+            + "actually goes live — useful for review before committing.")
+    public String previewMarketing() {
+        return runCampaign(null, null, null, null, false);
+    }
+
+    @Tool(description = "Run a complete marketing campaign for any product (not just the bot) AND "
+            + "EXECUTE IT (publish + send). Use when the user says 'market <product>', 'launch "
+            + "marketing for <product>', 'do marketing for <product> with landing page <url>'. "
+            + "Auto-publishes to Bluesky/Mastodon/webhook and sends emails if those providers are "
+            + "configured; otherwise skips those steps cleanly.")
     public String marketProduct(
             @ToolParam(description = "Product name to market, e.g. 'Acme CRM'") String productName,
             @ToolParam(description = "One-sentence tagline / value prop for the product. Optional.", required = false)
@@ -70,10 +79,10 @@ public class MarketingCampaignTools {
             String landingPage,
             @ToolParam(description = "Target audience description, e.g. 'small SaaS founders'. Optional.", required = false)
             String audience) {
-        return runCampaign(productName, tagline, landingPage, audience);
+        return runCampaign(productName, tagline, landingPage, audience, true);
     }
 
-    private String runCampaign(String product, String tagline, String landingPage, String audience) {
+    private String runCampaign(String product, String tagline, String landingPage, String audience, boolean executeNow) {
         if (selfMarket == null || selfMarketProps == null) {
             return "Marketing skill is not loaded. Check that selfmarket is registered.";
         }
@@ -89,6 +98,7 @@ public class MarketingCampaignTools {
         if (tagline != null && !tagline.isBlank()) override.put("tagline", tagline);
         if (landingPage != null && !landingPage.isBlank()) override.put("landingPage", landingPage);
         if (audience != null && !audience.isBlank()) override.put("audience", audience);
+        override.put("executeNow", executeNow);
 
         try {
             Map<String, Object> playbook = selfMarket.run(override);
@@ -102,15 +112,56 @@ public class MarketingCampaignTools {
     @SuppressWarnings("unchecked")
     private String formatForChat(Map<String, Object> playbook) {
         StringBuilder sb = new StringBuilder();
-        sb.append("── marketing playbook · ").append(playbook.get("date")).append(" ──\n");
+        boolean executed = Boolean.TRUE.equals(playbook.get("executeNow"));
+        sb.append(executed ? "── marketing campaign · LIVE · " : "── marketing preview · ");
+        sb.append(playbook.get("date")).append(" ──\n");
         sb.append("Product: ").append(playbook.get("product")).append("\n");
         Object landing = playbook.get("landingPage");
         if (landing != null) sb.append("Landing: ").append(landing).append("\n");
         sb.append("\n");
 
+        // Execution results — what actually went live
+        Map<String, Object> exec = (Map<String, Object>) playbook.get("executionResults");
+        if (exec != null) {
+            Map<String, Object> sp = (Map<String, Object>) exec.get("socialPosts");
+            if (sp != null) {
+                sb.append("📣 Social: ").append(sp.get("summary")).append("\n");
+                List<Map<String, Object>> details = (List<Map<String, Object>>) sp.get("details");
+                if (details != null) {
+                    for (Map<String, Object> d : details) {
+                        String status = String.valueOf(d.get("status"));
+                        String icon = "posted".equals(status) ? "  ✓" : "skipped".equals(status) ? "  ·" : "  ✗";
+                        sb.append(icon).append(" ").append(d.get("platform"));
+                        if (d.get("url") != null) sb.append(" → ").append(d.get("url"));
+                        else if (d.get("uri") != null) sb.append(" (").append(d.get("uri")).append(")");
+                        else if (d.get("reason") != null) sb.append(" — ").append(d.get("reason"));
+                        else if (d.get("error") != null) sb.append(" — ").append(d.get("error"));
+                        sb.append("\n");
+                    }
+                }
+            }
+            Map<String, Object> oe = (Map<String, Object>) exec.get("outreachEmails");
+            if (oe != null) {
+                sb.append("✉ Email: ").append(oe.get("summary")).append("\n");
+                List<Map<String, Object>> details = (List<Map<String, Object>>) oe.get("details");
+                if (details != null) {
+                    for (Map<String, Object> d : details) {
+                        String status = String.valueOf(d.get("status"));
+                        String icon = "sent".equals(status) ? "  ✓" : "skipped".equals(status) ? "  ·" : "  ✗";
+                        sb.append(icon).append(" ").append(d.get("recipient"));
+                        if (d.get("email") != null) sb.append(" <").append(d.get("email")).append(">");
+                        if (d.get("reason") != null) sb.append(" — ").append(d.get("reason"));
+                        if (d.get("error") != null) sb.append(" — ").append(d.get("error"));
+                        sb.append("\n");
+                    }
+                }
+            }
+            sb.append("\n");
+        }
+
         List<String> actions = (List<String>) playbook.get("todayActions");
         if (actions != null && !actions.isEmpty()) {
-            sb.append("📋 Today's actions:\n");
+            sb.append(executed ? "📋 Still needs you:\n" : "📋 Today's actions:\n");
             for (int i = 0; i < actions.size(); i++) {
                 sb.append("  ").append(i + 1).append(". ").append(actions.get(i)).append("\n");
             }
@@ -177,7 +228,6 @@ public class MarketingCampaignTools {
 
         Object stored = playbook.get("storedAt");
         if (stored != null) sb.append("💾 Full playbook saved: ").append(stored).append("\n");
-        sb.append("\nNote: this generates the campaign. Posting/sending requires your accounts.");
         return sb.toString();
     }
 

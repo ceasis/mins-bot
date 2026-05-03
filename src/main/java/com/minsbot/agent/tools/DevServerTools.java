@@ -287,8 +287,8 @@ public class DevServerTools {
                     "else { " +
                     "  $conns | ForEach-Object { " +
                     "    $proc = Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue; " +
-                    "    if ($proc) { \"PID $($_.OwningProcess) - $($proc.ProcessName) ($($proc.Path))\" } " +
-                    "    else { \"PID $($_.OwningProcess) - (process info unavailable)\" } " +
+                    "    if ($proc) { 'PID {0} - {1} ({2})' -f $_.OwningProcess, $proc.ProcessName, $proc.Path } " +
+                    "    else { 'PID {0} - (process info unavailable)' -f $_.OwningProcess } " +
                     "  } " +
                     "}")
                     .redirectErrorStream(true);
@@ -325,9 +325,9 @@ public class DevServerTools {
                     "    $name = if ($proc) { $proc.ProcessName } else { '?' }; " +
                     "    try { " +
                     "      Stop-Process -Id $pid2 -Force -ErrorAction Stop; " +
-                    "      Write-Output (\"killed $pid2 ($name)\"); " +
+                    "      Write-Output ('killed {0} ({1})' -f $pid2, $name); " +
                     "    } catch { " +
-                    "      Write-Output (\"failed $pid2 ($name): $($_.Exception.Message)\"); " +
+                    "      Write-Output ('failed {0} ({1}): {2}' -f $pid2, $name, $_.Exception.Message); " +
                     "    } " +
                     "  } " +
                     "}")
@@ -337,6 +337,12 @@ public class DevServerTools {
             p.waitFor();
             if (out.isEmpty()) return "No output — port " + port + " status unknown.";
             if (out.contains("nothing-listening")) return "Port " + port + " is free — nothing was listening.";
+            boolean hasResult = false;
+            for (String line : out.split("\\R")) {
+                String t = line.trim();
+                if (t.startsWith("killed ") || t.startsWith("failed ")) { hasResult = true; break; }
+            }
+            if (!hasResult) return "Nothing is listening on port " + port + ".";
             // Also remove any internally-tracked dev servers that match the killed PIDs.
             for (String line : out.split("\\R")) {
                 if (line.startsWith("killed ")) {

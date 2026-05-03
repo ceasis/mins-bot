@@ -187,6 +187,24 @@ public class TtsSettingsController {
         return Map.of("speaking", ttsTools.isSpeaking());
     }
 
+    /** Get current local-Piper rate + pitch settings. */
+    @GetMapping(value = "/local-rates", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> getLocalRates() {
+        return Map.of(
+                "lengthScale", localTts.getLengthScale(),
+                "narrationLengthScale", localTts.getNarrationLengthScale(),
+                "pitchSemitones", localTts.getPitchSemitones());
+    }
+
+    /** Update local-Piper rate + pitch. Any of the three fields are optional. */
+    @PostMapping(value = "/local-rates", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> setLocalRates(@RequestBody Map<String, Object> body) {
+        if (body.get("lengthScale") instanceof Number n) localTts.setLengthScale(n.doubleValue());
+        if (body.get("narrationLengthScale") instanceof Number n) localTts.setNarrationLengthScale(n.doubleValue());
+        if (body.get("pitchSemitones") instanceof Number n) localTts.setPitchSemitones(n.doubleValue());
+        return getLocalRates();
+    }
+
     /** Returns (and clears) a one-time startup notice if Fish Audio failed on first TTS attempt. */
     @GetMapping(value = "/startup-notice", produces = MediaType.APPLICATION_JSON_VALUE)
     public Map<String, Object> startupNotice() {

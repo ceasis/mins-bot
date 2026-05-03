@@ -34,34 +34,36 @@ public class SetupController {
 
     /** Catalogue of keys the bot can ask for. Order = display order in the modal. */
     private static final List<NeedDef> CATALOGUE = List.of(
+            // ── Quick-Setup essentials (LLMs the bot needs to actually function) ──
             new NeedDef("spring.ai.openai.api-key", "OPENAI_API_KEY",
                     "OpenAI API key",
                     "Powers tool-calling and audio transcription. Most-used provider.",
-                    "https://platform.openai.com/api-keys", true),
+                    "https://platform.openai.com/api-keys", true, true),
             new NeedDef("app.anthropic.api-key", "ANTHROPIC_API_KEY",
                     "Anthropic / Claude API key",
                     "Used by the SpecialCodeGenerator and as a fallback chat backend.",
-                    "https://console.anthropic.com/settings/keys", false),
+                    "https://console.anthropic.com/settings/keys", false, true),
             new NeedDef("gemini.api.key", "GEMINI_API_KEY",
                     "Google Gemini API key",
                     "Optional — enables Gemini-backed image and chat tools.",
-                    "https://aistudio.google.com/app/apikey", false),
+                    "https://aistudio.google.com/app/apikey", false, true),
+            // ── Optional add-ons (configurable from the full Setup tab, not the modal) ──
             new NeedDef("app.groq.api-key", "GROQ_API_KEY",
                     "Groq API key",
                     "Optional — fast Llama / Mixtral inference for cheap routing.",
-                    "https://console.groq.com/keys", false),
+                    "https://console.groq.com/keys", false, false),
             new NeedDef("app.elevenlabs.api-key", "ELEVENLABS_API_KEY",
                     "ElevenLabs API key",
                     "Optional — premium TTS voices. Bot falls back to local Piper otherwise.",
-                    "https://elevenlabs.io/app/settings/api-keys", false),
+                    "https://elevenlabs.io/app/settings/api-keys", false, false),
             new NeedDef("fish.audio.api.key", "FISH_AUDIO_API_KEY",
                     "Fish Audio API key",
                     "Optional — alternative premium TTS provider.",
-                    "https://fish.audio/", false),
+                    "https://fish.audio/", false, false),
             new NeedDef("app.github.token", "GITHUB_TOKEN",
                     "GitHub token",
                     "Enables creating repos / pushing generated code projects.",
-                    "https://github.com/settings/tokens", false)
+                    "https://github.com/settings/tokens", false, false)
     );
 
     @GetMapping(value = "/needs", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -72,6 +74,9 @@ public class SetupController {
         List<Map<String, Object>> needs = new ArrayList<>();
         for (NeedDef d : CATALOGUE) {
             if (hasValue(existing, d)) continue;
+            // Quick-setup modal only shows the essentials (LLMs); everything else
+            // is configurable from the full Setup tab.
+            if (!d.quickSetup) continue;
             needs.add(Map.of(
                     "key", d.propKey,
                     "envKey", d.envKey,
@@ -193,5 +198,12 @@ public class SetupController {
         } catch (Exception e) { return 0L; }
     }
 
-    private record NeedDef(String propKey, String envKey, String label, String hint, String docs, boolean required) {}
+    private record NeedDef(String propKey, String envKey, String label, String hint, String docs,
+                            boolean required, boolean quickSetup) {
+        // Backwards-compat ctor — older entries without an explicit quickSetup flag default it to true
+        // when required (so the OpenAI key shows in Quick Setup), false otherwise.
+        NeedDef(String propKey, String envKey, String label, String hint, String docs, boolean required) {
+            this(propKey, envKey, label, hint, docs, required, required);
+        }
+    }
 }

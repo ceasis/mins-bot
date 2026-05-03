@@ -556,7 +556,7 @@ public class DeliverableFormatter {
             addTitleSlide(ppt, title);
             List<Section> sections = splitH2(body);
             for (Section s : sections) {
-                addContentSlide(ppt, s.heading, s.bullets, s.prose, s.imageUrl, s.imageAlt);
+                addContentSlide(ppt, s.heading, s.bullets, s.prose, s.imageUrl, s.imageAlt, s.tableRows);
             }
             ppt.write(fos);
         }
@@ -567,20 +567,28 @@ public class DeliverableFormatter {
     // ─── PPTX helpers ────────────────────────────────────────────────────
 
     private record Section(String heading, List<String> bullets, String prose,
-                            String imageUrl, String imageAlt) {}
+                            String imageUrl, String imageAlt, List<List<String>> tableRows) {}
 
     /** Strip slide-line clutter the synthesizer commonly leaves behind:
      *  empty placeholder labels ({@code **Image:**}, {@code **Learn more:**}),
-     *  horizontal-rule {@code ---} dividers, and hollow {@code **bold:**} labels
-     *  with no content after them. Returns "" when the line had nothing else. */
+     *  horizontal-rule {@code ---} dividers, hollow {@code **bold:**} labels,
+     *  blockquote {@code >} markers, and markdown link syntax {@code [text](url)}
+     *  (slides can't navigate, so we keep just the visible text).
+     *  Returns "" when the line had nothing else. */
     private static String cleanInlineMarkdown(String s) {
         if (s == null) return "";
         String t = s.trim();
         if (t.isEmpty() || t.equals("---")) return "";
         // Drop bare placeholder labels: "**Image:**", "**Learn more:**", "**Source:**"
-        // when nothing follows them on the same line.
         if (t.matches("(?i)^\\*\\*\\s*(image|photo|picture|hero\\s+image|learn\\s+more|source|"
                 + "more\\s+info|reference|figure)\\s*[:\\-]?\\s*\\*\\*\\s*$")) return "";
+        // Strip leading blockquote markers (`> ` or `>>`) — slides have no quote box.
+        while (t.startsWith(">")) t = t.substring(1).trim();
+        if (t.isEmpty()) return "";
+        // Replace markdown links [text](url) with just the text.
+        t = t.replaceAll("\\[([^\\]]+)\\]\\([^)]+\\)", "$1");
+        // Replace bare backslashes that synthesizers occasionally leak in.
+        t = t.replaceAll("(?<!\\\\)\\\\(?![\\\\nrt])", "");
         return t;
     }
 
@@ -622,6 +630,55 @@ public class DeliverableFormatter {
         if (bold) r.setBold(true);
     }
 
+    /** Render markdown table rows into an XSLF table on the slide. Returns the
+     *  total height consumed (incl. header + body rows). First row treated as
+     *  header. Cell bold/markdown stripped via cleanInlineMarkdown. */
+    private static int renderPptTable(XSLFSlide slide, List<List<String>> rows, boolean hasImage) {
+        if (rows == null || rows.isEmpty()) return 0;
+        int cols = rows.stream().mapToInt(List::size).max().orElse(0);
+        if (cols == 0) return 0;
+        org.apache.poi.xslf.usermodel.XSLFTable table = slide.createTable(rows.size(), cols);
+        int leftX = 40;
+        int width = hasImage ? 520 : 880;
+        int rowHeight = 24;
+        int headerHeight = 28;
+        int totalHeight = headerHeight + (rows.size() - 1) * rowHeight;
+        if (totalHeight > 380) {
+            // Squeeze rowHeight if we'd overflow (rare — slide max body ~400px)
+            rowHeight = Math.max(16, (380 - headerHeight) / Math.max(1, rows.size() - 1));
+            totalHeight = headerHeight + (rows.size() - 1) * rowHeight;
+        }
+        table.setAnchor(new Rectangle(leftX, 110, width, totalHeight));
+
+        // Even column widths
+        int colWidth = width / cols;
+        for (int c = 0; c < cols; c++) table.setColumnWidth(c, colWidth);
+
+        Color headerBg = new Color(28, 48, 72);
+        Color rowBg    = new Color(20, 32, 48);
+        Color rowAlt   = new Color(24, 38, 56);
+        Color textCol  = new Color(220, 232, 245);
+        Color headCol  = new Color(74, 214, 255);
+
+        for (int r = 0; r < rows.size(); r++) {
+            List<String> row = rows.get(r);
+            table.setRowHeight(r, r == 0 ? headerHeight : rowHeight);
+            for (int c = 0; c < cols; c++) {
+                org.apache.poi.xslf.usermodel.XSLFTableCell cell = table.getCell(r, c);
+                if (cell == null) continue;
+                String text = c < row.size() ? cleanInlineMarkdown(row.get(c)) : "";
+                cell.setFillColor(r == 0 ? headerBg : (r % 2 == 0 ? rowBg : rowAlt));
+                XSLFTextParagraph para = cell.addNewTextParagraph();
+                XSLFTextRun run = para.addNewTextRun();
+                run.setText(text);
+                run.setFontSize(r == 0 ? 12d : 11d);
+                run.setBold(r == 0);
+                run.setFontColor(r == 0 ? headCol : textCol);
+            }
+        }
+        return totalHeight;
+    }
+
     /** Markdown image: {@code ![alt](url)}. Normalizer already promotes other shapes. */
     private static final Pattern PPT_IMG = Pattern.compile("!\\[([^\\]]*)\\]\\(([^)]+)\\)");
 
@@ -647,7 +704,8 @@ public class DeliverableFormatter {
     }
 
     private static void addContentSlide(XMLSlideShow ppt, String heading, List<String> bullets,
-                                         String prose, String imageUrl, String imageAlt) {
+                                         String prose, String imageUrl, String imageAlt,
+                                         List<List<String>> tableRows) {
         XSLFSlide slide = ppt.createSlide();
         slide.getBackground().setFillColor(new Color(15, 25, 38));
 
@@ -660,6 +718,7 @@ public class DeliverableFormatter {
             if (imageBytes != null) picType = detectPictureType(imageUrl, imageBytes);
         }
         boolean hasImage = imageBytes != null && picType != null;
+        boolean hasTable = tableRows != null && !tableRows.isEmpty();
 
         // Heading — full width
         XSLFTextBox h = slide.createTextBox();
@@ -671,26 +730,35 @@ public class DeliverableFormatter {
         hr.setBold(true);
         hr.setFontColor(new Color(74, 214, 255));
 
+        // Render the table first when present — takes the upper body area.
+        int bodyTop = 110;
+        if (hasTable) {
+            int tableHeight = renderPptTable(slide, tableRows, hasImage);
+            bodyTop = 110 + tableHeight + 14;
+        }
+
         // Body box — narrower when an image is on the right.
         int bodyWidth = hasImage ? 520 : 880;
-        XSLFTextBox b = slide.createTextBox();
-        b.setAnchor(new Rectangle(40, 110, bodyWidth, 400));
-        if (bullets != null && !bullets.isEmpty()) {
-            for (String bullet : bullets) {
-                String clean = cleanInlineMarkdown(bullet);
-                if (clean.isEmpty()) continue;
-                XSLFTextParagraph bp = b.addNewTextParagraph();
-                bp.setBullet(true);
-                bp.setIndentLevel(0);
-                renderInlineWithBold(bp, clean, hasImage ? 14d : 18d);
-            }
-        } else if (prose != null && !prose.isBlank()) {
-            for (String line : prose.split("\n")) {
-                if (line.isBlank()) continue;
-                String clean = cleanInlineMarkdown(line);
-                if (clean.isEmpty()) continue;
-                XSLFTextParagraph bp = b.addNewTextParagraph();
-                renderInlineWithBold(bp, clean, hasImage ? 13d : 16d);
+        if (bodyTop < 510) {
+            XSLFTextBox b = slide.createTextBox();
+            b.setAnchor(new Rectangle(40, bodyTop, bodyWidth, 510 - bodyTop));
+            if (bullets != null && !bullets.isEmpty()) {
+                for (String bullet : bullets) {
+                    String clean = cleanInlineMarkdown(bullet);
+                    if (clean.isEmpty()) continue;
+                    XSLFTextParagraph bp = b.addNewTextParagraph();
+                    bp.setBullet(true);
+                    bp.setIndentLevel(0);
+                    renderInlineWithBold(bp, clean, hasImage ? 14d : 18d);
+                }
+            } else if (prose != null && !prose.isBlank()) {
+                for (String line : prose.split("\n")) {
+                    if (line.isBlank()) continue;
+                    String clean = cleanInlineMarkdown(line);
+                    if (clean.isEmpty()) continue;
+                    XSLFTextParagraph bp = b.addNewTextParagraph();
+                    renderInlineWithBold(bp, clean, hasImage ? 13d : 16d);
+                }
             }
         }
 
@@ -862,6 +930,7 @@ public class DeliverableFormatter {
         StringBuilder prose = new StringBuilder();
         String imageUrl = null;
         String imageAlt = null;
+        List<List<String>> tableRows = new ArrayList<>();
         for (String line : body.split("\n")) {
             String t = line.trim();
             // First image found wins; later images are ignored on this slide.
@@ -875,8 +944,6 @@ public class DeliverableFormatter {
                 Matcher bareM = PPT_BARE_IMG.matcher(t);
                 if (bareM.find()) {
                     imageUrl = bareM.group();
-                    // Use any text on the line as alt (rare since normalizer
-                    // already promoted these, but keeps us robust).
                     imageAlt = t.replace(imageUrl, "")
                             .replaceAll("(?i)_?image(?:\\s+reference)?:?_?", "")
                             .replaceAll("[\\-–—•|:]+\\s*$", "")
@@ -884,16 +951,46 @@ public class DeliverableFormatter {
                     continue;
                 }
             }
+            // Markdown table detection: line starts with "|" and contains another "|"
+            if (t.startsWith("|") && t.length() > 1 && t.indexOf('|', 1) > 0) {
+                // Some LLMs emit two rows on one line joined by "||". Split on
+                // double-pipe to recover the second row, dedupe identical rows.
+                for (String segment : t.split("\\|\\|")) {
+                    List<String> row = parseTableRow(segment);
+                    if (row == null) continue;
+                    // Skip the markdown alignment row "|---|---|"
+                    boolean isSeparator = row.stream().allMatch(c -> c.matches("[\\s:\\-]+"));
+                    if (isSeparator) continue;
+                    if (!tableRows.isEmpty() && tableRows.get(tableRows.size() - 1).equals(row)) continue;
+                    tableRows.add(row);
+                }
+                continue;
+            }
             if (t.startsWith("- ") || t.startsWith("* ")) {
                 bullets.add(t.substring(2).trim());
             } else if (t.startsWith("### ")) {
-                bullets.add(t.substring(4).trim()); // promote H3s to bullets too
+                bullets.add(t.substring(4).trim());
             } else if (!t.isEmpty() && bullets.isEmpty()) {
-                // Collect prose only when there are no bullets — slides with both look bad.
                 prose.append(t).append("\n");
             }
         }
-        return new Section(heading, bullets, prose.toString().trim(), imageUrl, imageAlt);
+        return new Section(heading, bullets, prose.toString().trim(), imageUrl, imageAlt, tableRows);
+    }
+
+    /** Parse one markdown table row "| a | b | c |" → ["a", "b", "c"]. Returns
+     *  null if the segment doesn't look like a row. */
+    private static List<String> parseTableRow(String segment) {
+        if (segment == null) return null;
+        String t = segment.trim();
+        // Strip leading/trailing pipes
+        if (t.startsWith("|")) t = t.substring(1);
+        if (t.endsWith("|")) t = t.substring(0, t.length() - 1);
+        if (t.isEmpty()) return null;
+        String[] parts = t.split("\\|");
+        if (parts.length < 1) return null;
+        List<String> row = new ArrayList<>(parts.length);
+        for (String p : parts) row.add(p.trim());
+        return row;
     }
 
     // ─── Utilities ───────────────────────────────────────────────────────

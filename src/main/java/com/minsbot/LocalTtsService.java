@@ -32,10 +32,27 @@ public class LocalTtsService {
     /** Tiny plain-text file holding the last-selected voice filename. */
     private static final Path PREF_FILE =
             Paths.get(System.getProperty("user.home"), "mins_bot_data", "piper", ".selected-voice").toAbsolutePath();
+    /** Tiny plain-text file holding pitch shift in semitones (0 = unchanged, -2 = JARVIS-ish). */
+    private static final Path PITCH_FILE =
+            Paths.get(System.getProperty("user.home"), "mins_bot_data", "piper", ".pitch-semitones").toAbsolutePath();
+    /** Tiny plain-text file holding Piper --length-scale (speech rate). 1.0 = default, >1 = slower. */
+    private static final Path LENGTH_SCALE_FILE =
+            Paths.get(System.getProperty("user.home"), "mins_bot_data", "piper", ".length-scale").toAbsolutePath();
+    /** Length-scale used specifically for narration (stories, recitations, bedtime reads). Defaults to 1.35. */
+    private static final Path NARRATION_SCALE_FILE =
+            Paths.get(System.getProperty("user.home"), "mins_bot_data", "piper", ".narration-length-scale").toAbsolutePath();
 
     private final PiperInstallerService installer;
 
     private volatile String selectedVoice;
+    /** Pitch shift in semitones. Negative = lower. Implemented by modifying WAV
+     *  header sample rate, which lowers pitch AND slows playback together —
+     *  the slowing is a feature for JARVIS-style measured cadence. */
+    private volatile double pitchSemitones = 0.0;
+    /** Piper speech rate for normal replies. 1.0 = native; >1 = slower; <1 = faster. */
+    private volatile double lengthScale = 1.0;
+    /** Piper speech rate used by narration mode (stories, recitations). Default slower. */
+    private volatile double narrationLengthScale = 1.35;
 
     public LocalTtsService(PiperInstallerService installer) {
         this.installer = installer;
@@ -52,12 +69,79 @@ public class LocalTtsService {
                 }
             }
         } catch (Exception ignored) {}
+        // Restore pitch
+        try {
+            if (Files.isRegularFile(PITCH_FILE)) {
+                String saved = Files.readString(PITCH_FILE).trim();
+                if (!saved.isBlank()) pitchSemitones = clampPitch(Double.parseDouble(saved));
+            }
+        } catch (Exception ignored) {}
+        // Restore length-scale
+        try {
+            if (Files.isRegularFile(LENGTH_SCALE_FILE)) {
+                String saved = Files.readString(LENGTH_SCALE_FILE).trim();
+                if (!saved.isBlank()) lengthScale = clampLengthScale(Double.parseDouble(saved));
+            }
+        } catch (Exception ignored) {}
+        // Restore narration length-scale
+        try {
+            if (Files.isRegularFile(NARRATION_SCALE_FILE)) {
+                String saved = Files.readString(NARRATION_SCALE_FILE).trim();
+                if (!saved.isBlank()) narrationLengthScale = clampLengthScale(Double.parseDouble(saved));
+            }
+        } catch (Exception ignored) {}
         if (selectedVoice == null) selectedVoice = firstInstalledVoice();
         if (selectedVoice != null) {
-            log.info("[LocalTTS] Ready — binary={}, voice={}", installer.binary(), selectedVoice);
+            log.info("[LocalTTS] Ready — binary={}, voice={}, pitchSemitones={}, lengthScale={}, narrationLengthScale={}",
+                    installer.binary(), selectedVoice, pitchSemitones, lengthScale, narrationLengthScale);
         } else if (installer.isInstalled()) {
             log.info("[LocalTTS] Binary installed but no voices yet — install one from the Models tab.");
         }
+    }
+
+    public double getNarrationLengthScale() { return narrationLengthScale; }
+
+    public synchronized void setNarrationLengthScale(double scale) {
+        this.narrationLengthScale = clampLengthScale(scale);
+        try {
+            Files.createDirectories(NARRATION_SCALE_FILE.getParent());
+            Files.writeString(NARRATION_SCALE_FILE, String.valueOf(this.narrationLengthScale));
+        } catch (Exception e) {
+            log.warn("[LocalTTS] couldn't persist narration length-scale pref: {}", e.getMessage());
+        }
+        log.info("[LocalTTS] Narration length-scale set to {}", this.narrationLengthScale);
+    }
+
+    public double getPitchSemitones() { return pitchSemitones; }
+
+    public synchronized void setPitchSemitones(double semitones) {
+        this.pitchSemitones = clampPitch(semitones);
+        try {
+            Files.createDirectories(PITCH_FILE.getParent());
+            Files.writeString(PITCH_FILE, String.valueOf(this.pitchSemitones));
+        } catch (Exception e) {
+            log.warn("[LocalTTS] couldn't persist pitch pref: {}", e.getMessage());
+        }
+        log.info("[LocalTTS] Pitch set to {} semitones", this.pitchSemitones);
+    }
+
+    public double getLengthScale() { return lengthScale; }
+
+    public synchronized void setLengthScale(double scale) {
+        this.lengthScale = clampLengthScale(scale);
+        try {
+            Files.createDirectories(LENGTH_SCALE_FILE.getParent());
+            Files.writeString(LENGTH_SCALE_FILE, String.valueOf(this.lengthScale));
+        } catch (Exception e) {
+            log.warn("[LocalTTS] couldn't persist length-scale pref: {}", e.getMessage());
+        }
+        log.info("[LocalTTS] Length-scale set to {}", this.lengthScale);
+    }
+
+    private static double clampLengthScale(double v) { return Math.max(0.5, Math.min(3.0, v)); }
+
+    private static double clampPitch(double s) {
+        return Math.max(-12.0, Math.min(12.0, s));
     }
 
     public boolean isEnabled() {
@@ -99,15 +183,33 @@ public class LocalTtsService {
      * the next TTS backend in their chain.
      */
     public byte[] textToSpeech(String text) {
+        return textToSpeech(text, null);
+    }
+
+    /** Synthesize with a one-off length-scale override (e.g. narration uses a slower rate
+     *  than the persisted default). null = use the persisted lengthScale. */
+    public byte[] textToSpeech(String text, Double lengthScaleOverride) {
         if (!isEnabled() || text == null || text.isBlank()) return null;
         Path model = installer.voices().resolve(selectedVoice);
         int sampleRate = readSampleRate(model, 22050);
+        // Apply pitch shift via sample-rate tweak: rate * 2^(semitones/12).
+        // Negative semitones lower the rate → players play samples slower & at lower pitch.
+        // For JARVIS the slower cadence is desired, so coupled pitch+tempo is a feature.
+        if (pitchSemitones != 0.0) {
+            sampleRate = (int) Math.round(sampleRate * Math.pow(2, pitchSemitones / 12.0));
+        }
+        double effectiveScale = lengthScaleOverride != null ? clampLengthScale(lengthScaleOverride) : lengthScale;
 
         try {
-            ProcessBuilder pb = new ProcessBuilder(
+            java.util.List<String> args = new java.util.ArrayList<>(java.util.List.of(
                     installer.binary().toString(),
                     "--model", model.toString(),
-                    "--output_raw");
+                    "--output_raw"));
+            if (effectiveScale != 1.0) {
+                args.add("--length-scale");
+                args.add(String.valueOf(effectiveScale));
+            }
+            ProcessBuilder pb = new ProcessBuilder(args);
             pb.redirectErrorStream(false);
             Process p = pb.start();
 
@@ -144,6 +246,12 @@ public class LocalTtsService {
     /** Streaming variant — same WAV bytes, served back as an InputStream. */
     public InputStream textToSpeechStream(String text) {
         byte[] wav = textToSpeech(text);
+        return wav == null ? null : new ByteArrayInputStream(wav);
+    }
+
+    /** Streaming variant with a one-off length-scale override. */
+    public InputStream textToSpeechStream(String text, Double lengthScaleOverride) {
+        byte[] wav = textToSpeech(text, lengthScaleOverride);
         return wav == null ? null : new ByteArrayInputStream(wav);
     }
 

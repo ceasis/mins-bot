@@ -4,9 +4,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.minsbot.skills.adcopygen.AdCopyGenService;
 import com.minsbot.skills.competitor.CompetitorService;
 import com.minsbot.skills.contentresearch.ContentResearchService;
+import com.minsbot.skills.emailsender.EmailSenderConfig;
+import com.minsbot.skills.emailsender.EmailSenderService;
 import com.minsbot.skills.landingpageaudit.LandingPageAuditService;
 import com.minsbot.skills.proposalwriter.ProposalWriterService;
 import com.minsbot.skills.reviewmonitor.ReviewMonitorService;
+import com.minsbot.skills.socialposter.SocialPosterConfig;
+import com.minsbot.skills.socialposter.SocialPosterService;
 import com.minsbot.skills.socialschedule.SocialScheduleService;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,6 +42,10 @@ public class SelfMarketService {
     @Autowired(required = false) private LandingPageAuditService lpAudit;
     @Autowired(required = false) private ProposalWriterService proposal;
     @Autowired(required = false) private ReviewMonitorService reviewMonitor;
+    @Autowired(required = false) private SocialPosterService socialPoster;
+    @Autowired(required = false) private SocialPosterConfig.SocialPosterProperties socialPosterProps;
+    @Autowired(required = false) private EmailSenderService emailSender;
+    @Autowired(required = false) private EmailSenderConfig.EmailSenderProperties emailSenderProps;
 
     public SelfMarketService(SelfMarketConfig.SelfMarketProperties props) { this.props = props; }
 
@@ -155,15 +163,153 @@ public class SelfMarketService {
             } catch (Exception e) { stages.put("reviewsError", e.getMessage()); }
         }
 
+        // 8. Auto-execute (if requested) — actually publish posts + send emails
+        boolean executeNow = Boolean.TRUE.equals(o.get("executeNow"));
+        if (executeNow) {
+            Map<String, Object> exec = new LinkedHashMap<>();
+            exec.put("socialPosts", autoPublishSocial(stages));
+            exec.put("outreachEmails", autoSendOutreach(influencers, product, tagline, landing));
+            playbook.put("executionResults", exec);
+            // Replace draft-style "todayActions" with execution-aware ones
+            List<String> done = new ArrayList<>();
+            Map<String, Object> sp = (Map<String, Object>) exec.get("socialPosts");
+            if (sp != null) done.add("Social: " + sp.get("summary"));
+            Map<String, Object> oe = (Map<String, Object>) exec.get("outreachEmails");
+            if (oe != null) done.add("Email: " + oe.get("summary"));
+            for (String a : nextActions) if (!a.toLowerCase().startsWith("schedule") && !a.toLowerCase().startsWith("send "))
+                done.add(a);
+            playbook.put("todayActions", done);
+            playbook.put("disclaimer", "Auto-execute mode: posts + emails were actually sent for configured providers. " +
+                    "1M users is a multi-year outcome — the bot's job is to run the daily loop reliably.");
+        } else {
+            playbook.put("todayActions", nextActions);
+            playbook.put("disclaimer", "Preview mode: this generates the playbook only. Pass executeNow=true to publish/send. " +
+                    "1M users is a multi-year outcome — the bot's job is to run the daily loop reliably.");
+        }
+
         playbook.put("stages", stages);
-        playbook.put("todayActions", nextActions);
-        playbook.put("disclaimer", "This generates the playbook. Posting/sending requires your accounts/API keys. " +
-                "1M users is a multi-year outcome — the bot's job is to run the daily loop reliably.");
+        playbook.put("executeNow", executeNow);
 
         Path file = dir.resolve(LocalDate.now() + ".json");
         Files.writeString(file, mapper.writerWithDefaultPrettyPrinter().writeValueAsString(playbook));
         playbook.put("storedAt", file.toAbsolutePath().toString());
         return playbook;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> autoPublishSocial(Map<String, Object> stages) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        if (socialPoster == null || socialPosterProps == null || !socialPosterProps.isEnabled()) {
+            out.put("summary", "skipped — socialposter disabled or not configured");
+            out.put("posted", 0);
+            return out;
+        }
+        Map<String, Object> social = (Map<String, Object>) stages.get("socialPosts");
+        if (social == null) { out.put("summary", "no social posts to publish"); out.put("posted", 0); return out; }
+        List<Map<String, Object>> posts = (List<Map<String, Object>>) social.get("posts");
+        if (posts == null || posts.isEmpty()) {
+            out.put("summary", "no posts generated"); out.put("posted", 0); return out;
+        }
+
+        Set<String> supported = Set.of("bluesky", "mastodon", "webhook");
+        List<Map<String, Object>> results = new ArrayList<>();
+        int sent = 0, skipped = 0, failed = 0;
+        for (Map<String, Object> post : posts) {
+            String platform = String.valueOf(post.get("platform"));
+            String text = String.valueOf(post.get("text"));
+            Map<String, Object> r = new LinkedHashMap<>();
+            r.put("platform", platform);
+            if (!supported.contains(platform)) {
+                r.put("status", "skipped");
+                r.put("reason", "platform " + platform + " not supported by socialposter (needs OAuth2)");
+                skipped++;
+            } else {
+                try {
+                    Map<String, Object> postResult = socialPoster.post(text, List.of(platform));
+                    Map<String, Object> platResult = (Map<String, Object>) ((Map<String, Object>) postResult.get("results")).get(platform);
+                    boolean ok = Boolean.TRUE.equals(platResult.get("ok"));
+                    r.put("status", ok ? "posted" : "failed");
+                    if (ok) { sent++; r.put("url", platResult.get("url")); r.put("uri", platResult.get("uri")); }
+                    else { failed++; r.put("error", platResult.get("error")); }
+                } catch (Exception e) {
+                    r.put("status", "failed");
+                    r.put("error", e.getMessage());
+                    failed++;
+                }
+            }
+            results.add(r);
+        }
+        out.put("summary", sent + " posted · " + skipped + " skipped · " + failed + " failed");
+        out.put("posted", sent);
+        out.put("skipped", skipped);
+        out.put("failed", failed);
+        out.put("details", results);
+        return out;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> autoSendOutreach(List<Map<String, Object>> influencers, String product,
+                                                 String tagline, String landing) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        if (emailSender == null || emailSenderProps == null || !emailSenderProps.isEnabled()) {
+            out.put("summary", "skipped — emailsender disabled or not configured");
+            out.put("sent", 0);
+            return out;
+        }
+        if (influencers == null || influencers.isEmpty()) {
+            out.put("summary", "no influencer list provided");
+            out.put("sent", 0);
+            return out;
+        }
+
+        List<Map<String, Object>> results = new ArrayList<>();
+        int sent = 0, skipped = 0, failed = 0;
+        for (Map<String, Object> inf : influencers) {
+            String email = (String) inf.get("email");
+            String name = (String) inf.getOrDefault("name", "there");
+            Map<String, Object> r = new LinkedHashMap<>();
+            r.put("recipient", name);
+            if (email == null || email.isBlank() || !email.contains("@")) {
+                r.put("status", "skipped");
+                r.put("reason", "no email address");
+                skipped++;
+                results.add(r);
+                continue;
+            }
+            try {
+                String snippet = (String) inf.getOrDefault("snippet", "your work");
+                Map<String, Object> draft = proposal.write(snippet, product + " team",
+                        "introducing " + product + " — " + tagline,
+                        "free to try, no card", List.of(tagline, "100+ built-in skills"));
+                List<Map<String, Object>> variants = (List<Map<String, Object>>) draft.get("variants");
+                Map<String, Object> chosen = variants.get(0); // pick "Direct" variant
+                String subject = product + " — " + truncate(tagline, 50);
+                String body = (String) chosen.get("fullText");
+                Map<String, Object> sendResult = emailSender.send(email, subject, body, null,
+                        "selfmarket-" + LocalDate.now());
+                r.put("status", "sent");
+                r.put("email", email);
+                r.put("provider", sendResult.get("provider"));
+                sent++;
+            } catch (Exception e) {
+                r.put("status", "failed");
+                r.put("email", email);
+                r.put("error", e.getMessage());
+                failed++;
+            }
+            results.add(r);
+        }
+        out.put("summary", sent + " sent · " + skipped + " skipped · " + failed + " failed");
+        out.put("sent", sent);
+        out.put("skipped", skipped);
+        out.put("failed", failed);
+        out.put("details", results);
+        return out;
+    }
+
+    private static String truncate(String s, int n) {
+        if (s == null) return "";
+        return s.length() <= n ? s : s.substring(0, n - 3) + "...";
     }
 
     private static String str(Map<String, Object> m, String k, String fallback) {

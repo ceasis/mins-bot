@@ -5099,6 +5099,83 @@
     });
   }
 
+  // ─── Local Piper speech rate + pitch sliders ───
+  var rateNormal = document.getElementById('tts-rate-normal');
+  var rateNarration = document.getElementById('tts-rate-narration');
+  var pitchSlider = document.getElementById('tts-pitch');
+  var rateNormalVal = document.getElementById('tts-rate-normal-val');
+  var rateNarrationVal = document.getElementById('tts-rate-narration-val');
+  var pitchVal = document.getElementById('tts-pitch-val');
+  var ratesReset = document.getElementById('tts-rates-reset');
+
+  // Slider value = "speed" (higher = faster). Backend stores length-scale (higher = slower).
+  // Conversion: lengthScale = 1 / speed
+  function fmtRate(v) { return Number(v).toFixed(2) + '×'; }
+  function speedToScale(speed) { return 1.0 / Math.max(0.01, parseFloat(speed)); }
+  function scaleToSpeed(scale) { return 1.0 / Math.max(0.01, parseFloat(scale)); }
+  function fmtPitch(v) {
+    var n = Number(v);
+    if (n === 0) return '0 semitones';
+    return (n > 0 ? '+' : '') + n + ' semitones';
+  }
+  function loadLocalRates() {
+    fetch('/api/tts/local-rates').then(function (r) { return r.json(); }).then(function (d) {
+      if (!d) return;
+      if (rateNormal && d.lengthScale != null) {
+        var spd = scaleToSpeed(d.lengthScale);
+        rateNormal.value = spd;
+        if (rateNormalVal) rateNormalVal.textContent = fmtRate(spd);
+      }
+      if (rateNarration && d.narrationLengthScale != null) {
+        var spd2 = scaleToSpeed(d.narrationLengthScale);
+        rateNarration.value = spd2;
+        if (rateNarrationVal) rateNarrationVal.textContent = fmtRate(spd2);
+      }
+      if (pitchSlider && d.pitchSemitones != null) {
+        pitchSlider.value = d.pitchSemitones;
+        if (pitchVal) pitchVal.textContent = fmtPitch(d.pitchSemitones);
+      }
+    }).catch(function () {});
+  }
+  function saveLocalRates(payload) {
+    fetch('/api/tts/local-rates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+  }
+  if (rateNormal) {
+    rateNormal.addEventListener('input', function () {
+      if (rateNormalVal) rateNormalVal.textContent = fmtRate(rateNormal.value);
+    });
+    rateNormal.addEventListener('change', function () {
+      saveLocalRates({ lengthScale: speedToScale(rateNormal.value) });
+    });
+  }
+  if (rateNarration) {
+    rateNarration.addEventListener('input', function () {
+      if (rateNarrationVal) rateNarrationVal.textContent = fmtRate(rateNarration.value);
+    });
+    rateNarration.addEventListener('change', function () {
+      saveLocalRates({ narrationLengthScale: speedToScale(rateNarration.value) });
+    });
+  }
+  if (pitchSlider) {
+    pitchSlider.addEventListener('input', function () {
+      if (pitchVal) pitchVal.textContent = fmtPitch(pitchSlider.value);
+    });
+    pitchSlider.addEventListener('change', function () {
+      saveLocalRates({ pitchSemitones: parseFloat(pitchSlider.value) });
+    });
+  }
+  if (ratesReset) {
+    ratesReset.addEventListener('click', function () {
+      saveLocalRates({ lengthScale: 1.0, narrationLengthScale: 1.35, pitchSemitones: 0 });
+      setTimeout(loadLocalRates, 100);
+    });
+  }
+  loadLocalRates();
+
   // Test voice button
   var ttsTestBtn = document.getElementById('tts-test-btn');
   if (ttsTestBtn) {

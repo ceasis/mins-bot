@@ -1122,6 +1122,36 @@
             <div id="tts-local-voices-list" class="tts-local-voices-list"></div>
           </div>
 
+          <!-- Local Piper rate / pitch sliders -->
+          <div class="tts-section" id="tts-local-rates-section">
+            <div class="tts-section-title">Speech rate &amp; pitch <span class="tts-hint">(local Piper voice)</span></div>
+            <div class="tts-rate-row">
+              <label>Normal speech rate
+                <span class="tts-hint" id="tts-rate-normal-val">1.00&times;</span>
+              </label>
+              <input type="range" id="tts-rate-normal" min="0.4" max="2.0" step="0.05" value="1.0" class="tts-range">
+              <span class="tts-hint">&larr; slower &nbsp;&nbsp; faster &rarr;</span>
+            </div>
+            <div class="tts-rate-row">
+              <label>Narration rate <span class="tts-hint">(stories, recitations)</span>
+                <span class="tts-hint" id="tts-rate-narration-val">0.74&times;</span>
+              </label>
+              <input type="range" id="tts-rate-narration" min="0.4" max="1.25" step="0.05" value="0.74" class="tts-range">
+              <span class="tts-hint">&larr; slower / more measured &nbsp;&nbsp; faster &rarr;</span>
+            </div>
+            <div class="tts-rate-row">
+              <label>Pitch
+                <span class="tts-hint" id="tts-pitch-val">0 semitones</span>
+              </label>
+              <input type="range" id="tts-pitch" min="-6" max="6" step="0.5" value="0" class="tts-range">
+              <span class="tts-hint">&larr; deeper &nbsp;&nbsp; higher &rarr;</span>
+            </div>
+            <div class="tts-rate-row">
+              <button id="tts-rates-reset" class="action-btn">Reset to defaults</button>
+              <span class="tts-hint">Applies only to the offline Piper voice.</span>
+            </div>
+          </div>
+
           <!-- Test button -->
           <div class="tts-section tts-test-section">
             <input type="text" id="tts-test-text" class="tab-input" placeholder="Test text..." value="Hello, this is a voice test.">
