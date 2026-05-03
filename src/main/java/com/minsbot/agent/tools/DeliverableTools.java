@@ -77,11 +77,20 @@ public class DeliverableTools {
         sb.append("Score: ").append(r.score()).append("/10  ·  ");
         sb.append("Cycles: ").append(r.cycles());
         if (r.score() < 8) {
-            sb.append("\n\nCritic's last note: ").append(r.message());
-            sb.append("\n\n(Hit the iteration cap before reaching the 8/10 ship bar — review and "
-                    + "ask me to refine further if needed.)");
+            // Don't echo the full critic message into the LLM's response — it's
+            // a wall of bullets that the user can't scan and that the LLM tends
+            // to re-paraphrase verbatim into the chat. Point at the workfolder
+            // file where the full critique lives instead.
+            sb.append("\n\nBelow ship bar. Full critique: ");
+            if (r.workDir() != null) {
+                sb.append(r.workDir().toAbsolutePath()).append("\\critique-").append(r.cycles()).append(".md");
+            } else {
+                sb.append("(see task folder)");
+            }
         }
-        sb.append("\n\n[STOP — present this file path to the user. Do not call any more tools.]");
+        sb.append("\n\n[STOP — present this file path to the user verbatim. Do NOT echo the critic's "
+                + "notes into chat; the user can open the critique file if they want detail. Do not call "
+                + "any more tools.]");
         return sb.toString();
     }
 

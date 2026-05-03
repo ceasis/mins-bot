@@ -43,8 +43,10 @@
         </button>
         <button type="button" id="title-bar-copy-chat" class="title-bar-btn" data-tip="Copy entire chat to clipboard" data-tip-dir="down" aria-label="Copy chat">
           <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="5" y="2" width="9" height="11" rx="1.5"/>
-            <path d="M2 5v8a1.5 1.5 0 0 0 1.5 1.5H10"/>
+            <!-- Back card (clipboard backing) -->
+            <rect x="2" y="2" width="9" height="11" rx="1.5"/>
+            <!-- Front card (overlapping copy), shifted to suggest the "copy" gesture -->
+            <rect x="5" y="5" width="9" height="9" rx="1.5"/>
           </svg>
         </button>
         <button type="button" id="title-bar-refresh" class="title-bar-btn" data-tip="Reload UI" data-tip-dir="down" aria-label="Reload UI">
@@ -749,25 +751,163 @@
         <div class="watcher-layout">
           <div class="watcher-form">
             <div class="section-title">New watcher</div>
-            <input type="text" id="watcher-label" class="tab-input" placeholder="Label (e.g. Jordan 11 Gamma size 9.5)">
-            <input type="text" id="watcher-url" class="tab-input" placeholder="Product URL (e.g. https://www.nike.com/ph/t/...)">
-            <div class="watcher-row">
-              <select id="watcher-adapter" class="tab-input">
-                <option value="nike-ph">nike-ph (Nike Philippines)</option>
-                <option value="generic-http">generic-http (regex match)</option>
-              </select>
-              <input type="text" id="watcher-target" class="tab-input" placeholder="Target (shoe size like '9.5', or regex)">
+            <div class="watcher-field">
+              <label class="watcher-label" for="watcher-label">Label</label>
+              <input type="text" id="watcher-label" class="tab-input" placeholder="e.g. Jordan 11 Gamma size 9.5">
             </div>
             <div class="watcher-row">
-              <input type="email" id="watcher-email" class="tab-input" placeholder="Notify email">
-              <input type="number" id="watcher-interval" class="tab-input" placeholder="Interval (seconds)" min="60" value="900">
+              <div class="watcher-field">
+                <label class="watcher-label" for="watcher-adapter">Resource (adapter)</label>
+                <select id="watcher-adapter" class="tab-input">
+                  <optgroup label="URL">
+                    <option value="url:nike-ph">URL · Nike Philippines</option>
+                    <option value="url:generic-http">URL · Generic HTTP (regex)</option>
+                  </optgroup>
+                  <optgroup label="File">
+                    <option value="file:mtime">File · Modified time</option>
+                    <option value="file:hash">File · Content hash</option>
+                    <option value="file:regex">File · Regex match</option>
+                  </optgroup>
+                  <optgroup label="Folder">
+                    <option value="folder:any">Folder · Any change</option>
+                    <option value="folder:create">Folder · New files only</option>
+                    <option value="folder:modify">Folder · Modifications only</option>
+                    <option value="folder:delete">Folder · Deletions only</option>
+                  </optgroup>
+                  <optgroup label="Disk">
+                    <option value="disk:threshold">Disk · Free-space threshold</option>
+                  </optgroup>
+                  <optgroup label="HTTP">
+                    <option value="http:status">HTTP · Up/down monitor</option>
+                  </optgroup>
+                  <optgroup label="Clipboard">
+                    <option value="clipboard:any">Clipboard · Any change</option>
+                    <option value="clipboard:regex">Clipboard · Regex match</option>
+                  </optgroup>
+                </select>
+              </div>
+              <div class="watcher-field">
+                <label class="watcher-label" for="watcher-email">Notify email</label>
+                <input type="email" id="watcher-email" class="tab-input" placeholder="you@example.com">
+              </div>
             </div>
-            <div class="watcher-row">
-              <input type="number" id="watcher-maxprice" class="tab-input" placeholder="Max price (0 = ignore, only fire when price ≤ this)" min="0" step="0.01">
+
+            <!-- URL kind: product URL + target + max price + interval -->
+            <div class="watcher-kind-group" data-kind="url">
+              <div class="watcher-field">
+                <label class="watcher-label" for="watcher-url">Product URL</label>
+                <input type="text" id="watcher-url" class="tab-input" placeholder="https://www.nike.com/ph/t/...">
+              </div>
+              <div class="watcher-row">
+                <div class="watcher-field">
+                  <label class="watcher-label" for="watcher-target">Target</label>
+                  <input type="text" id="watcher-target" class="tab-input" placeholder="shoe size like '9.5', or regex">
+                </div>
+                <div class="watcher-field">
+                  <label class="watcher-label" for="watcher-interval">Interval (seconds)</label>
+                  <input type="number" id="watcher-interval" class="tab-input" placeholder="900" min="60" value="900">
+                </div>
+              </div>
+              <div class="watcher-field">
+                <label class="watcher-label" for="watcher-maxprice">Max price (0 = ignore)</label>
+                <input type="number" id="watcher-maxprice" class="tab-input" placeholder="0" min="0" step="0.01">
+              </div>
             </div>
-            <div class="watcher-row">
-              <input type="url" id="watcher-webhook" class="tab-input" placeholder="Optional webhook URL — Discord, ntfy.sh, or Pushover (instant phone push)">
+
+            <!-- File kind: absolute file path + (regex pattern when mode=regex) + interval -->
+            <div class="watcher-kind-group" data-kind="file" hidden>
+              <div class="watcher-field">
+                <label class="watcher-label" for="watcher-file-path">File path (absolute)</label>
+                <input type="text" id="watcher-file-path" class="tab-input" placeholder="C:\Users\you\reports\daily.csv">
+              </div>
+              <div class="watcher-row">
+                <div class="watcher-field" id="watcher-file-pattern-wrap" hidden>
+                  <label class="watcher-label" for="watcher-file-pattern">Regex pattern</label>
+                  <input type="text" id="watcher-file-pattern" class="tab-input" placeholder="ERROR|FATAL">
+                </div>
+                <div class="watcher-field">
+                  <label class="watcher-label" for="watcher-file-interval">Interval (seconds)</label>
+                  <input type="number" id="watcher-file-interval" class="tab-input" placeholder="60" min="30" value="60">
+                </div>
+              </div>
             </div>
+
+            <!-- Folder kind: folder path + glob filter + recursive -->
+            <div class="watcher-kind-group" data-kind="folder" hidden>
+              <div class="watcher-field">
+                <label class="watcher-label" for="watcher-folder-path">Folder path (absolute)</label>
+                <input type="text" id="watcher-folder-path" class="tab-input" placeholder="C:\Users\you\Downloads">
+              </div>
+              <div class="watcher-row">
+                <div class="watcher-field">
+                  <label class="watcher-label" for="watcher-folder-filter">Filename filter (glob)</label>
+                  <input type="text" id="watcher-folder-filter" class="tab-input" placeholder="*.pdf  (empty = all files)">
+                </div>
+                <div class="watcher-field">
+                  <label class="watcher-label" for="watcher-folder-recursive">Recursive</label>
+                  <label class="watcher-checkbox-row">
+                    <input type="checkbox" id="watcher-folder-recursive">
+                    <span>Include subfolders (auto-registers new ones)</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- Disk kind -->
+            <div class="watcher-kind-group" data-kind="disk" hidden>
+              <div class="watcher-field">
+                <label class="watcher-label" for="watcher-disk-path">Volume path</label>
+                <input type="text" id="watcher-disk-path" class="tab-input" placeholder="C:\  (or /Users/me on macOS)">
+              </div>
+              <div class="watcher-row">
+                <div class="watcher-field">
+                  <label class="watcher-label" for="watcher-disk-threshold">Free below (GB)</label>
+                  <input type="number" id="watcher-disk-threshold" class="tab-input" placeholder="10" min="0.1" step="0.5" value="10">
+                </div>
+                <div class="watcher-field">
+                  <label class="watcher-label" for="watcher-disk-interval">Interval (seconds)</label>
+                  <input type="number" id="watcher-disk-interval" class="tab-input" placeholder="300" min="60" value="300">
+                </div>
+              </div>
+            </div>
+
+            <!-- HTTP kind -->
+            <div class="watcher-kind-group" data-kind="http" hidden>
+              <div class="watcher-field">
+                <label class="watcher-label" for="watcher-http-url">URL</label>
+                <input type="text" id="watcher-http-url" class="tab-input" placeholder="https://example.com/health">
+              </div>
+              <div class="watcher-row">
+                <div class="watcher-field">
+                  <label class="watcher-label" for="watcher-http-slow">Slow above (ms, 0 = ignore)</label>
+                  <input type="number" id="watcher-http-slow" class="tab-input" placeholder="0" min="0" value="0">
+                </div>
+                <div class="watcher-field">
+                  <label class="watcher-label" for="watcher-http-interval">Interval (seconds)</label>
+                  <input type="number" id="watcher-http-interval" class="tab-input" placeholder="300" min="60" value="300">
+                </div>
+              </div>
+            </div>
+
+            <!-- Clipboard kind -->
+            <div class="watcher-kind-group" data-kind="clipboard" hidden>
+              <div class="watcher-row">
+                <div class="watcher-field" id="watcher-clipboard-pattern-wrap" hidden>
+                  <label class="watcher-label" for="watcher-clipboard-pattern">Regex pattern</label>
+                  <input type="text" id="watcher-clipboard-pattern" class="tab-input" placeholder="\\b1Z[0-9A-Z]{16}\\b">
+                </div>
+                <div class="watcher-field">
+                  <label class="watcher-label" for="watcher-clipboard-interval">Poll every (seconds)</label>
+                  <input type="number" id="watcher-clipboard-interval" class="tab-input" placeholder="5" min="2" value="5">
+                </div>
+              </div>
+            </div>
+
+            <div class="watcher-field">
+              <label class="watcher-label" for="watcher-webhook">Webhook URL (optional)</label>
+              <input type="url" id="watcher-webhook" class="tab-input" placeholder="Discord / ntfy.sh / Pushover">
+            </div>
+
             <div class="watcher-actions">
               <button id="watcher-create-btn" class="action-btn publish">Create watcher</button>
               <span id="watcher-status-msg" class="watcher-status-msg"></span>

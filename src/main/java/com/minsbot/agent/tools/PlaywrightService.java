@@ -51,24 +51,58 @@ public class PlaywrightService {
         }
     }
 
+    /** Per-task override: when set to true, the next browser launch will run
+     *  with a visible (non-headless) Chromium window so the user can watch the
+     *  skill in action. Skills declare this in their SKILL.md frontmatter
+     *  (metadata.minsbot.playwright.show-browser: true) and the deliverable
+     *  interceptor flips this flag before invoking the executor. */
+    private volatile Boolean showBrowserOverride = null;
+
+    /** Skills that want to be observed call this before any Playwright work
+     *  starts. The flag is recorded for the NEXT lazy browser launch — we
+     *  deliberately do NOT tear down the running browser, because in-flight
+     *  parallel work (e.g. deliverable-step threads doing concurrent searches)
+     *  holds context handles that would crash with "Cannot find object to
+     *  call __adopt__: browser-context@..." if we closed the browser out from
+     *  under them. The visibility change therefore takes effect on the next
+     *  cold start of the browser (process restart, or browser disconnect).
+     *  Pass {@code null} to clear the override. */
+    public void setShowBrowserOverride(Boolean show) {
+        synchronized (lock) {
+            Boolean prev = showBrowserOverride;
+            showBrowserOverride = show;
+            if (!Objects.equals(prev, show)) {
+                log.info("[Playwright] showBrowserOverride: {} → {} (applies on next browser launch)",
+                        prev, show);
+            }
+        }
+    }
+
+    /** Headless mode for the next launch — task override wins, otherwise
+     *  the {@code app.playwright.headless} property. */
+    private boolean effectiveHeadless() {
+        if (showBrowserOverride != null) return !showBrowserOverride;
+        return headless;
+    }
+
     /** Get (or lazily create) the shared browser. Auto-installs Chromium on first use. */
     private Browser getBrowser() {
         synchronized (lock) {
             if (browser == null || !browser.isConnected()) {
-                // Try to launch — if Chromium isn't installed, install it and retry
+                boolean wantHeadless = effectiveHeadless();
                 try {
-                    browser = launchChromium(ensurePlaywright());
+                    browser = launchChromium(ensurePlaywright(), wantHeadless);
                 } catch (Exception e) {
                     if (!installAttempted) {
                         installAttempted = true;
                         log.info("[Playwright] Chromium not found — installing automatically...");
                         installChromium();
-                        browser = launchChromium(ensurePlaywright());
+                        browser = launchChromium(ensurePlaywright(), wantHeadless);
                     } else {
                         throw e;
                     }
                 }
-                log.info("[Playwright] Browser ready.");
+                log.info("[Playwright] Browser ready (headless={}).", wantHeadless);
             }
             return browser;
         }
@@ -88,13 +122,14 @@ public class PlaywrightService {
     @org.springframework.beans.factory.annotation.Value("${app.playwright.slow-mo-ms:0}")
     private double slowMoMs;
 
-    /** Launch Chromium with stealth/anti-detection options. Set
-     *  {@code app.playwright.headless=false} to watch operations live;
-     *  {@code app.playwright.slow-mo-ms=250} adds delay between actions. */
-    private Browser launchChromium(Playwright pw) {
+    /** Launch Chromium with stealth/anti-detection options. Headless mode is
+     *  passed in by {@link #getBrowser()} so per-task overrides
+     *  ({@link #setShowBrowserOverride(Boolean)}) can flip it without changing
+     *  the {@code app.playwright.headless} default. */
+    private Browser launchChromium(Playwright pw, boolean headlessMode) {
         return pw.chromium().launch(
                 new BrowserType.LaunchOptions()
-                        .setHeadless(headless)
+                        .setHeadless(headlessMode)
                         .setSlowMo(slowMoMs)
                         .setArgs(List.of(
                                 "--disable-gpu",

@@ -20,6 +20,11 @@ public class SkillPackTool {
     private final SkillRegistry registry;
     private final SkillPrereqChecker prereq;
 
+    /** Optional — applied per-skill when the LLM loads a manifest that
+     *  declares {@code metadata.minsbot.playwright.show-browser}. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.minsbot.agent.tools.PlaywrightService playwrightService;
+
     public SkillPackTool(SkillRegistry registry, SkillPrereqChecker prereq) {
         this.registry = registry;
         this.prereq = prereq;
@@ -100,6 +105,21 @@ public class SkillPackTool {
             sb.append("  Tell the user to open the Skills tab and click Install for '").append(name)
                     .append("'. Do not attempt to run the skill until they've done so.\n\n");
         }
+        // Apply the skill's per-skill Playwright visibility override (if any)
+        // BEFORE returning the body. From here on, any tool the LLM calls that
+        // routes through PlaywrightService (searchWeb / fetchPageText / image
+        // search / page screenshot) will honor the skill's choice. If the
+        // skill omits the field, the global app.playwright.headless wins.
+        if (playwrightService != null && s.showPlaywrightBrowser() != null) {
+            try {
+                playwrightService.setShowBrowserOverride(s.showPlaywrightBrowser());
+                log.info("[SkillPack] Playwright show-browser override = {} (from skill '{}')",
+                        s.showPlaywrightBrowser(), name);
+            } catch (Exception e) {
+                log.warn("[SkillPack] failed to apply Playwright override: {}", e.getMessage());
+            }
+        }
+
         sb.append("── SKILL: ").append(name).append(" ──\n\n");
         if (s.description() != null && !s.description().isBlank()) {
             sb.append(s.description()).append("\n\n");

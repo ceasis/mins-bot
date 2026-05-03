@@ -92,6 +92,40 @@ public class DeliverableExecutor {
     }
 
     private final ChatClient chatClient;
+
+    /** Per-phase model selection. Each phase reads its own property so the
+     *  user (or a skill) can route the cheap stages to Sonnet/Haiku and the
+     *  judgment-heavy stages to Opus. Empty string = inherit the chat client's
+     *  default (i.e. {@code spring.ai.openai.chat.options.model}). Models
+     *  starting with {@code claude-} go through the Anthropic Messages API
+     *  via raw HTTP; everything else uses the OpenAI {@link ChatClient}. */
+    @org.springframework.beans.factory.annotation.Value("${app.deliverable.plan-model:claude-sonnet-4-6}")
+    private String planModel;
+    @org.springframework.beans.factory.annotation.Value("${app.deliverable.replan-model:claude-opus-4-7}")
+    private String replanModel;
+    @org.springframework.beans.factory.annotation.Value("${app.deliverable.execute-model:claude-sonnet-4-6}")
+    private String executeModel;
+    @org.springframework.beans.factory.annotation.Value("${app.deliverable.synthesize-model:claude-opus-4-7}")
+    private String synthesizeModel;
+    @org.springframework.beans.factory.annotation.Value("${app.deliverable.critique-model:claude-opus-4-7}")
+    private String critiqueModel;
+    @org.springframework.beans.factory.annotation.Value("${app.deliverable.refine-model:claude-opus-4-7}")
+    private String refineModel;
+
+    /** Anthropic key for {@code claude-*} models. */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.claude.api-key:${app.anthropic.api-key:${ANTHROPIC_API_KEY:}}}")
+    private String anthropicApiKey;
+
+    private static final String ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
+    private static final String ANTHROPIC_VERSION = "2023-06-01";
+
+    private final java.net.http.HttpClient anthropicHttp =
+            java.net.http.HttpClient.newBuilder()
+                    .connectTimeout(java.time.Duration.ofSeconds(10))
+                    .build();
+    private final ObjectMapper anthropicJson = new ObjectMapper();
+
     private final ResearchTool researchTool;
     private final ResearchCache researchCache;
     private final ToolExecutionNotifier notifier;
@@ -384,7 +418,7 @@ public class DeliverableExecutor {
                 + (feedbackContext.isEmpty()  ? "" : "\n\n" + feedbackContext);
 
         String user = "Goal:\n" + goal + "\n\nTarget format: " + format + extras;
-        String reply = call(sys, user);
+        String reply = call(sys, user, planModel);
         // Empty reply → planner LLM was unreachable. Don't silently return an
         // empty plan; use the single-step fallback so downstream still runs.
         if (reply == null || reply.isBlank()) {
@@ -506,7 +540,7 @@ public class DeliverableExecutor {
         String user = "Original goal:\n" + goal + "\n\nTarget format: " + format + "\n\n"
                 + "Failed steps:\n- " + String.join("\n- ", failures) + "\n\n"
                 + "=== SCRATCHPAD SO FAR ===\n" + truncate(scratchpadSoFar, 12000);
-        String reply = call(sys, user);
+        String reply = call(sys, user, replanModel);
         try {
             JsonNode root = JSON.readTree(extractJson(reply));
             JsonNode arr = root.path("steps");
@@ -599,7 +633,7 @@ public class DeliverableExecutor {
                 + "If the request needs values you don't have, output:\n"
                 + "  EXPR: ?\n"
                 + "  UNIT: missing: <what's needed>";
-        String reply = call(sys, stepText);
+        String reply = call(sys, stepText, executeModel);
         if (reply == null || reply.isBlank()) return "(compute returned empty)";
 
         // Parse EXPR + UNIT lines.
@@ -694,7 +728,7 @@ public class DeliverableExecutor {
                 + "Markdown output.";
         String user = "Goal:\n" + goal + "\n\n=== SCRATCHPAD ===\n"
                 + truncate(scratchpad, 18000);
-        String draft = call(sys, user);
+        String draft = call(sys, user, synthesizeModel);
         // Hard guard against URL hallucinations: collect every URL that
         // actually appeared in the scratchpad (these came from real web
         // research), and strip any URL in the synthesized draft that isn't
@@ -812,7 +846,7 @@ public class DeliverableExecutor {
                 + "Output STRICT JSON: {\"score\": <int 1-10>, \"gaps\": [\"gap 1\", \"gap 2\", ...]}. "
                 + "Empty gap list is allowed and means ship-ready. No prose.";
         String user = "Goal:\n" + goal + "\n\n=== DRAFT ===\n" + truncate(draft, 14000);
-        String reply = call(sys, user);
+        String reply = call(sys, user, critiqueModel);
         try {
             JsonNode root = JSON.readTree(extractJson(reply));
             int score = root.path("score").asInt(5);
@@ -839,12 +873,17 @@ public class DeliverableExecutor {
         String gapList = c.gaps.isEmpty() ? "(general polish)" : "- " + String.join("\n- ", c.gaps);
         String user = "Goal:\n" + goal + "\n\n=== GAPS TO FIX ===\n" + gapList
                 + "\n\n=== CURRENT DRAFT ===\n" + truncate(draft, 14000);
-        return call(sys, user);
+        return call(sys, user, refineModel);
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────
 
-    private String call(String system, String user) {
+    /** Per-phase model entry. {@code modelId} starting with {@code claude-}
+     *  routes to the Anthropic Messages API via raw HTTP (skipping Spring
+     *  AI, since this codebase doesn't pull in spring-ai-anthropic). Anything
+     *  else goes through the existing OpenAI {@link ChatClient}. {@code null}
+     *  or blank inherits the ChatClient's default model. */
+    private String call(String system, String user, String modelId) {
         TaskState st = TASK.get();
         if (st != null) {
             int calls = st.callCount.get();
@@ -860,20 +899,29 @@ public class DeliverableExecutor {
                       + (user   == null ? 0L : user.length());
             st.totalChars.addAndGet(sent);
         }
-        // Retry once on transient network failures. "Connection reset" / "I/O
-        // error" / 5xx are exactly the kind of error you retry — kills the
-        // current "one network blip = whole task fails" failure mode.
+        boolean anthropic = modelId != null && modelId.toLowerCase().startsWith("claude");
+        // Retry once on transient network failures.
         String reply = "";
         Exception lastErr = null;
         for (int attempt = 1; attempt <= 2; attempt++) {
             try {
-                reply = chatClient.prompt().system(system).user(user).call().content();
+                if (anthropic) {
+                    reply = anthropicCall(modelId, system, user);
+                } else if (modelId != null && !modelId.isBlank()) {
+                    // Per-call OpenAI model override.
+                    reply = chatClient.prompt()
+                            .options(org.springframework.ai.openai.OpenAiChatOptions.builder()
+                                    .model(modelId).build())
+                            .system(system).user(user).call().content();
+                } else {
+                    reply = chatClient.prompt().system(system).user(user).call().content();
+                }
                 if (reply != null && !reply.isBlank()) break;
-                // Empty reply but no exception — also worth one retry.
                 lastErr = new RuntimeException("empty LLM reply");
             } catch (Exception e) {
                 lastErr = e;
-                log.warn("[Deliverable] LLM call attempt {} failed: {}", attempt, e.getMessage());
+                log.warn("[Deliverable] LLM call attempt {} (model={}) failed: {}",
+                        attempt, modelId == null ? "default" : modelId, e.getMessage());
             }
             if (attempt == 1) {
                 try { Thread.sleep(750); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
@@ -887,6 +935,45 @@ public class DeliverableExecutor {
             st.totalChars.addAndGet(reply.length());
         }
         return reply;
+    }
+
+    /** Direct call to Anthropic's Messages API. Mirrors the request shape
+     *  used by {@code ClaudeVisionService} and {@code ToolClassifierService}.
+     *  60s timeout — synthesize/critique on long scratchpads can run >30s. */
+    private String anthropicCall(String model, String system, String user) throws Exception {
+        if (anthropicApiKey == null || anthropicApiKey.isBlank()) {
+            throw new RuntimeException("Anthropic key not configured (set ANTHROPIC_API_KEY or "
+                    + "app.claude.api-key) — required for model '" + model + "'");
+        }
+        java.util.Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("model", model);
+        body.put("max_tokens", 4096);
+        body.put("temperature", 0.3);
+        if (system != null && !system.isBlank()) body.put("system", system);
+        body.put("messages", java.util.List.of(
+                java.util.Map.of("role", "user",
+                        "content", user == null ? "" : user)));
+        String json = anthropicJson.writeValueAsString(body);
+        java.net.http.HttpRequest req = java.net.http.HttpRequest.newBuilder()
+                .uri(java.net.URI.create(ANTHROPIC_URL))
+                .header("Content-Type", "application/json")
+                .header("x-api-key", anthropicApiKey)
+                .header("anthropic-version", ANTHROPIC_VERSION)
+                .timeout(java.time.Duration.ofSeconds(60))
+                .POST(java.net.http.HttpRequest.BodyPublishers.ofString(json))
+                .build();
+        java.net.http.HttpResponse<String> resp = anthropicHttp.send(
+                req, java.net.http.HttpResponse.BodyHandlers.ofString());
+        if (resp.statusCode() / 100 != 2) {
+            throw new RuntimeException("Anthropic HTTP " + resp.statusCode() + ": "
+                    + resp.body().substring(0, Math.min(400, resp.body().length())));
+        }
+        com.fasterxml.jackson.databind.JsonNode root = anthropicJson.readTree(resp.body());
+        com.fasterxml.jackson.databind.JsonNode arr = root.path("content");
+        if (arr.isArray() && arr.size() > 0) {
+            return arr.get(0).path("text").asText("");
+        }
+        return "";
     }
 
     private static String formatGuidance(String fmt) {
@@ -927,7 +1014,12 @@ public class DeliverableExecutor {
 
     private static String truncate(String s, int max) {
         if (s == null) return "";
-        return s.length() <= max ? s : s.substring(0, max) + "\n... (truncated)";
+        // Single-line ellipsis. The previous "\n... (truncated)" suffix put a
+        // newline into status notifications, which the chat status feed
+        // renders as a wrapped multi-line entry. Status lines must stay single-
+        // line; the FULL untruncated text already lives in plan.md / scratchpad.md
+        // inside the task workfolder for audit.
+        return s.length() <= max ? s : s.substring(0, max - 1) + "…";
     }
 
     private static String slug(String s) {

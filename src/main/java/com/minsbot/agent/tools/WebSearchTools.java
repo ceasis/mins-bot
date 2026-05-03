@@ -105,7 +105,11 @@ public class WebSearchTools {
             return "Offline mode is ON — web search blocked. Nothing left the machine. "
                     + "Toggle via the title-bar shield icon to re-enable.";
         }
-        notifier.notify("Searching: " + query);
+        // Cap the displayed query at ~70 chars so the chat status line stays
+        // single-line. Full query is logged at INFO and saved into the task's
+        // search log in the workfolder for audit.
+        String shortQ = query == null ? "" : query.length() <= 70 ? query : query.substring(0, 69) + "…";
+        notifier.notify("Searching: " + shortQ);
         try {
             String p = providerRaw.trim().toLowerCase();
 

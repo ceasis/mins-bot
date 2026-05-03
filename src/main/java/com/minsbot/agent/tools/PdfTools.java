@@ -158,6 +158,16 @@ public class PdfTools {
             }
         }
 
+        return writePdfInternal(filePath, title, content);
+    }
+
+    /** Bypass for {@link com.minsbot.agent.DeliverableFormatter} and other
+     *  trusted internal callers — writes the PDF WITHOUT the LLM-guard
+     *  refusal that {@link #createPdfDocument} applies up top. The guard
+     *  exists to steer the LLM away from picking this tool for researched
+     *  deliverables; the deliverable executor's PDFBox fallback IS the right
+     *  caller and must not get refused. */
+    public String writePdfInternal(String filePath, String title, String content) {
         notifier.notify("Creating PDF: " + title);
 
         try {
@@ -170,16 +180,9 @@ public class PdfTools {
             try (PDDocument doc = new PDDocument()) {
                 PdfWriter writer = new PdfWriter(doc);
 
-                // Page 1: a proper title page (title centered vertically + date +
-                // prepared-by line). Communicates "this is a deliverable" not "this
-                // is a wall of bullets" the moment the boss opens it.
                 renderTitlePage(writer, title);
                 writer.forceNewPage();
 
-                // Group body into sections (each H2 starts a new section; H3 lives
-                // inside its parent H2). Sections that contain an image render
-                // TWO-COLUMN: text on the left, image on the right. Sections
-                // without images render flat full-width.
                 java.util.List<java.util.List<String>> sections = splitIntoSections(content);
                 for (java.util.List<String> section : sections) {
                     boolean hasImage = sectionHasImage(section);
@@ -191,11 +194,7 @@ public class PdfTools {
                 }
 
                 writer.close();
-
-                // Post-pass: stamp every page (except the title page) with a
-                // footer — document title on the left, "Page N of M" on the right.
                 stampFooter(doc, title);
-
                 doc.save(path.toFile());
             }
 

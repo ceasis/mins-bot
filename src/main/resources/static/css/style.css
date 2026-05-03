@@ -7123,11 +7123,37 @@ body.offline-mode::before {
 
 /* ═══ Watcher tab ═══ */
 .watcher-layout { display: flex; flex-direction: column; gap: 20px; padding: 12px 4px; }
-.watcher-form { display: flex; flex-direction: column; gap: 8px;
+.watcher-form { display: flex; flex-direction: column; gap: 14px;
   background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 10px; padding: 14px; }
-.watcher-row { display: flex; gap: 8px; }
-.watcher-row > .tab-input { flex: 1; }
+  border-radius: 10px; padding: 18px 18px 14px; }
+/* Two-column grid for paired fields. Equal-width 1fr 1fr keeps the form
+   visually balanced — the previous flex layout let the adapter dropdown
+   stretch wide while the partner field looked cramped. */
+.watcher-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.watcher-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.watcher-label { font-size: 11px; letter-spacing: 0.6px; text-transform: uppercase;
+  color: rgba(255,255,255,0.55); font-weight: 600; }
+.watcher-field > .tab-input { width: 100%; box-sizing: border-box; }
+@media (max-width: 720px) {
+  .watcher-row { grid-template-columns: 1fr; }
+}
+/* Field group for the currently-selected adapter kind. Hidden groups are
+   collapsed entirely so the form stays tight and there's no orphan whitespace. */
+.watcher-kind-group {
+  display: flex; flex-direction: column; gap: 14px;
+  padding: 12px 14px; margin: 4px 0;
+  background: rgba(255,255,255,0.025);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 8px;
+}
+.watcher-kind-group[hidden] { display: none; }
+/* Checkbox row inside a watcher-field — keeps the box vertically aligned
+   with the other inputs' content area instead of pinning to the top. */
+.watcher-checkbox-row {
+  display: flex; align-items: center; gap: 8px;
+  height: 36px; color: rgba(255,255,255,0.78); font-size: 13px;
+}
+.watcher-checkbox-row input[type="checkbox"] { width: 16px; height: 16px; }
 .watcher-actions { display: flex; align-items: center; gap: 12px; margin-top: 4px; }
 .watcher-status-msg { font-size: 12px; color: #4ade80; }
 .watcher-list-wrap { display: flex; flex-direction: column; gap: 8px; }

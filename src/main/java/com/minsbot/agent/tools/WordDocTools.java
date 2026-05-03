@@ -108,6 +108,19 @@ public class WordDocTools {
         return writeDocx(filePath, title, markdown.toString());
     }
 
+    /** Bypass for {@link com.minsbot.agent.DeliverableFormatter} and other
+     *  trusted internal callers — writes the .docx WITHOUT the LLM-guard
+     *  refusal that {@link #createWordDocument} applies. The guard exists to
+     *  steer the LLM away from picking this tool for researched deliverables;
+     *  the deliverable executor IS the right caller and must not get refused.
+     *
+     *  <p>Routes through the POI XWPF writer (image-capable) instead of the
+     *  legacy hand-rolled OOXML emitter. The legacy {@link #writeDocx} stays
+     *  for the LLM-facing @Tool methods that don't need image support. */
+    public String writeDocxInternal(String filePath, String title, String content) {
+        return WordDocPoiWriter.write(filePath, title, content);
+    }
+
     // ═══ Core docx writer ═══
 
     private String writeDocx(String filePath, String title, String content) {

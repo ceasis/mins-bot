@@ -513,8 +513,10 @@ public class ChatService {
                 String dReply = deliverableIntentInterceptor.interceptIfDeliverable(trimmed);
                 if (dReply != null) {
                     log.info("[ProcessUser] DeliverableIntentInterceptor matched — short-circuiting.");
+                    // Single delivery channel: SSE on transcript.save pushes to
+                    // the UI. Don't ALSO asyncMessages.push or the user sees the
+                    // same "Deliverable ready" message rendered twice.
                     transcriptService.save("BOT", dReply);
-                    asyncMessages.push(dReply);
                     autoSpeak(dReply);
                     return;
                 }
@@ -1154,8 +1156,11 @@ public class ChatService {
                 String reply = deliverableIntentInterceptor.interceptIfDeliverable(trimmed);
                 if (reply != null) {
                     log.info("[MainLoop] DeliverableIntentInterceptor matched — short-circuiting LLM round.");
+                    // Single delivery channel — SSE via transcript.save. The
+                    // interceptor's own dedup cache prevents the executor from
+                    // running twice when both processUserMessage and main-loop
+                    // routes hit it for the same prompt.
                     transcriptService.save("BOT", reply);
-                    asyncMessages.push(reply);
                     autoSpeak(reply);
                     return reply;
                 }

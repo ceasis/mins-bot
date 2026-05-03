@@ -48,7 +48,22 @@ public record SkillManifest(
         String format,
 
         /** Optional: model id this skill prefers (e.g. "gpt-5.1", "gpt-4o-mini"). null = use app default. */
-        String model
+        String model,
+
+        /** Optional per-skill Playwright visibility override. {@code true} =
+         *  show the browser window during this skill's runs (debug / demo);
+         *  {@code false} = force headless even if the global default is on;
+         *  {@code null} = inherit {@code app.playwright.headless}. Read from
+         *  {@code metadata.minsbot.playwright.show-browser} in SKILL.md. */
+        Boolean showPlaywrightBrowser,
+
+        /** Format keywords that route to this skill (e.g. ["word", "docx",
+         *  "word doc", "word document"] for the docx skill). The deliverable
+         *  intent interceptor builds its regex from the union of every
+         *  installed skill's keywords, so adding a new format-skill requires
+         *  zero Java changes — just declare keywords in
+         *  {@code metadata.minsbot.triggers.keywords}. */
+        List<String> triggerKeywords
 ) {
     public boolean supportsOs(String osId) {
         if (osList == null || osList.isEmpty()) return true;

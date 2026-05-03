@@ -34,11 +34,27 @@ public class ToolClassifierService {
     @Value("${spring.ai.openai.base-url:https://api.openai.com}")
     private String baseUrl;
 
-    @Value("${app.tool-classifier.model:gpt-4o-mini}")
+    /** Anthropic API key for Claude classifier path. Picked up from
+     *  {@code app.claude.api-key}, {@code spring.ai.anthropic.api-key}, or
+     *  the {@code ANTHROPIC_API_KEY} env var (any non-empty wins). */
+    @Value("${app.claude.api-key:${spring.ai.anthropic.api-key:${ANTHROPIC_API_KEY:}}}")
+    private String anthropicApiKey;
+
+    /** Default model: Claude Sonnet for skill identification. Override via
+     *  {@code app.tool-classifier.model}. Models starting with "claude-"
+     *  route to api.anthropic.com; everything else hits the OpenAI endpoint. */
+    @Value("${app.tool-classifier.model:claude-sonnet-4-6}")
     private volatile String model;
+
+    private static final String ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
+    private static final String ANTHROPIC_VERSION = "2023-06-01";
 
     public String getModel() { return model; }
     public void setModel(String m) { if (m != null && !m.isBlank()) this.model = m.trim(); }
+
+    private boolean isAnthropic() {
+        return model != null && model.toLowerCase().startsWith("claude");
+    }
 
     private HttpClient httpClient;
 
@@ -215,16 +231,21 @@ public class ToolClassifierService {
         httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(3))
                 .build();
-        if (apiKey == null || apiKey.isBlank()) {
-            log.info("[ToolClassifier] No API key — AI classification disabled");
+        String activeKey = isAnthropic() ? anthropicApiKey : apiKey;
+        if (activeKey == null || activeKey.isBlank()) {
+            log.info("[ToolClassifier] No {} API key — AI classification disabled (model={})",
+                    isAnthropic() ? "Anthropic" : "OpenAI", model);
         } else {
-            log.info("[ToolClassifier] Ready (model={}, baseUrl={})", model, baseUrl);
+            log.info("[ToolClassifier] Ready (model={}, provider={})",
+                    model, isAnthropic() ? "anthropic" : "openai");
         }
     }
 
     /** True if this service can make classification calls. */
     public boolean isAvailable() {
-        return apiKey != null && !apiKey.isBlank() && httpClient != null;
+        if (httpClient == null) return false;
+        String activeKey = isAnthropic() ? anthropicApiKey : apiKey;
+        return activeKey != null && !activeKey.isBlank();
     }
 
     /**
@@ -238,29 +259,22 @@ public class ToolClassifierService {
         }
 
         try {
-            String requestBody = buildRequestJson(userMessage);
-
-            String url = baseUrl.endsWith("/")
-                    ? baseUrl + "v1/chat/completions"
-                    : baseUrl + "/v1/chat/completions";
-
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .header("Content-Type", "application/json")
-                    .header("Authorization", "Bearer " + apiKey)
-                    .timeout(Duration.ofSeconds(3))
-                    .POST(HttpRequest.BodyPublishers.ofString(requestBody))
-                    .build();
+            HttpRequest request = isAnthropic()
+                    ? buildAnthropicRequest(userMessage)
+                    : buildOpenAiRequest(userMessage);
 
             HttpResponse<String> response = httpClient.send(request,
                     HttpResponse.BodyHandlers.ofString());
 
             if (response.statusCode() != 200) {
-                log.debug("[ToolClassifier] API returned HTTP {}", response.statusCode());
+                log.debug("[ToolClassifier] {} returned HTTP {}",
+                        isAnthropic() ? "Anthropic" : "OpenAI", response.statusCode());
                 return Collections.emptyList();
             }
 
-            String content = extractContent(response.body());
+            String content = isAnthropic()
+                    ? extractAnthropicContent(response.body())
+                    : extractContent(response.body());
             List<String> categories = parseCategories(content);
             log.debug("[ToolClassifier] '{}' → {}", truncate(userMessage, 40), categories);
             return categories;
@@ -271,17 +285,68 @@ public class ToolClassifierService {
         }
     }
 
-    // ═══ JSON helpers (manual to avoid extra dependencies) ═══
-
-    private String buildRequestJson(String userMessage) {
-        return """
+    private HttpRequest buildOpenAiRequest(String userMessage) {
+        String url = baseUrl.endsWith("/")
+                ? baseUrl + "v1/chat/completions"
+                : baseUrl + "/v1/chat/completions";
+        String body = """
                 {"model":"%s","temperature":0,"max_tokens":60,"messages":[{"role":"system","content":"%s"},{"role":"user","content":"%s"}]}"""
-                .formatted(
-                        escapeJson(model),
-                        escapeJson(SYSTEM_PROMPT),
-                        escapeJson(userMessage)
-                );
+                .formatted(escapeJson(model), escapeJson(SYSTEM_PROMPT), escapeJson(userMessage));
+        return HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .header("Content-Type", "application/json")
+                .header("Authorization", "Bearer " + apiKey)
+                .timeout(Duration.ofSeconds(3))
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build();
     }
+
+    /** Anthropic Messages API — system prompt is a top-level field, not a
+     *  message; max_tokens lives at the top level. */
+    private HttpRequest buildAnthropicRequest(String userMessage) {
+        String body = """
+                {"model":"%s","temperature":0,"max_tokens":60,"system":"%s","messages":[{"role":"user","content":"%s"}]}"""
+                .formatted(escapeJson(model), escapeJson(SYSTEM_PROMPT), escapeJson(userMessage));
+        return HttpRequest.newBuilder()
+                .uri(URI.create(ANTHROPIC_URL))
+                .header("Content-Type", "application/json")
+                .header("x-api-key", anthropicApiKey)
+                .header("anthropic-version", ANTHROPIC_VERSION)
+                .timeout(Duration.ofSeconds(5))
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build();
+    }
+
+    /** Pull {@code content[0].text} out of the Anthropic response. The shape
+     *  is {@code {"content":[{"type":"text","text":"..."}]}} so we look for
+     *  the first {@code "text":"..."} after {@code "content":[}. */
+    private static String extractAnthropicContent(String json) {
+        if (json == null) return "";
+        int contentArr = json.indexOf("\"content\":[");
+        if (contentArr < 0) return "";
+        int textKey = json.indexOf("\"text\":", contentArr);
+        if (textKey < 0) return "";
+        int start = json.indexOf('"', textKey + 7);
+        if (start < 0) return "";
+        start++;
+        StringBuilder sb = new StringBuilder();
+        for (int i = start; i < json.length(); i++) {
+            char c = json.charAt(i);
+            if (c == '"') break;
+            if (c == '\\' && i + 1 < json.length()) {
+                i++;
+                char next = json.charAt(i);
+                if (next == 'n') sb.append('\n');
+                else if (next == 't') sb.append('\t');
+                else sb.append(next);
+            } else {
+                sb.append(c);
+            }
+        }
+        return sb.toString().trim();
+    }
+
+    // ═══ JSON helpers (manual to avoid extra dependencies) ═══
 
     /** Extract the assistant content from the OpenAI chat completions response. */
     private static String extractContent(String json) {

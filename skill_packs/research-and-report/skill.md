@@ -5,6 +5,10 @@ metadata:
   minsbot:
     emoji: "🔬"
     os: ["windows", "darwin", "linux"]
+    playwright:
+      # Set true to watch Chromium drive Bing/Google during this skill's
+      # web research. Default false = headless. Per-skill override.
+      show-browser: false
 ---
 
 # Research & Report

@@ -1266,52 +1266,11 @@
   }
 
   function upsertProgressBar(label, current, total) {
+    // The labeled dock bars (DELIVERABLE / RESEARCH STEPS …) are gone — the
+    // 5px strip pinned to the bottom of .chat-area is the only progress
+    // indicator now. Forward every notifyProgress event to it.
     var pct = Math.max(0, Math.min(100, Math.round((current / Math.max(1, total)) * 100)));
-    // Drive the bottom-of-chat sliver too. The labeled dock bar above is
-    // optional context; the strip is the always-visible progress signal.
     updateTaskProgressStrip(pct, current >= total);
-    var entry = _progressBars[label];
-    if (!entry) {
-      var wrap = document.createElement('div');
-      wrap.className = 'message-progress';
-      wrap.dataset.label = label;
-      var labelEl = document.createElement('div');
-      labelEl.className = 'progress-label';
-      var countEl = document.createElement('div');
-      countEl.className = 'progress-count';
-      var head = document.createElement('div');
-      head.className = 'progress-head';
-      head.appendChild(labelEl);
-      head.appendChild(countEl);
-      var track = document.createElement('div');
-      track.className = 'progress-track';
-      var fill = document.createElement('div');
-      fill.className = 'progress-fill';
-      track.appendChild(fill);
-      wrap.appendChild(head);
-      wrap.appendChild(track);
-      // Dock the progress bar in a fixed slot above the input — that way new
-      // chat messages can never push it out of view.
-      var dock = document.getElementById('progress-dock');
-      (dock || messagesEl).appendChild(wrap);
-      entry = _progressBars[label] = { wrap: wrap, fill: fill, label: labelEl, count: countEl, hideTimer: null };
-    }
-    entry.label.textContent = label;
-    entry.count.textContent = current + ' / ' + total + ' · ' + pct + '%';
-    entry.fill.style.width = pct + '%';
-    if (entry.hideTimer) { clearTimeout(entry.hideTimer); entry.hideTimer = null; }
-    if (current >= total) {
-      // Brief green "✓ Complete" celebration, then fade and remove. Earlier
-      // we left these on screen indefinitely; users complained about stacks
-      // of stale completed bars. 4s is long enough to register, short enough
-      // to clear out before the next task starts.
-      entry.wrap.classList.add('progress-complete');
-      entry.count.textContent = '✓ Complete · ' + total + ' / ' + total;
-      var w = entry.wrap;
-      setTimeout(function () { w.style.opacity = '0'; }, 3500);
-      setTimeout(function () { if (w && w.parentNode) w.parentNode.removeChild(w); }, 4500);
-      delete _progressBars[label];
-    }
   }
 
   function clearStatusMessages() {

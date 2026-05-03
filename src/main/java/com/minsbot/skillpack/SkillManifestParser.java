@@ -104,13 +104,36 @@ final class SkillManifestParser {
         String format = str(oc.get("format"));
         String model = str(oc.get("model"));
 
+        // Per-skill Playwright visibility override:
+        //   metadata.minsbot.playwright.show-browser: true|false
+        // Absent = inherit the global app.playwright.headless default.
+        Boolean showPwBrowser = null;
+        Map<String, Object> pw = asMap(oc.get("playwright"));
+        Object showRaw = pw.get("show-browser");
+        if (showRaw instanceof Boolean b) {
+            showPwBrowser = b;
+        } else if (showRaw != null) {
+            String s = String.valueOf(showRaw).trim().toLowerCase();
+            if ("true".equals(s) || "yes".equals(s))      showPwBrowser = Boolean.TRUE;
+            else if ("false".equals(s) || "no".equals(s)) showPwBrowser = Boolean.FALSE;
+        }
+
+        // Per-skill format keywords for the deliverable interceptor:
+        //   metadata.minsbot.triggers.keywords: ["word", "docx", "word doc"]
+        // Empty/missing → skill is invisible to the interceptor's keyword regex
+        // (it can still be invoked via invokeSkillPack).
+        List<String> triggerKeywords = List.of();
+        Map<String, Object> triggers = asMap(oc.get("triggers"));
+        Object kwRaw = triggers.get("keywords");
+        if (kwRaw != null) triggerKeywords = strList(kwRaw);
+
         return new SkillManifest(
                 name, description, homepage, emoji,
                 osList, requiredBins, anyOfBins, requiredEnv, primaryEnv,
                 Collections.unmodifiableList(installs),
                 skillMd.getParent(),
                 body,
-                output, format, model
+                output, format, model, showPwBrowser, triggerKeywords
         );
     }
 

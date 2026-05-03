@@ -82,9 +82,16 @@ public class DeliverableFormatter {
         }
         try {
             String md = java.nio.file.Files.readString(markdownPath);
-            String title = (goalAsTitle == null || goalAsTitle.isBlank())
-                    ? "Deliverable" : goalAsTitle.trim();
-            // Strip any leading H1 from the body — it'll become the doc title instead.
+            // Prefer the synthesized markdown's leading H1 as the cover-page
+            // title (skill bodies tell the LLM to emit a clean headline there).
+            // Fall back to the goal text only when the synthesizer didn't
+            // produce one — keeps long verbose user-prompt goals out of the
+            // cover page.
+            String h1 = extractLeadingH1(md);
+            String title = (h1 != null && !h1.isBlank()) ? h1
+                    : (goalAsTitle == null || goalAsTitle.isBlank())
+                            ? "Deliverable" : goalAsTitle.trim();
+            // Strip the leading H1 from the body since the cover page now owns it.
             String body = stripLeadingH1(md);
             // SCRAP all LLM-emitted image references. The synthesizer hallucinates
             // image URLs ~80% of the time (vendor /wp-content/uploads/ patterns
@@ -142,8 +149,10 @@ public class DeliverableFormatter {
                         e.getMessage());
             }
         }
-        // Fallback: PDFBox-based renderer.
-        String result = pdfTools.createPdfDocument(out.toAbsolutePath().toString(), title, body);
+        // Fallback: PDFBox-based renderer. Guard-free internal entry — the
+        // public createPdfDocument refuses multi-section research content
+        // (anti-LLM-misroute guard) and would silently leave us with no file.
+        String result = pdfTools.writePdfInternal(out.toAbsolutePath().toString(), title, body);
         log.info("[Formatter] pdf (pdfbox-fallback): {} → {}", mdPath.getFileName(), result);
         return out;
     }
@@ -230,6 +239,48 @@ public class DeliverableFormatter {
                   section.with-image .figure .caption { font-size: 9pt; color: #6c7588;
                                                          text-align: center; margin-top: 6px; }
                   section.no-image { page-break-inside: avoid; }
+
+                  /* ─── Executive-grade section styling ─── */
+                  /* Match H2 by name to pull out the "Executive Summary" /
+                     "Key Findings" / "Recommendation" sections into callouts. */
+                  /* Executive Summary block: shaded panel, wider type. */
+                  section.exec-summary { background: #f3f6fb; border-left: 4px solid #1e3c70;
+                                          padding: 14px 18px; border-radius: 4px;
+                                          margin: 1em 0; page-break-inside: avoid; }
+                  section.exec-summary h2 { border-bottom: none; margin-top: 0;
+                                             font-size: 14pt; color: #1e3c70; }
+                  section.exec-summary p { font-size: 11.5pt; line-height: 1.6; }
+                  /* Key Findings callout: yellow-amber pull-quote feel. */
+                  section.key-findings { background: #fff7e6; border-left: 4px solid #d49a2b;
+                                          padding: 12px 18px 14px; border-radius: 4px;
+                                          margin: 1em 0; page-break-inside: avoid; }
+                  section.key-findings h2 { border-bottom: none; margin-top: 0;
+                                             font-size: 14pt; color: #8a5a08; }
+                  section.key-findings ul { margin: .25em 0 0 1.2em; }
+                  section.key-findings li { font-weight: 500; color: #2a2014; margin: .35em 0; }
+                  /* Recommendation block: blue-tinted, bolder closing statement. */
+                  section.recommendation { background: #eef4ff; border-left: 4px solid #2962a8;
+                                            padding: 14px 18px; border-radius: 4px;
+                                            margin: 1.4em 0 1em; page-break-inside: avoid; }
+                  section.recommendation h2 { border-bottom: none; margin-top: 0;
+                                               font-size: 14pt; color: #1e3c70; }
+                  section.recommendation p { font-size: 11.5pt; font-weight: 500; }
+                  /* Sources: tighter, smaller, monospace-feel for references. */
+                  section.sources h2 { font-size: 12pt; color: #4a6080;
+                                        border-bottom-color: #e0e4ec; }
+                  section.sources ol, section.sources ul { font-size: 9.5pt; color: #485162;
+                                                            line-height: 1.5; }
+                  section.sources li a { word-break: break-all; }
+
+                  /* Tables — alternating rows, styled header, aligned cells. */
+                  table { border-collapse: collapse; width: 100%; margin: 1em 0;
+                          font-size: 10pt; page-break-inside: avoid; }
+                  thead th { background: #1e3c70; color: #ffffff; text-align: left;
+                              padding: 8px 10px; font-weight: 600; font-size: 10pt; }
+                  tbody td { padding: 7px 10px; border-bottom: 1px solid #dde1e9; }
+                  tbody tr:nth-child(odd) td { background: #f5f7fb; }
+                  tbody tr:nth-child(even) td { background: #ffffff; }
+                  tbody td:first-child { font-weight: 500; color: #1e3c70; }
                 </style></head>
                 <body>
                   <div class="title-page">
@@ -267,8 +318,15 @@ public class DeliverableFormatter {
             if (heading == null && (text == null || text.isBlank()) && imgUrl == null) continue;
 
             boolean hasImage = imgUrl != null && !imgUrl.isBlank();
-            String tag = hasImage ? "section class=\"with-image\"" : "section class=\"no-image\"";
-            out.append("<").append(tag).append(">\n");
+            // Detect executive-grade section types from heading text. These
+            // get extra CSS classes (callout boxes, alternating-row tables,
+            // recommendation panel) defined in the head <style>. The classes
+            // are additive — a "Key Findings" section without an image is
+            // both .no-image .key-findings.
+            String execClass = classifyExecSection(heading);
+            String layoutClass = hasImage ? "with-image" : "no-image";
+            String classes = execClass.isEmpty() ? layoutClass : layoutClass + " " + execClass;
+            out.append("<section class=\"").append(classes).append("\">\n");
             if (hasImage) out.append("<div class=\"text\">\n");
 
             if (heading != null && !heading.isBlank()) {
@@ -291,6 +349,26 @@ public class DeliverableFormatter {
             out.append("</section>\n");
         }
         return out.toString();
+    }
+
+    /** Map an H2 heading to the matching exec-grade CSS class. Returns empty
+     *  string for ordinary content sections. The match is loose so the LLM
+     *  can write "Key Findings", "Top Findings", "Findings", "Highlights" and
+     *  still hit the callout. */
+    private static String classifyExecSection(String heading) {
+        if (heading == null) return "";
+        String h = heading.trim().toLowerCase()
+                .replaceAll("^\\d+[.\\)]\\s*", "")     // strip "1. ", "2) "
+                .replaceAll("[^a-z0-9 ]", "")
+                .trim();
+        if (h.isEmpty()) return "";
+        if (h.matches("^(executive\\s+summary|summary|overview|tl;?dr|tldr)$")) return "exec-summary";
+        if (h.matches("^(key\\s+findings?|top\\s+findings?|findings?|highlights?|"
+                    + "key\\s+takeaways?|takeaways?|key\\s+points)$")) return "key-findings";
+        if (h.matches("^(recommendation|recommendations|recommended|verdict|"
+                    + "bottom\\s+line|conclusion|the\\s+pick|our\\s+pick)$")) return "recommendation";
+        if (h.matches("^(sources?|references?|citations?|further\\s+reading)$")) return "sources";
+        return "";
     }
 
     /** Split markdown body into sections at H2/H3 boundaries OR `**N. Name**`
@@ -348,7 +426,9 @@ public class DeliverableFormatter {
         String[] lines = text.split("\n");
         StringBuilder paragraph = new StringBuilder();
         boolean inList = false;
-        for (String raw : lines) {
+        int i = 0;
+        while (i < lines.length) {
+            String raw = lines[i];
             String t = raw.trim();
             if (t.isEmpty()) {
                 if (paragraph.length() > 0) {
@@ -356,27 +436,79 @@ public class DeliverableFormatter {
                     paragraph.setLength(0);
                 }
                 if (inList) { out.append("</ul>\n"); inList = false; }
-                continue;
+                i++; continue;
             }
             if (t.startsWith("---") || t.startsWith("***") || t.startsWith("___")) {
                 if (paragraph.length() > 0) { out.append("<p>").append(renderInline(paragraph.toString().trim())).append("</p>\n"); paragraph.setLength(0); }
                 if (inList) { out.append("</ul>\n"); inList = false; }
                 out.append("<hr>\n");
+                i++; continue;
+            }
+            // Markdown table: header row with pipes, then a separator row of
+            // |---|---|, then any number of data rows. Without this branch,
+            // tables fall through and get rendered as paragraphs of literal
+            // pipe characters.
+            if (i + 1 < lines.length && t.startsWith("|") && t.endsWith("|")
+                    && lines[i + 1].trim().matches("^\\|[\\s\\-:|]+\\|$")) {
+                if (paragraph.length() > 0) { out.append("<p>").append(renderInline(paragraph.toString().trim())).append("</p>\n"); paragraph.setLength(0); }
+                if (inList) { out.append("</ul>\n"); inList = false; }
+                int consumed = renderTable(lines, i, out);
+                i += consumed;
                 continue;
             }
             if (t.startsWith("- ") || t.startsWith("* ")) {
                 if (paragraph.length() > 0) { out.append("<p>").append(renderInline(paragraph.toString().trim())).append("</p>\n"); paragraph.setLength(0); }
                 if (!inList) { out.append("<ul>\n"); inList = true; }
                 out.append("<li>").append(renderInline(t.substring(2).trim())).append("</li>\n");
-                continue;
+                i++; continue;
             }
             if (inList) { out.append("</ul>\n"); inList = false; }
             if (paragraph.length() > 0) paragraph.append(' ');
             paragraph.append(t);
+            i++;
         }
         if (paragraph.length() > 0) out.append("<p>").append(renderInline(paragraph.toString().trim())).append("</p>\n");
         if (inList) out.append("</ul>\n");
         return out.toString();
+    }
+
+    /** Render a contiguous markdown-table block starting at {@code lines[start]}.
+     *  Appends &lt;table&gt;…&lt;/table&gt; to {@code out}. Returns the number of
+     *  source lines consumed (header + separator + data rows). */
+    private static int renderTable(String[] lines, int start, StringBuilder out) {
+        java.util.List<String> headers = splitTableRow(lines[start]);
+        int i = start + 2; // skip header + separator
+        java.util.List<java.util.List<String>> rows = new java.util.ArrayList<>();
+        while (i < lines.length) {
+            String t = lines[i].trim();
+            if (!t.startsWith("|") || !t.endsWith("|")) break;
+            // Skip extra separator lines (defensive)
+            if (t.matches("^\\|[\\s\\-:|]+\\|$")) { i++; continue; }
+            rows.add(splitTableRow(lines[i]));
+            i++;
+        }
+        out.append("<table>\n<thead><tr>");
+        for (String h : headers) out.append("<th>").append(renderInline(h)).append("</th>");
+        out.append("</tr></thead>\n<tbody>\n");
+        for (java.util.List<String> row : rows) {
+            out.append("<tr>");
+            for (int c = 0; c < headers.size(); c++) {
+                String cell = c < row.size() ? row.get(c) : "";
+                out.append("<td>").append(renderInline(cell)).append("</td>");
+            }
+            out.append("</tr>\n");
+        }
+        out.append("</tbody>\n</table>\n");
+        return 2 + rows.size();
+    }
+
+    private static java.util.List<String> splitTableRow(String line) {
+        String t = line.trim();
+        if (t.startsWith("|")) t = t.substring(1);
+        if (t.endsWith("|"))   t = t.substring(0, t.length() - 1);
+        java.util.List<String> cells = new java.util.ArrayList<>();
+        for (String c : t.split("\\|", -1)) cells.add(c.trim());
+        return cells;
     }
 
     /** Inline markdown: **bold**, *italic*, _italic_, [text](url). */
@@ -400,7 +532,11 @@ public class DeliverableFormatter {
 
     private Path writeDocx(Path mdPath, String title, String body) {
         Path out = sibling(mdPath, ".docx");
-        String result = wordDocTools.createWordDocument(out.toAbsolutePath().toString(), title, body);
+        // Use the guard-free internal entry. createWordDocument refuses
+        // multi-section research content (anti-LLM-misroute guard) and
+        // would silently leave us with no file otherwise.
+        String result = wordDocTools.writeDocxInternal(
+                out.toAbsolutePath().toString(), title, body);
         log.info("[Formatter] docx: {} → {}", mdPath.getFileName(), result);
         return out;
     }
@@ -432,6 +568,59 @@ public class DeliverableFormatter {
 
     private record Section(String heading, List<String> bullets, String prose,
                             String imageUrl, String imageAlt) {}
+
+    /** Strip slide-line clutter the synthesizer commonly leaves behind:
+     *  empty placeholder labels ({@code **Image:**}, {@code **Learn more:**}),
+     *  horizontal-rule {@code ---} dividers, and hollow {@code **bold:**} labels
+     *  with no content after them. Returns "" when the line had nothing else. */
+    private static String cleanInlineMarkdown(String s) {
+        if (s == null) return "";
+        String t = s.trim();
+        if (t.isEmpty() || t.equals("---")) return "";
+        // Drop bare placeholder labels: "**Image:**", "**Learn more:**", "**Source:**"
+        // when nothing follows them on the same line.
+        if (t.matches("(?i)^\\*\\*\\s*(image|photo|picture|hero\\s+image|learn\\s+more|source|"
+                + "more\\s+info|reference|figure)\\s*[:\\-]?\\s*\\*\\*\\s*$")) return "";
+        return t;
+    }
+
+    /** Render {@code text} into {@code paragraph}, splitting on {@code **bold**}
+     *  segments so the {@code **} markers themselves never appear in the
+     *  rendered slide. Each segment becomes its own run with bold on/off. */
+    private static void renderInlineWithBold(XSLFTextParagraph paragraph, String text, double fontSize) {
+        if (text == null || text.isEmpty()) return;
+        java.util.regex.Pattern bold = java.util.regex.Pattern.compile("\\*\\*([^*]+?)\\*\\*");
+        java.util.regex.Matcher m = bold.matcher(text);
+        int last = 0;
+        Color body = new Color(220, 232, 245);
+        while (m.find()) {
+            if (m.start() > last) {
+                appendRun(paragraph, text.substring(last, m.start()), fontSize, false, body);
+            }
+            appendRun(paragraph, m.group(1), fontSize, true, body);
+            last = m.end();
+        }
+        if (last < text.length()) {
+            appendRun(paragraph, text.substring(last), fontSize, false, body);
+        }
+        if (last == 0) {
+            // No bold markers found — emit a single plain run.
+            appendRun(paragraph, text, fontSize, false, body);
+        }
+    }
+
+    private static void appendRun(XSLFTextParagraph p, String s, double fontSize, boolean bold, Color color) {
+        if (s == null || s.isEmpty()) return;
+        // Strip any stray single-asterisk markers (italic) — POI doesn't get
+        // those for free either, and leaving them in shows the literal *.
+        String clean = s.replaceAll("(?<!\\*)\\*(?!\\*)", "");
+        if (clean.isEmpty()) return;
+        XSLFTextRun r = p.addNewTextRun();
+        r.setText(clean);
+        r.setFontSize(fontSize);
+        r.setFontColor(color);
+        if (bold) r.setBold(true);
+    }
 
     /** Markdown image: {@code ![alt](url)}. Normalizer already promotes other shapes. */
     private static final Pattern PPT_IMG = Pattern.compile("!\\[([^\\]]*)\\]\\(([^)]+)\\)");
@@ -488,22 +677,20 @@ public class DeliverableFormatter {
         b.setAnchor(new Rectangle(40, 110, bodyWidth, 400));
         if (bullets != null && !bullets.isEmpty()) {
             for (String bullet : bullets) {
+                String clean = cleanInlineMarkdown(bullet);
+                if (clean.isEmpty()) continue;
                 XSLFTextParagraph bp = b.addNewTextParagraph();
                 bp.setBullet(true);
                 bp.setIndentLevel(0);
-                XSLFTextRun br = bp.addNewTextRun();
-                br.setText(bullet);
-                br.setFontSize(hasImage ? 14d : 18d);
-                br.setFontColor(new Color(220, 232, 245));
+                renderInlineWithBold(bp, clean, hasImage ? 14d : 18d);
             }
         } else if (prose != null && !prose.isBlank()) {
             for (String line : prose.split("\n")) {
                 if (line.isBlank()) continue;
+                String clean = cleanInlineMarkdown(line);
+                if (clean.isEmpty()) continue;
                 XSLFTextParagraph bp = b.addNewTextParagraph();
-                XSLFTextRun br = bp.addNewTextRun();
-                br.setText(line);
-                br.setFontSize(hasImage ? 13d : 16d);
-                br.setFontColor(new Color(220, 232, 245));
+                renderInlineWithBold(bp, clean, hasImage ? 13d : 16d);
             }
         }
 
@@ -1506,6 +1693,20 @@ public class DeliverableFormatter {
         int len = out.length();
         if (len > 0 && out.charAt(len - 1) == '\n') out.setLength(len - 1);
         return out.toString();
+    }
+
+    /** Pull out the first non-blank H1 ("# Title") so the cover page can use
+     *  it as the document title. Returns null when the body has no H1. */
+    private static String extractLeadingH1(String md) {
+        if (md == null) return null;
+        for (String line : md.split("\n", -1)) {
+            String t = line.trim();
+            if (t.isEmpty()) continue;
+            if (t.startsWith("# ")) return t.substring(2).trim();
+            // First non-blank non-H1 line — give up; the synthesizer didn't open with a title.
+            return null;
+        }
+        return null;
     }
 
     private static String stripLeadingH1(String md) {

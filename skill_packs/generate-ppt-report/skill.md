@@ -11,6 +11,19 @@ metadata:
     quality:
       ship-score: 8
       max-cycles: 3
+    playwright:
+      # Set true to watch Chromium drive Bing/Google during this skill's runs.
+      # Default false = headless. Per-skill override; doesn't affect other skills.
+      show-browser: false
+    triggers:
+      keywords:
+        - powerpoint
+        - ppt
+        - pptx
+        - deck
+        - slide
+        - slides
+        - presentation
 ---
 
 # Generate PowerPoint Deck
@@ -20,11 +33,15 @@ A multi-phase deliverable. Plan → parallel research → synthesize → self-cr
 ## Steps
 
 1. Parse the user's request into a single concrete `goal` string. Include the audience and the angle if the user gave one (e.g. "for a Series-A pitch", "for a security review"). If the topic is one ambiguous word, ask ONE clarifier — otherwise proceed.
-2. Call `produceDeliverable` with:
-   - `goal` = the parsed goal sentence
+2. **Append the format spec to the goal** so the synthesizer follows the deck shape and typography rules:
+
+   `<the parsed user goal>. OUTPUT MUST BEGIN with a single # H1 line containing a clean 5-10 word headline title in Title Case (NOT a paraphrase of this prompt). Produce as a slide deck: 8-14 slides, one ## H2 per slide. Each slide: a tight title (≤8 words) + 3-5 short parallel bullets (no paragraphs) + 0-1 image. RULES: bullets use "- " only (NEVER "> -"); blockquote ">" only for actual quotations; every period/?/!/:/; followed by a space; no "(check the product page)" / "Hero image URL:" / "[image — embed failed: ...]" placeholders; no bold-numbered **N. Name** inline labels — each item is its own ## section.`
+
+3. Call `produceDeliverable` with:
+   - `goal` = the parsed goal **plus** the format spec from step 2
    - `format` = `"slides"`
    - `output` = `"pptx"`
-3. The tool runs the plan→execute→synthesize→critique→refine loop internally and returns a path. Do NOT call `openApp("powerpoint")`, do NOT take screenshots of the desktop PowerPoint app, do NOT call `createPdfDocument` and ask the user to convert. The pure-Java POI writer is the only correct path.
+4. The tool runs the plan→execute→synthesize→critique→refine loop internally and returns a path. Do NOT call `openApp("powerpoint")`, do NOT take screenshots of the desktop PowerPoint app, do NOT call `createPdfDocument` and ask the user to convert. The pure-Java POI writer is the only correct path.
 4. **VERIFY against this skill's quality bar before reporting done.** The tool can return successfully even when slides are imageless. The tool result contains two paths — `File:` (the published deck) and `TaskFolder:` (the scratch folder Java created); use those, never hardcode a path. If any check fails, call `produceDeliverable` AGAIN with a tighter goal (e.g. add "with a real product photo per slide"). Up to 1 retry — if it still fails, ship with an explicit warning.
    - **File exists & non-trivial size**: `listFiles` / `getFileInfo` on the `File:` path. PPTX must be ≥ 80 KB (a deck with embedded images is heavier than a text-only one). If smaller, image embedding likely failed — retry.
    - **Slide count matches request**: aim for 8–14 slides. If the deck shows fewer than 6 content slides, the synthesizer truncated — retry with the goal restating the slide count.
