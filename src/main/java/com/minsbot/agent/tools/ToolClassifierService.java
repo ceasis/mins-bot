@@ -302,10 +302,12 @@ public class ToolClassifierService {
     }
 
     /** Anthropic Messages API — system prompt is a top-level field, not a
-     *  message; max_tokens lives at the top level. */
+     *  message; max_tokens lives at the top level. {@code temperature} is
+     *  intentionally omitted because Claude Opus 4.7 rejects it ("deprecated
+     *  for this model"). Each model's default is fine for category routing. */
     private HttpRequest buildAnthropicRequest(String userMessage) {
         String body = """
-                {"model":"%s","temperature":0,"max_tokens":60,"system":"%s","messages":[{"role":"user","content":"%s"}]}"""
+                {"model":"%s","max_tokens":60,"system":"%s","messages":[{"role":"user","content":"%s"}]}"""
                 .formatted(escapeJson(model), escapeJson(SYSTEM_PROMPT), escapeJson(userMessage));
         return HttpRequest.newBuilder()
                 .uri(URI.create(ANTHROPIC_URL))
@@ -350,10 +352,8 @@ public class ToolClassifierService {
 
     /** Extract the assistant content from the OpenAI chat completions response. */
     private static String extractContent(String json) {
-        // Find "content":"..." in the response — simple pattern for this predictable JSON
-        int idx = json.indexOf("\"content\":");
-        // Skip past system/user messages to find the assistant's content
-        // The response has choices[0].message.content
+        // Skip past the system/user message "content" fields to find the
+        // assistant's content. Response shape: choices[0].message.content
         int choicesIdx = json.indexOf("\"choices\"");
         if (choicesIdx < 0) return "";
         int contentIdx = json.indexOf("\"content\":", choicesIdx);

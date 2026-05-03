@@ -73,8 +73,20 @@ final class WordDocPoiWriter {
 
                 // Body: parse markdown line by line.
                 if (content != null) {
-                    for (String raw : content.split("\n", -1)) {
-                        renderLine(doc, raw, bulletNumId);
+                    String[] lines = content.split("\n", -1);
+                    int i = 0;
+                    while (i < lines.length) {
+                        // Markdown table: pipe-delimited header row followed
+                        // by a |---|---| separator row. Consume the whole
+                        // block (header + separator + data rows) and emit a
+                        // real XWPFTable instead of letting the pipes leak
+                        // through as paragraph text.
+                        if (i + 1 < lines.length && isTableHeader(lines[i], lines[i + 1])) {
+                            i = renderTable(doc, lines, i);
+                            continue;
+                        }
+                        renderLine(doc, lines[i], bulletNumId);
+                        i++;
                     }
                 }
 
@@ -130,6 +142,74 @@ final class WordDocPoiWriter {
         // Default: paragraph.
         XWPFParagraph p = doc.createParagraph();
         renderInline(p, trimmed);
+    }
+
+    /** True when {@code header} is a pipe-delimited row and {@code separator}
+     *  is a |---|---| separator. Both must start and end with {@code |}. */
+    private static boolean isTableHeader(String header, String separator) {
+        if (header == null || separator == null) return false;
+        String h = header.trim();
+        String s = separator.trim();
+        return h.startsWith("|") && h.endsWith("|") && h.length() >= 3
+                && s.matches("^\\|[\\s\\-:|]+\\|$");
+    }
+
+    /** Consume a markdown-table block starting at {@code lines[start]} and
+     *  emit an {@link XWPFTable} into {@code doc}. Returns the index of the
+     *  first line AFTER the table block. */
+    private static int renderTable(XWPFDocument doc, String[] lines, int start) {
+        java.util.List<String> headers = splitTableRow(lines[start]);
+        int i = start + 2; // skip header + separator
+        java.util.List<java.util.List<String>> rows = new java.util.ArrayList<>();
+        while (i < lines.length) {
+            String t = lines[i].trim();
+            if (!t.startsWith("|") || !t.endsWith("|")) break;
+            // Skip stray separator-only rows.
+            if (t.matches("^\\|[\\s\\-:|]+\\|$")) { i++; continue; }
+            rows.add(splitTableRow(lines[i]));
+            i++;
+        }
+
+        XWPFTable table = doc.createTable(rows.size() + 1, Math.max(1, headers.size()));
+        table.setWidth("100%");
+        // Header row — bold, navy fill, white text.
+        XWPFTableRow head = table.getRow(0);
+        for (int c = 0; c < headers.size(); c++) {
+            org.apache.poi.xwpf.usermodel.XWPFTableCell cell = head.getCell(c);
+            cell.setColor("1E3C70");
+            cell.removeParagraph(0);
+            XWPFParagraph p = cell.addParagraph();
+            XWPFRun r = p.createRun();
+            r.setText(headers.get(c));
+            r.setBold(true);
+            r.setColor("FFFFFF");
+        }
+        // Data rows — alternating row shading via cell color.
+        for (int rIdx = 0; rIdx < rows.size(); rIdx++) {
+            java.util.List<String> row = rows.get(rIdx);
+            XWPFTableRow tr = table.getRow(rIdx + 1);
+            String shade = (rIdx % 2 == 0) ? "F5F7FB" : "FFFFFF";
+            for (int c = 0; c < headers.size(); c++) {
+                String cellText = c < row.size() ? row.get(c) : "";
+                org.apache.poi.xwpf.usermodel.XWPFTableCell cell = tr.getCell(c);
+                cell.setColor(shade);
+                cell.removeParagraph(0);
+                XWPFParagraph p = cell.addParagraph();
+                renderInline(p, cellText);
+            }
+        }
+        // Spacer paragraph after the table so following content doesn't crash into it.
+        doc.createParagraph();
+        return i;
+    }
+
+    private static java.util.List<String> splitTableRow(String line) {
+        String t = line.trim();
+        if (t.startsWith("|")) t = t.substring(1);
+        if (t.endsWith("|"))   t = t.substring(0, t.length() - 1);
+        java.util.List<String> cells = new java.util.ArrayList<>();
+        for (String c : t.split("\\|", -1)) cells.add(c.trim());
+        return cells;
     }
 
     private static void heading(XWPFDocument doc, String text, int sizePt, boolean bold) {

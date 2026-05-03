@@ -948,7 +948,9 @@ public class DeliverableExecutor {
         java.util.Map<String, Object> body = new java.util.LinkedHashMap<>();
         body.put("model", model);
         body.put("max_tokens", 4096);
-        body.put("temperature", 0.3);
+        // temperature is REJECTED by Claude Opus 4.7 ("temperature is deprecated
+        // for this model"). Sonnet/Haiku still accept it, but omitting it across
+        // the board uses each model's default and removes a per-model branch.
         if (system != null && !system.isBlank()) body.put("system", system);
         body.put("messages", java.util.List.of(
                 java.util.Map.of("role", "user",

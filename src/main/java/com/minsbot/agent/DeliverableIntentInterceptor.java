@@ -150,19 +150,19 @@ public class DeliverableIntentInterceptor {
 
         StringBuilder sb = new StringBuilder();
         sb.append("✅ Deliverable ready.\n\n");
-        sb.append("File: ").append(r.path().toAbsolutePath()).append("\n");
+        // Make the deliverable file unmistakable — it's THE thing to open.
+        sb.append("📄 Open this: ").append(r.path().toAbsolutePath()).append("\n");
         sb.append("Score: ").append(r.score()).append("/10  ·  Cycles: ").append(r.cycles());
         if (r.score() < 8) {
-            // Don't dump the full multi-bullet critic note + budget line into chat
-            // — that's a wall of text the user can't scan. One short headline,
-            // and point at the audit folder where the full critique lives.
-            sb.append("\n\nNote: scored below ship bar. Full critique in ");
+            // Critique link is auxiliary — clearly labeled so it doesn't get
+            // mistaken for the deliverable itself (the file path right above).
+            sb.append("\n\nScored below ship bar. (Audit only, NOT the deliverable: ");
             if (r.workDir() != null) {
                 sb.append(r.workDir().toAbsolutePath()).append("\\critique-").append(r.cycles()).append(".md");
             } else {
-                sb.append("the task folder");
+                sb.append("see task folder");
             }
-            sb.append(".");
+            sb.append(")");
         }
         String reply = sb.toString();
         // Cache for the duplicate-call path (see lastHandled fields above).

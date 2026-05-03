@@ -1248,15 +1248,38 @@ public class DeliverableFormatter {
         String h = heading.toLowerCase().trim();
         return h.contains("executive summary")
             || h.contains("summary")
+            || h.contains("key findings")
+            || h.contains("key takeaways")
+            || h.contains("highlights")
             || h.contains("recommendation")
+            || h.contains("verdict")
+            || h.contains("bottom line")
             || h.contains("conclusion")
             || h.contains("methodology")
+            || h.contains("how to use")
+            || h.contains("how to read")
+            || h.contains("how this list was built")
+            || h.contains("scope and method")
+            || h.contains("scope & method")
+            || h.contains("important notes")
+            || h.contains("notes before you read")
+            || h.contains("editorial")
+            || h.contains("disclaimer")
+            || h.contains("disclosures")
             || h.contains("introduction")
             || h.contains("overview")
+            || h.contains("scoring")
+            || h.contains("comparison table")
+            || h.contains("quick comparison")
+            || h.contains("at a glance")
+            || h.contains("at-a-glance")
             || h.contains("table of contents")
             || h.contains("references")
+            || h.contains("sources")
             || h.contains("appendix")
-            || h.contains("next steps");
+            || h.contains("further reading")
+            || h.contains("next steps")
+            || h.contains("how to track");
     }
 
     /** Skip sections whose body is just one or two lines — they're navigation
@@ -1533,8 +1556,46 @@ public class DeliverableFormatter {
      */
     private static boolean probeUrl(String url) { return probeUrl(url, true); }
 
+    /** Stock-photo aggregators serve watermarked previews. The watermarks are
+     *  baked into the bytes (not removed by any header), so a verified URL
+     *  from these hosts ends up plastered with "DREAMSTIME" / "SHUTTERSTOCK" /
+     *  etc. across the embedded image. Skip them at the verify stage so a
+     *  cleaner candidate gets picked. */
+    private static final java.util.Set<String> WATERMARK_HOSTS = java.util.Set.of(
+            "dreamstime.com",     "thumbs.dreamstime.com",
+            "shutterstock.com",   "image.shutterstock.com",
+            "gettyimages.com",    "media.gettyimages.com",
+            "alamy.com",          "c8.alamy.com",
+            "istockphoto.com",    "media.istockphoto.com",
+            "depositphotos.com",  "st.depositphotos.com",
+            "123rf.com",          "previews.123rf.com",
+            "stock.adobe.com",    "as1.ftcdn.net", "as2.ftcdn.net", "stockphoto.com",
+            "imagebroker.com",    "agefotostock.com",
+            "canstockphoto.com",  "fotosearch.com",
+            "vectorstock.com");
+
+    private static boolean isWatermarkHost(String url) {
+        if (url == null) return false;
+        try {
+            String host = java.net.URI.create(url).getHost();
+            if (host == null) return false;
+            host = host.toLowerCase();
+            for (String wm : WATERMARK_HOSTS) {
+                if (host.equals(wm) || host.endsWith("." + wm)) return true;
+            }
+        } catch (Exception ignored) {}
+        return false;
+    }
+
     private static boolean probeUrl(String url, boolean strict) {
         if (url == null || url.isBlank()) return false;
+        // Reject known watermarked-stock-photo hosts before spending the
+        // round-trip — these always come back with "DREAMSTIME" / etc. text
+        // baked into the pixels.
+        if (isWatermarkHost(url)) {
+            log.info("[Formatter] verify SKIP watermarked stock host: {}", url);
+            return false;
+        }
         String ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                 + "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
         try {
