@@ -3318,6 +3318,25 @@ select.tab-input option,
 /* 5px sliver pinned to the bottom edge of .chat-area — at-a-glance task
    progress. Idle state: 0 width, fully hidden. While active: blue fill
    slides right with width %. On complete: brief green flash, then fade. */
+/* Single rolling status line just above the progress strip — replaces the
+   stream of italic .message-status lines that used to flood the chat. */
+.task-progress-ticker {
+  position: absolute;
+  left: 0; right: 0; bottom: 5px;
+  padding: 3px 12px;
+  font-size: 11px;
+  color: #a1a1aa;
+  font-style: italic;
+  background: linear-gradient(to top, rgba(20, 20, 24, 0.92) 60%, rgba(20, 20, 24, 0));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  z-index: 6;
+  transition: opacity 200ms ease;
+}
+.task-progress-ticker[hidden] { display: none; }
+
 .task-progress-strip {
   position: absolute;
   left: 0; right: 0; bottom: 0;

@@ -1227,14 +1227,29 @@
     _toolsUsedModalEl.backdrop.hidden = false;
   }
 
+  // Single rolling status line above the progress strip. Replaces the old
+  // behavior of appending one .message-status div per update, which flooded
+  // the chat with dozens of "fetching source ...", "searching ..." lines.
+  var _tickerHideTimer = null;
   function appendStatus(text) {
-    var el = document.createElement('div');
-    el.className = 'message-status';
+    var el = document.getElementById('task-progress-ticker');
+    if (!el) return;
     el.textContent = text;
-    var wasAtBottom = isAtBottom(messagesEl);
-    messagesEl.appendChild(el);
-    if (wasAtBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
+    el.hidden = false;
+    if (_tickerHideTimer) { clearTimeout(_tickerHideTimer); _tickerHideTimer = null; }
+    _tickerHideTimer = setTimeout(function () {
+      el.hidden = true;
+      el.textContent = '';
+      _tickerHideTimer = null;
+    }, 6000);
     if (window._minsSound) window._minsSound.notification();
+  }
+  function hideStatusTicker() {
+    var el = document.getElementById('task-progress-ticker');
+    if (!el) return;
+    if (_tickerHideTimer) { clearTimeout(_tickerHideTimer); _tickerHideTimer = null; }
+    el.hidden = true;
+    el.textContent = '';
   }
 
   /**
@@ -1356,6 +1371,7 @@
       clearInterval(statusPollTimer);
       statusPollTimer = null;
     }
+    hideStatusTicker();
   }
 
   async function sendMessage(text) {
