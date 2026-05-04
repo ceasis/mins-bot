@@ -46,6 +46,26 @@ mvn package -DskipTests -q
 echo "      Done."
 echo
 
+# ── Secrets-leak guard ──────────────────────────────────────────────────
+echo "[2b/4] Secrets-leak guard..."
+JAR=target/mins-bot-1.0.0-SNAPSHOT.jar
+if [[ -f "$JAR" ]]; then
+    INNER=$(unzip -p "$JAR" BOOT-INF/classes/application-secrets.properties 2>/dev/null || true)
+    BAD=$(echo "$INNER" | grep -E '^[a-z][^#=]*=[^[:space:]]' || true)
+    if [[ -n "$BAD" ]]; then
+        echo "ERROR: src/main/resources/application-secrets.properties has real values:"
+        echo "$BAD" | sed 's/=.*/=<VALUE>/' | sed 's/^/  /'
+        echo
+        echo "These would ship to every end user inside the fat JAR. Aborting."
+        echo "FIX: Empty every value in src/main/resources/application-secrets.properties."
+        echo "     Put your real keys in the project-root application-secrets.properties"
+        echo "     (gitignored, NOT bundled into the installer)."
+        exit 1
+    fi
+fi
+echo "      OK — no secret values in classpath copy."
+echo
+
 # ── Stage + bundle Piper ──────────────────────────────────────────────────
 echo "[3/4] Staging input + bundling local Piper voice..."
 mkdir -p target/jpackage-input

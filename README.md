@@ -1,559 +1,184 @@
 # Mins Bot
 
-A floating desktop AI assistant built with **Java 17**, **Spring Boot**, and **JavaFX**. Think Jarvis for your PC — a swirling orb sits on your desktop, expanding into a full AI command center with voice, vision, proactive actions, browser automation, and connections to 10 messaging platforms.
+A floating desktop AI assistant. A swirling orb sits on your desktop, expanding into a full chat panel with voice, vision, browser automation, OS control, and **180+ skills** that let you actually *do* things instead of just talking to a chatbot.
 
-![Java](https://img.shields.io/badge/Java-17-blue)
-![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.3-green)
-![JavaFX](https://img.shields.io/badge/JavaFX-21-orange)
-![License](https://img.shields.io/badge/License-Proprietary%20EULA-red)
-![Skills SDK](https://img.shields.io/badge/Skills%20SDK-MIT-green)
+Built with **Java 17 + Spring Boot 3.5 + JavaFX 21**. Runs locally; works offline once the local LLM + Piper voice are installed.
+
+![Java](https://img.shields.io/badge/Java-17-blue) ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5-green) ![JavaFX](https://img.shields.io/badge/JavaFX-21-orange) ![Skills](https://img.shields.io/badge/Skills-180+-purple) ![License](https://img.shields.io/badge/License-Proprietary-red)
+
+> Landing page: **[mins.io](https://mins.io)**
 
 ---
 
-## Features
+## What it does
 
-### Desktop UI
-- **Floating window** — always-on-top, draggable orb with custom title bar
-- **Tabbed interface** — Chat, Browser, Agents, Integrations, Setup, Skills, Schedules, Todo, Directives, Personality, Knowledge, Voice, Calibration, Workflows, Templates, Marketplace, Dashboard, Multi-Agent, Automations
-- **Command palette** — `Ctrl+K` for quick access to all commands and tabs
-- **Chat search** — `Ctrl+F` to search through message history
-- **Keyboard shortcuts** — `Ctrl+/` to view all shortcuts, `Ctrl+L` to clear chat
-- **Smooth transitions** — animated tab switching and message appearances
-- **Sound effects** — subtle audio feedback for sent/received/notification/error (toggleable)
-- **Styled tooltips** — hover over any toolbar icon for a descriptive tooltip
-- **System tray** — minimize to tray for background operation
+Most AI desktop apps stop at chat. Mins Bot ships **real action**: kill an app, free up a port, generate a marketing playbook and publish it, narrate a story to your dog, audit a landing page, build a PowerPoint deck, find duplicates on disk, set itself to auto-launch on login. Each capability is a self-contained "skill" callable from chat or via REST.
 
-### AI & Chat
-- **Multi-model support** — OpenAI (GPT-5.1, GPT-4o), Google Gemini (2.5 Pro, 3 Flash), Anthropic Claude (Opus, Sonnet), and local models via Ollama
-- **100+ built-in tools** — the AI can invoke tools across files, browser, system, media, health, finance, GitHub, and more
-- **Dynamic tool routing** — AI classifier selects relevant tools per message (respects 128-tool API limit)
-- **Task planning** — numbered checklist before executing complex multi-step tasks
-- **Autonomous mode** — works on directives independently when you're idle
-- **Chat memory** — persistent transcript history across restarts
+**Quick examples** (say these in the floating chat panel):
 
-### Jarvis Mode — Proactive Intelligence
-- **Proactive Action Mode** (lightning bolt icon) — continuously monitors your screen, pending tasks, and directives, then takes action automatically
-  - Screen check every 15s — detects dialogs, forms, errors, notifications and acts on them
-  - Task check every 30s — completes pending to-do items proactively
-  - Directive check every 60s — executes standing directives
-  - Safety: skips when you're actively working, 60s cooldown per action, speaks actions aloud via TTS
-- **Jarvis Watch Mode** (eye icon) — AI actively comments on your screen like a real assistant
-  - `[COMMENT]` — conversational tips, warnings, and observations appear as chat messages
-  - `[REACT]` — auto-types into forms, quizzes, and prompts
-  - `[SILENT]` — stays quiet when nothing interesting is happening
-  - 10-second cooldown between comments, semantic deduplication to avoid repetition
-- **Auto-pilot** (brain icon) — proactive screen help suggestions
-- **Keyboard & mouse control** (keyboard icon) — allow the bot to click and type on your behalf
+```
+kill port 8080
+how many files in my downloads folder
+take a screenshot
+play music by radiohead
+narrate me a bedtime story for my dog
+explain this page (with Chrome open)
+market the app and publish to bluesky
+auto-start yourself on login
+use a jarvis voice
+zip C:\projects\mins-bot to D:\backup.zip
+```
 
-### Voice & Vision
-- **Voice input** — speech-to-text via Web Speech API and native microphone capture
-- **Text-to-speech** — ElevenLabs, Fish Audio, OpenAI TTS, or Windows native voice
-- **Gemini Live** — real-time bidirectional audio streaming with language translation
-- **Screen analysis** — live screen capture with Gemini vision + OCR before every AI response
-- **Webcam** — capture and analyze webcam feed
-- **Audio listening** — background audio capture and transcription with model selection
+---
 
-### Browser & Automation
-- **Chrome DevTools Protocol** — control your real Chrome browser (navigate, click, extract data, fill forms)
-- **JavaScript injection** — `browserFillForm` and `browserExecuteJs` for instant form filling via CDP (~10ms)
-- **Playwright** — headless browser automation for web scraping
-- **System control** — execute system commands, manage processes, control applications
-- **Window manager** — arrange windows, app switching, snap to edges (Win+Arrow)
-- **Bot window control** — tell the bot to move itself ("move yourself to the left")
-- **Automations** — custom trigger/action rules ("when message contains X, do Y")
-- **Clipboard history** — tracks last 200 clipboard entries, searchable by AI
+## Install
 
-### Life Management Tools
+### End users
 
-#### Personal Profile & Memory
-- **Life profile** — 11 sections: Routines, Preferences, Relationships, Goals, Health, Finance, Locations, Vehicles, Pets, Important Dates, Notes
-- **Episodic memory** — stores life events as searchable JSON episodes with type, tags, people, mood, importance
-- **Auto-memory extraction** — automatically detects life facts from conversations and saves them
-- **Personal config** — name, birthdate, family, work info loaded into every AI response
-- **Knowledge base** — upload documents (PDF, Word, Excel, code, etc.) for AI reference
+Download the latest release for your OS:
 
-#### Health Tracker (11 tools)
-- Log water, meals, exercise, weight, mood, sleep, medications
-- Daily health summaries and multi-day trend analysis
-- Set and track health goals
-
-#### Finance Tracker (13 tools)
-- Log expenses and income with categories
-- Monthly budgets with real-time tracking
-- Bill tracking with due date alerts
-- Debt overview and financial goal tracking
-- Monthly reports by category
-
-#### Proactive Engine
-- Morning briefings, break reminders, hydration reminders
-- Meeting prep, bill reminders, relationship nudges
-- Weekly goal check-ins, weather alerts
-- Custom rules with quiet hours support
-
-### Developer & Productivity Tools
-
-#### GitHub Integration (18 tools)
-- List repos, branches, README content, search repos
-- Create/list/comment on issues and pull requests
-- View notifications, activity feed, gists
-- Monitor CI/CD workflow runs
-
-#### Video Creation (Remotion)
-- Scaffold and manage Remotion projects
-- Create custom React video compositions
-- Quick text videos with animated typography
-- Slideshow videos from images with crossfade transitions
-- Render to MP4 via CLI
-
-#### Media & Entertainment
-- **Music control** — play/pause/skip, volume control via media keys (Spotify, Windows Media Player, any player)
-- **Video downloader** — yt-dlp wrapper for YouTube, TikTok, and 1000+ sites (auto-installs via winget)
-- **Image tools** — resize, crop, filter
-- **Screen recording** — capture and export MP4
-- **QR codes** — generate and scan
-
-#### Social & Trend Intelligence
-- **Social monitor** — track contacts, birthdays, posts, and mentions across platforms
-- **Trend scout** — monitor YouTube/web for topics you're interested in, surfaces what's trending
-- **Habit detection** — learns your routines from time/day patterns, persisted to `habit_events.json`
-- **Feedback loop** — rates suggestions, improves over time
-- **Skill auto-creation** — save named workflows with trigger phrases, auto-executes on match
-
-#### Other Tools
-- **Email** — send/read via SMTP/IMAP + Gmail API
-- **Calendar** — Google Calendar integration
-- **Web search** — Serper, SerpAPI, or DuckDuckGo
-- **Web monitoring** — track website changes
-- **Code audit** — clone repos, scan for SQL injection, hardcoded secrets, unused imports
-- **File operations** — read, write, search, download, export, Excel, Word, PDF
-- **Utilities** — calculator, unit conversion, hash, timers
-- **Software management** — install/uninstall via winget
-- **Network diagnostics** — ping, traceroute, port scan
-- **Printer control** — list printers, print documents
-
-### Pluggable Skills Library (81 self-contained skills)
-
-Each skill is a self-contained sub-package (`com.minsbot.skills.<name>`) with its own Config + Service + Controller,
-exposed at `/api/skills/<name>/*`, and **also available to the chat LLM as `@Tool` methods** via 8 themed wrapper classes.
-All disabled by default — enable per-skill via `app.skills.<name>.enabled=true` in `application.properties`.
-
-| Category | Skill count | Examples |
+| OS | File | Steps |
 |---|---|---|
-| **Dev & Data** | 17 | encoder, hashcalc, jsontools, yamltools, csvtools, sqlformatter, difftool, regextester, regexinferrer, markdowntools, dockerfilelint, loganalyzer, httptester, cronvalidator, fakedatagen, randomgen, unitconvert |
-| **SEO** | 6 | metaanalyzer, keywordextractor, sitemapchecker, robotschecker, readability, sluggenerator |
-| **Marketing** | 5 | utmbuilder, subjectanalyzer, charcounter, abtestcalc, hashtagsuggest |
-| **Security Analyst** | 10 | passwordstrength, hibpcheck, jwtinspector, certinspector, headeraudit, dnslookup, cvelookup, hashidentifier, secretsscan, emailvalidator |
-| **Privacy/Encryption** | 3 | piiredactor, exifstripper, encryptionaes |
-| **Science/Math** | 7 | probabilitycalc, matrixops, physicscalc, geodistance, statsbasics, geometrycalc, langdetector |
-| **Finance** | 6 | financecalc, taxcalc, realestatecalc, stockindicators, breakevencalc, depreciationcalc, cashflowforecast |
-| **Health/Fitness** | 5 | bmicalc, macrocalc, pacecalc, heartratezones, medicalunits |
-| **Productivity** | 11 | notes, reminders, timer, clipboardhistory, okrtracker, timezoneconvert, meetingcost, slacalc, pomodoroplanner, flashcardmaker, netinfo |
-| **Content/Writing** | 7 | writingtools, headlineanalyzer, citationformatter, markdownhtml, numberwords, colortools, imagemeta |
-| **Culinary** | 1 | recipescaler |
-| **Education** | 1 | gradecalc |
-| **File system** | 1 | diskscan |
+| **Windows** | `MinsBot-1.0.0.exe` | Double-click → Next → Next → Finish |
+| **Windows portable** | `MinsBot-1.0.0-windows.zip` | Unzip → run `MinsBot/MinsBot.exe` |
+| **macOS** | `MinsBot-1.0.0.dmg` | Open → drag to Applications |
+| **Linux** | `minsbot_1.0.0_amd64.deb` | `sudo dpkg -i minsbot_1.0.0_amd64.deb` |
 
-**LLM wrapper classes** in `com.minsbot.agent.tools.*` (each registered as a `ToolRouter` category):
-- `SkillDevTools` → `dev_skills`
-- `SkillProductivityTools` → `productivity_skills`
-- `SkillSeoMarketingTools` → `seo_marketing_skills`
-- `SkillSecurityTools` → `security_skills`
-- `SkillProfessionTools` → `profession_skills`
-- `SkillDataToolsExtra` → `data_skills_extra`
-- `SkillCalcTools` → `calc_skills`
-- `SkillExtrasTools` → `extras_skills`
+No Java install required — the JRE is bundled.
 
-The AI classifier routes user queries to the right category automatically (e.g. "is my password strong?" → `security_skills`,
-"what's 5% compound interest over 10 years?" → `profession_skills` / `calc_skills`).
+Detailed install + build instructions: **[INSTALL.md](INSTALL.md)**
 
-### Background Agents
-- **Parallel agents** — launch up to 24 concurrent AI agents on isolated missions
-- **Per-agent model selection** — pick GPT-5.4, GPT-4o-mini, Claude, or Gemini per agent
-- **Agent dashboard** — live progress bars, log stream, plan view, status badges
-- **Download results** — export agent output as a Markdown file
-- **Cancel / remove** — cancel running agents or clear finished ones
-
-### Dashboard & Analytics
-- **Usage metrics** — token counts, response times, tool invocation counts
-- **Module stats** — which vision/audio models are active and how many calls they've handled
-- **Status bar** — 2-row bar shows vision engine, audio module, and live counts
-
-### Messaging Integrations (10 Platforms)
-Connect the same AI to any combination — all share the same reply logic:
-
-| Platform | Webhook Endpoint | Config Prefix |
-|----------|-----------------|---------------|
-| Viber | `POST /api/viber/webhook` | `app.viber.*` |
-| Telegram | `POST /api/telegram/webhook` | `app.telegram.*` |
-| Discord | `POST /api/discord/interactions` | `app.discord.*` |
-| Slack | `POST /api/slack/events` | `app.slack.*` |
-| WhatsApp | `POST /api/whatsapp/webhook` | `app.whatsapp.*` |
-| Messenger | `POST /api/messenger/webhook` | `app.messenger.*` |
-| LINE | `POST /api/line/webhook` | `app.line.*` |
-| Teams | `POST /api/teams/messages` | `app.teams.*` |
-| WeChat | `POST /api/wechat/webhook` | `app.wechat.*` |
-| Signal | `POST /api/signal/webhook` | `app.signal.*` |
-
-All integrations are **disabled by default** and conditionally loaded — disabled platforms don't consume memory.
-
----
-
-## Requirements
-
-### Minimum system requirements
-- **OS**: Windows 10 (build 1809+) or Windows 11. macOS / Linux supported for development builds but not officially packaged yet.
-- **RAM**: 8 GB (16 GB recommended if running local LLMs via Ollama)
-- **Disk**: 500 MB for the app, ~2 GB for a local model if you use one
-- **Display**: 1280×720 minimum; HiDPI supported
-- **Network**: Internet connection for cloud AI providers (OpenAI, Anthropic, Google). Fully offline usage is possible via Ollama.
-
-### Development requirements (building from source)
-- **Java 17** (JDK 17 or later)
-- **Maven 3.6+**
-- **Node.js 18+** (optional — for Remotion video creation)
-- **API keys** for the AI services you want to use (see [Configuration](#configuration))
-
----
-
-## Quick Start
-
-### 1. Clone the repository
+### Developers (run from source)
 
 ```bash
-git clone https://github.com/ceasis/mins-bot.git
+git clone <this-repo>
 cd mins-bot
-```
-
-### 2. Configure your API keys
-
-Create a file called `application-secrets.properties` in the project root (this file is gitignored):
-
-```properties
-# Required — at least one AI provider
-spring.ai.openai.api-key=YOUR_OPENAI_API_KEY
-
-# Optional — Gemini
-gemini.api.key=YOUR_GEMINI_API_KEY
-
-# Optional — Claude
-ANTHROPIC_API_KEY=YOUR_ANTHROPIC_KEY
-
-# Optional — GitHub
-GITHUB_TOKEN=YOUR_GITHUB_TOKEN
-
-# Optional — ElevenLabs TTS
-app.elevenlabs.api-key=YOUR_ELEVENLABS_API_KEY
-app.elevenlabs.voice-id=YOUR_VOICE_ID
-
-# Optional — Email
-spring.mail.host=smtp.gmail.com
-spring.mail.username=YOUR_EMAIL
-spring.mail.password=YOUR_APP_PASSWORD
-```
-
-### 3. Build
-
-```bash
 mvn clean package -DskipTests
-```
-
-### 4. Run
-
-**Option A — Maven (recommended)**
-```bash
 mvn spring-boot:run
+# or: dev.bat (Windows)
 ```
 
-**Option B — Batch script (Windows)**
-```bash
-run.bat
-```
-
-**Option C — JAR**
-```bash
-java --add-modules javafx.controls,javafx.web,javafx.fxml \
-     --add-opens java.base/java.lang=ALL-UNNAMED \
-     -jar target/mins-bot-1.0.0-SNAPSHOT.jar
-```
-
-**Option D — Windows Installer**
-```bash
-build-installer.bat
-```
-Creates an MSI installer in `target/installer/` (requires JDK 17+ and WiX Toolset).
-
-### 5. Use
-
-- The chat panel appears on your desktop
-- **Type** a message and press Enter
-- **Click the microphone** for voice input
-- **Ctrl+K** to open command palette
-- **Toolbar icons**: eye (watch), keyboard (control), headphones (listen), brain (autopilot), lightning (proactive)
-
----
-
-## Configuration
-
-All configuration lives in `src/main/resources/application.properties`. Sensitive values go in `application-secrets.properties` (gitignored).
-
-### Window Settings
-
-| Property | Description | Default |
-|----------|-------------|---------|
-| `server.port` | HTTP port | `8765` |
-| `app.window.expanded.width` | Chat panel width (px) | `456` |
-| `app.window.expanded.height` | Chat panel height (px) | `520` |
-| `app.window.always-on-top` | Keep window above all others | `true` |
-
-### AI Models
-
-| Property | Description | Default |
-|----------|-------------|---------|
-| `spring.ai.openai.chat.options.model` | OpenAI chat model | `gpt-5.1` |
-| `app.gemini.vision-model` | Gemini vision model | `gemini-3-flash-preview` |
-| `app.gemini.reasoning-model` | Gemini reasoning model | `gemini-2.5-pro` |
-| `app.claude.model` | Claude model | `claude-opus-4-6` |
-| `app.tool-classifier.model` | Tool routing classifier | `gpt-4o-mini` |
-
-### Feature Toggles
-
-| Property | Description | Default |
-|----------|-------------|---------|
-| `app.planning.enabled` | Task planning before execution | `true` |
-| `app.autonomous.enabled` | Autonomous mode when idle | `true` |
-| `app.chat.live-screen-on-message` | Auto-capture screen before replies | `true` |
-| `app.proactive.enabled` | Proactive engine (briefings, reminders) | `false` |
-| `app.proactive-action.enabled` | Proactive action mode (auto-act) | `false` |
-| `app.cdp.enabled` | Chrome DevTools Protocol | `true` |
-| `app.tray.enabled` | System tray icon | `true` |
-
-### Proactive Mode Settings
-
-| Property | Description | Default |
-|----------|-------------|---------|
-| `app.proactive-action.screen-check-seconds` | Screen check interval | `15` |
-| `app.proactive-action.task-check-seconds` | Task check interval | `30` |
-| `app.proactive-action.directive-check-seconds` | Directive check interval | `60` |
-| `app.proactive.check-interval-ms` | Proactive engine check interval | `300000` |
-| `app.proactive.quiet-hours-start` | Quiet hours start | `22` |
-| `app.proactive.quiet-hours-end` | Quiet hours end | `7` |
-
----
-
-## Keyboard Shortcuts
-
-| Shortcut | Action |
-|----------|--------|
-| `Ctrl+K` | Command palette |
-| `Ctrl+/` | Shortcuts help |
-| `Ctrl+F` | Search chat messages |
-| `Ctrl+L` | Clear chat |
-| `Enter` | Send message |
-| `Arrow Up/Down` | Input history |
-| `Esc` | Close overlay/palette |
+App: `http://localhost:8765`. Default port set in [application.properties](src/main/resources/application.properties#L1).
 
 ---
 
 ## Documentation
 
-| Document | Description |
-|----------|-------------|
-| [docs/SETUP.md](docs/SETUP.md) | Complete setup guide — prerequisites, env vars, platform setup, troubleshooting |
-| [docs/TOOLS.md](docs/TOOLS.md) | Full tool reference — 100+ tools organized by category |
-| [CLAUDE.md](CLAUDE.md) | Developer context for AI assistants |
+| Doc | Read this if you want to… |
+|---|---|
+| **[INSTALL.md](INSTALL.md)** | Install, build installers, code-sign, distribute |
+| **[docs/INDEX.md](docs/INDEX.md)** | Find any other doc |
+| **[docs/SETUP.md](docs/SETUP.md)** | Set up dev environment from scratch |
+| **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | Understand the codebase layout + module boundaries |
+| **[docs/SKILLS.md](docs/SKILLS.md)** | Add your own skill (the bot's main extension surface) |
+| **[docs/TOOLS.md](docs/TOOLS.md)** | Full reference of every `@Tool` exposed to the LLM |
+| **[docs/SECURITY.md](docs/SECURITY.md)** | API-key handling, secrets-leak guards, code-signing |
+| **[docs/CHANGELOG.md](docs/CHANGELOG.md)** | What changed between releases |
+| **[CLAUDE.md](CLAUDE.md)** | Project conventions (used by Claude when assisting on this repo) |
 
 ---
 
-## Project Structure
+## Capabilities at a glance
+
+### Chat + Agent
+- Multi-LLM: OpenAI, Anthropic Claude, Google Gemini, Groq, plus local **Ollama** for offline mode
+- 180+ skills exposed as `@Tool` methods the LLM can call
+- Dynamic tool routing (classifier picks relevant tools per turn — respects 128-tool API limits)
+- Persistent memory + transcripts across restarts
+- Autonomous mode that works on standing directives when you're idle
+
+### Voice (offline-capable)
+- **Piper TTS** with 11+ curated voices including a **JARVIS preset** (British male + −2 semitones pitch shift for baritone)
+- Configurable speech rate per mode (faster for status updates, slower for narration)
+- Voice picker UI in the Voice tab
+- Cloud TTS providers as fallback: ElevenLabs, Fish Audio, OpenAI TTS
+
+### Browser ("AI guide for any website")
+- Chrome CDP integration: click, fill, navigate, extract
+- **`explainCurrentPage`** — speaks a summary of the active tab
+- **`readAloudCurrentPage`** — narrates the article through your voice
+- **`guidedWalkthrough`** — generates step-by-step instructions grounded in the page's actual buttons
+- **`extractStructuredData`** — returns CSV of all matching records on the page
+
+### Marketing automation
+- **`selfmarket`** orchestrator: trends → competitor analysis → ad copy → social posts → outreach drafts → publishes/sends if configured
+- Building blocks: `gighunter`, `leadgen`, `arbiscout`, `contentresearch`, `marketresearch`, `competitor`, `adcopygen`, `socialschedule`, `landingpageaudit`, `proposalwriter`, `reviewmonitor`, `personabuilder`
+- Execution layer: `socialposter` (Bluesky/Mastodon/webhook), `emailsender` (Resend/SMTP), `mentiontracker`, `blogwriter`
+
+### System / OS control
+- Process / port / service / window / disk management (`processkiller`, `portkiller`, `appkill`, `windowctl`, `bigfilescan`, `duplicatefinder`, `diskcleaner`)
+- Network / VPN / firewall / Docker / Git / build runner
+- Power: lock, sleep, scheduled shutdown
+- Auto-start the bot on login (`autostartmanager`)
+
+### Daily ops
+- Screenshot any monitor; media keys (play/pause/next/prev/volume); media files via `musicplayer` with library search + YouTube fallback
+- Archive (zip/unzip), bulk file rename with regex, log tail with filter
+- Pet entertainment (cat tv / dog calming music / bedtime stories for pets)
+
+### Deliverables
+- Generate **PDF / Word / PowerPoint** decks from chat ("create a PPT about top EVs of 2025")
+- Charts, tables, images embedded; markdown tables rendered as real PPT tables
+
+### File / text ops
+- `filefind`, `filegrep`, `filediff`, `fileinspect` (head/tail/wc), `fileinfo`, `fileopen`, `filestats`, `clipboardctl`
+
+---
+
+## Architecture (one-line)
 
 ```
-mins-bot/
-├── pom.xml
-├── LICENSE
-├── CLAUDE.md                              # AI developer context
-├── run.bat / build-installer.bat          # Windows launch scripts
-├── docs/
-│   ├── SETUP.md                           # Full setup guide
-│   └── TOOLS.md                           # Tool reference (100+ tools)
-│
-├── src/main/java/com/minsbot/
-│   ├── FloatingAppLauncher.java           # JavaFX entry point
-│   ├── MinsbotApplication.java            # Spring Boot entry point
-│   ├── ChatService.java                   # Core agent loop & AI orchestration
-│   ├── ChatController.java               # REST API endpoints
-│   │
-│   ├── agent/
-│   │   ├── ProactiveActionService.java    # Jarvis-like auto-action engine
-│   │   ├── ProactiveEngineService.java    # Briefings, reminders, nudges
-│   │   ├── EpisodicMemoryService.java     # Life event memory system
-│   │   ├── AutoMemoryExtractor.java       # Auto-detect life facts from chat
-│   │   ├── ScreenStateService.java        # Screen capture + AI analysis
-│   │   ├── SystemContextProvider.java     # System prompt builder
-│   │   └── tools/                         # 100+ tool implementations
-│   │       ├── ToolRouter.java            # Dynamic tool selection
-│   │       ├── ToolClassifierService.java # AI-powered tool categorization
-│   │       ├── HealthTrackerTools.java    # Health logging & trends
-│   │       ├── FinanceTrackerTools.java   # Expense/budget tracking
-│   │       ├── GitHubTools.java           # GitHub API (18 tools)
-│   │       ├── RemotionVideoTools.java    # Programmatic video creation
-│   │       ├── LifeProfileTools.java      # Personal life profile
-│   │       ├── EpisodicMemoryTools.java   # Memory recall & search
-│   │       └── ...
-│   │
-│   ├── skills/                            # 81 pluggable skill packages (Config/Service/Controller each)
-│   │   ├── encoder/ hashcalc/ jsontools/ regextester/ randomgen/
-│   │   ├── unitconvert/ notes/ reminders/ timer/ clipboardhistory/
-│   │   ├── netinfo/ metaanalyzer/ keywordextractor/ sitemapchecker/
-│   │   ├── robotschecker/ readability/ sluggenerator/ utmbuilder/
-│   │   ├── subjectanalyzer/ charcounter/ abtestcalc/ hashtagsuggest/
-│   │   ├── passwordstrength/ hibpcheck/ jwtinspector/ certinspector/
-│   │   ├── headeraudit/ dnslookup/ cvelookup/ hashidentifier/
-│   │   ├── secretsscan/ emailvalidator/ colortools/ imagemeta/
-│   │   ├── writingtools/ citationformatter/ statsbasics/ financecalc/
-│   │   ├── taxcalc/ realestatecalc/ stockindicators/ meetingcost/
-│   │   ├── timezoneconvert/ slacalc/ bmicalc/ medicalunits/
-│   │   ├── recipescaler/ geometrycalc/ langdetector/ gradecalc/
-│   │   ├── okrtracker/ cronvalidator/ csvtools/ difftool/
-│   │   ├── yamltools/ sqlformatter/ markdowntools/ dockerfilelint/
-│   │   ├── probabilitycalc/ matrixops/ physicscalc/ geodistance/
-│   │   ├── breakevencalc/ depreciationcalc/ cashflowforecast/
-│   │   ├── macrocalc/ pacecalc/ heartratezones/ headlineanalyzer/
-│   │   ├── markdownhtml/ numberwords/ piiredactor/ exifstripper/
-│   │   ├── encryptionaes/ fakedatagen/ flashcardmaker/ loganalyzer/
-│   │   ├── pomodoroplanner/ httptester/ regexinferrer/ diskscan/
-│   │   └── ...
-│   └── [Platform]*.java                   # 10 messaging integrations
-│
-├── src/main/resources/
-│   ├── application.properties
-│   └── static/                            # Frontend (HTML/CSS/JS)
-│
-├── src/test/java/                         # 51 unit tests
-│   └── com/minsbot/agent/
-│       ├── EpisodicMemoryServiceTest.java
-│       └── tools/
-│           ├── HealthTrackerToolsTest.java
-│           ├── FinanceTrackerToolsTest.java
-│           └── LifeProfileToolsTest.java
-│
-└── ~/mins_bot_data/                       # Persistent data (user home)
-    ├── personal_config.txt
-    ├── life_profile.txt
-    ├── directives.txt
-    ├── health/                            # Health logs
-    ├── finance/                           # Finance logs
-    ├── episodic_memory/                   # Life event JSONs
-    ├── knowledge_base/                    # Uploaded documents
-    ├── remotion/                          # Video project
-    └── videos/                            # Rendered videos
+JavaFX floating window → WebView (HTML/JS UI)
+                       ↘
+                         Spring Boot REST + Spring AI agent
+                       ↘   ↘
+                         180+ skills (each: Config + Service + Controller)
+                              ↘
+                                Skill auto-discovery via component scan
+                              ↘
+                                Persisted state in memory/ + ~/mins_bot_data/
 ```
 
----
-
-## API Endpoints
-
-### Chat
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/api/chat` | Send a message, get a reply |
-| `GET` | `/api/chat/history` | Load recent chat history |
-| `GET` | `/api/chat/status` | Poll tool execution updates |
-| `POST` | `/api/chat/clear` | Clear memory and transcript |
-
-### Modes
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/api/proactive-action/toggle` | Toggle proactive action mode |
-| `GET` | `/api/status/proactive-action` | Proactive action status |
-| `POST` | `/api/autopilot/toggle` | Toggle auto-pilot |
-| `GET` | `/api/status/autopilot` | Auto-pilot status |
-
-### System
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/api/health` | System health check |
-| `GET` | `/api/version` | App version |
-| `POST` | `/api/briefing` | Generate daily briefing |
-
-### Knowledge Base
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/api/kb/upload` | Upload document |
-| `GET` | `/api/kb/list` | List documents |
-| `GET` | `/api/kb/read/{name}` | Read document |
-| `DELETE` | `/api/kb/{name}` | Delete document |
+Full diagram: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**
 
 ---
 
-## Roadmap
+## Configuration
 
-### Recently Shipped
-- [x] **Music control** — play/pause/skip, volume via media keys (any player)
-- [x] **Video downloader** — yt-dlp wrapper (YouTube, TikTok, 1000+ sites)
-- [x] **Clipboard history** — 200-entry rolling history, AI-searchable
-- [x] **Auto-pilot mode** — proactive screen-watching suggestions with TTS
-- [x] **Habit & learning layer** — habit detection, feedback loop, skill auto-creation
-- [x] **Social monitor** — contacts, birthdays, posts, mentions
-- [x] **Trend scout** — YouTube/web interest monitoring
-- [x] **Mobile access** — server binds to 0.0.0.0, responsive CSS
-- [x] **Auto-memory extraction** — life facts auto-saved from conversations
-- [x] **JavaScript injection** — CDP-based instant form fill (~10ms)
-- [x] **Bot window self-control** — "move yourself to the left"
-- [x] **Per-agent model selection** — dropdown per background agent
-- [x] **Agent output download** — export agent result as Markdown
-- [x] **2-row status bar** — vision/audio module info always visible
-- [x] **Dashboard tab** — token usage, tool counts, uptime
-- [x] **Multi-agent chat** — multiple AI personas collaborating
-- [x] **Automations tab** — trigger/action rule engine
-- [x] **Code audit tools** — git clone + vulnerability scan
-
-### Near-term
-- [ ] **Smart home integration** — Home Assistant / MQTT for lights, thermostat, locks, cameras
-- [ ] **Contact CRM** — relationship tracking with last interaction, birthday alerts, gift ideas
-- [ ] **Daily briefing dashboard** — visual home screen with weather, calendar, tasks, health, budget
-- [ ] **Sidebar navigation** — collapsible icon sidebar replacing the horizontal tab bar
-- [ ] **Rich message cards** — structured cards for health logs, finance, weather, bills
-
-### Mid-term
-- [ ] **Wake word detection** — always-listening "Hey Mins" trigger
-- [ ] **Workflow builder** — visual drag-and-drop automation chains
-- [ ] **Location awareness** — GPS/IP-based triggers ("you're near the grocery store")
-- [ ] **Subscription tracker** — track all subscriptions, total cost, renewal reminders
-- [ ] **Docker management** — list/start/stop containers, view logs
-
-### Long-term
-- [ ] **Plugin marketplace** — community-created skills and tools
-- [ ] **Multi-device sync** — seamless handoff between desktop, phone, and wearables
-- [ ] **Voice cloning** — custom Jarvis voice via voice training
-- [ ] **AR/camera integration** — point phone camera for real-world AI assistance
-- [ ] **Offline mode** — local LLM fallback when internet is unavailable
+- **API keys** → put in `application-secrets.properties` at the project root (gitignored, NOT bundled into installers — see [SECURITY.md](docs/SECURITY.md))
+- **Per-skill toggles** → `application.properties` has `app.skills.<name>.enabled=true|false` for each
+- **First-run wizard** → modal prompts for the 3 essential LLM keys (OpenAI / Anthropic / Gemini); rest configurable from the Setup tab
 
 ---
 
-## Troubleshooting
+## Privacy & data
 
-| Problem | Solution |
-|---------|----------|
-| `no jfxwebkit in java.library.path` | Use `mvn spring-boot:run` or add `-Djava.library.path=target/javafx-natives` |
-| `JavaFX runtime components are missing` | Add `--add-modules javafx.controls,javafx.web,javafx.fxml` to VM options |
-| Window doesn't appear | Check port 8765 is free; try `http://localhost:8765/` in a browser |
-| Circular dependency on startup | Check for `@Lazy` annotations on ToolRouter injections |
-| Voice not working | Try opening `http://localhost:8765/` in Chrome instead of the JavaFX window |
-| Messaging webhook not receiving | Ensure HTTPS (ngrok) and correct webhook URL |
-| Ollama models not loading | Install from [ollama.com](https://ollama.com) and pull your model |
-| GitHub tools not working | Set `GITHUB_TOKEN` environment variable with a Personal Access Token |
-| Remotion render fails | Ensure Node.js 18+ is installed; run `setupRemotion` first |
+- All chat memory, transcripts, voice prefs, and bot data live in `~/mins_bot_data/` and `./memory/` — local only.
+- Cloud LLM calls go to the providers you configure (OpenAI, Anthropic, Gemini). Set them blank to run fully offline via Ollama.
+- Telemetry: none. The bot makes no outbound calls beyond the providers you've configured + skills' own user-supplied URLs.
+- Installers do not bundle any API keys. A build-time guard aborts if a populated key is detected in the classpath. See [SECURITY.md](docs/SECURITY.md).
+
+---
+
+## Contributing
+
+Skills are the main extension surface. Adding one is ~3 files (Config + Service + Controller) — see **[docs/SKILLS.md](docs/SKILLS.md)** for the convention and a worked example.
+
+Open an issue for bugs or proposals. PRs welcome.
 
 ---
 
 ## License
 
-Mins Bot is **commercial software**. The desktop app is sold under a proprietary EULA — see [LICENSE](LICENSE).
+- **App**: Proprietary EULA. See [LICENSE](LICENSE) (or LICENSE.md).
+- **Skills SDK**: MIT. Skills you write under the documented convention can be redistributed standalone under MIT.
 
-- **The app**: closed-source, paid ($49 lifetime, single-user, up to 3 devices). 14-day refund.
-- **The skill format & SDK**: open-source under MIT. Build and share your own skills freely. See [SKILL_FORMAT.md](SKILL_FORMAT.md) and the [mins-bot-skills](https://github.com/mins-bot/mins-bot-skills) repo for examples.
-- **API keys (OpenAI / Anthropic / Google / etc.)**: bring your own. Mins Bot is a client — your data and usage stay on your machine, billed directly by the provider.
+---
 
-> This repository is **source-available to license holders for review and audit**. It is not open source. Redistribution, modification of the binary, or use to develop a competing product is prohibited under the EULA. Skill packs you author are yours and may be distributed under any license you choose.
+## Credits
 
-For licensing questions, contact support@mins.io.
+- [Piper](https://github.com/rhasspy/piper) — local TTS engine
+- [Playwright](https://playwright.dev/java/) — browser automation
+- [Apache POI](https://poi.apache.org/) — DOCX / PPTX / XLSX generation
+- [Spring AI](https://spring.io/projects/spring-ai) — LLM client + tool-calling glue
+- Voice models hosted by [rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices) on HuggingFace

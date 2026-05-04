@@ -48,6 +48,25 @@ if %ERRORLEVEL% NEQ 0 (
 echo       Done.
 echo.
 
+:: --- Secrets-leak guard --------------------------------------------------
+:: Aborts the build if src/main/resources/application-secrets.properties has
+:: any populated values — those would ship inside the fat JAR to every end user.
+echo [2b/5] Secrets-leak guard...
+powershell -NoProfile -Command "$jar='target\mins-bot-1.0.0-SNAPSHOT.jar'; if(-not (Test-Path $jar)){ exit 0 }; Add-Type -AssemblyName System.IO.Compression.FileSystem; $z=[System.IO.Compression.ZipFile]::OpenRead($jar); $e=$z.GetEntry('BOOT-INF/classes/application-secrets.properties'); if($e -eq $null){ $z.Dispose(); exit 0 }; $r=New-Object System.IO.StreamReader($e.Open()); $c=$r.ReadToEnd(); $r.Close(); $z.Dispose(); $bad=$c -split \"`n\" | Where-Object { $_ -match '^[a-z][^#=]*=\S' }; if($bad){ Write-Host 'LEAK DETECTED in JAR — classpath application-secrets.properties has populated values:'; $bad | ForEach-Object { Write-Host ('  ' + ($_ -replace '=.*','=<VALUE>')) }; exit 1 }"
+if %ERRORLEVEL% NEQ 0 (
+    echo.
+    echo ERROR: src\main\resources\application-secrets.properties has real values.
+    echo        These would ship to every end user inside the fat JAR. Aborting.
+    echo.
+    echo FIX: Empty every value in src\main\resources\application-secrets.properties.
+    echo      Put your real keys in the project-root application-secrets.properties
+    echo      ^(gitignored, NOT bundled into the installer^).
+    pause
+    exit /b 1
+)
+echo       OK - no secret values in classpath copy.
+echo.
+
 :: --- Stage input dir + bundle Piper if present ---------------------------
 echo [3/5] Staging jpackage input + bundling local Piper voice...
 mkdir target\jpackage-input
