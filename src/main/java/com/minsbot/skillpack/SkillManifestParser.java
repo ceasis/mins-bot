@@ -16,7 +16,7 @@ import java.util.Map;
  * Reads a {@code SKILL.md} file and produces a {@link SkillManifest}.
  *
  * <p>Some authors use pure YAML; others use JSON-in-YAML (flow style) for the
- * legacy {@code metadata.openclaw} block — SnakeYAML handles both in one pass.</p>
+ * {@code metadata.minsbot} block — SnakeYAML handles both in one pass.</p>
  */
 final class SkillManifestParser {
 
@@ -63,13 +63,8 @@ final class SkillManifestParser {
         }
         String homepage = str(top.get("homepage"));
 
-        // metadata.minsbot.* preferred (native); legacy metadata.openclaw.* still accepted for
-        // compatibility with imported community skills. Fields in both aren't
-        // expected — if they appear, minsbot wins.
         Map<String, Object> meta = asMap(top.get("metadata"));
-        Map<String, Object> minsbot = asMap(meta.get("minsbot"));
-        Map<String, Object> openclaw = asMap(meta.get("openclaw"));
-        Map<String, Object> oc = !minsbot.isEmpty() ? minsbot : openclaw;
+        Map<String, Object> oc = asMap(meta.get("minsbot"));
 
         String emoji = str(oc.get("emoji"));
         List<String> osList = strList(oc.get("os"));

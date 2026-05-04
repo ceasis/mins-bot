@@ -71,7 +71,7 @@ public record SkillManifest(
     }
 
     /**
-     * One install strategy inside {@code metadata.minsbot.install} (or the legacy {@code metadata.openclaw.install} for imported skills). Kinds seen so far:
+     * One install strategy inside {@code metadata.minsbot.install}. Kinds seen so far:
      * {@code brew}, {@code node} (npm global), {@code pip}, {@code cargo}, {@code manual}.
      */
     public record InstallRecipe(
