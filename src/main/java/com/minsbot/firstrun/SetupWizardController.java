@@ -57,6 +57,26 @@ public class SetupWizardController {
         return ResponseEntity.ok(Map.of("markedComplete", true));
     }
 
+    /** First-run path: offer to auto-start the bot at login. The client UI calls
+     *  this when the user ticks "Launch on startup" during setup. */
+    @PostMapping(value = "/install-autostart", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<?> installAutostart() {
+        try {
+            // Resolve via Spring context to avoid a hard compile-time dep on
+            // every skill — keeps SetupWizardController happy if user has
+            // disabled the autostartmanager skill.
+            Class<?> svcClass = Class.forName("com.minsbot.skills.autostartmanager.AutoStartManagerService");
+            Object svc = org.springframework.context.support.GenericApplicationContext.class
+                    .cast(org.springframework.web.context.ContextLoader.getCurrentWebApplicationContext())
+                    .getBean(svcClass);
+            Object result = svcClass.getMethod("installSelf").invoke(svc);
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            log.warn("[Setup] install-autostart failed: {}", e.getMessage());
+            return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
+        }
+    }
+
     /** Persist the user's preferred default model. */
     @PostMapping(value = "/set-default", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> setDefault(@RequestParam String model) {
